@@ -82,6 +82,7 @@ __recovery/
 *.stat
 
 # mikroelektronika mikroPascal IDE project files
+*.bak
 *.ini
 *.asm
 *.bmk
