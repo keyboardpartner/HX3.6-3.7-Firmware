@@ -1,6 +1,6 @@
 # HX3.6-3.7-Firmware
 
-### Firmware for KeyboardPartner HX3.6 and HX3.7 boards with ST32F103RET6 or GD32F303RET6 MCU
+### Firmware for KeyboardPartner HX3.6 and HX3.7 boards
 
 HX3.6 firmware is compiled with **mikroPascal PRO for ARM** IDE from [**mikroE**](https://www.mikroe.com/). It runs on a ST32F103RET6 or GD32F303RET6 MCU.
 
