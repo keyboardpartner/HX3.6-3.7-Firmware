@@ -6,6 +6,7 @@
 	],
 	"settings": {
 		"files.exclude": {
+        "**/*.bak": true,
         "**/*.ini": true,
 				"**/*.asm": true,
 				"**/*.bmk": true,
