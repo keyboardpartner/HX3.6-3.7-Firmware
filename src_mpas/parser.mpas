@@ -1,0 +1,1069 @@
+// #############################################################################
+
+unit parser;
+
+uses twi_systimer, const_def, var_def, sd_card, spi_rw, lcd_twi, edit_vals,
+     nuts_bolts, fpga_hilevel, apply_changes, avrco_compat, events, serial1,
+     serial2, bkp_reg, dataflash, intflash, adc_handling, midi_com, 
+     messages, save_restore, edit_offsets;
+
+var
+  SendPromptRequest_1, SendPromptRequest_2, SaveDefaultsRequest, WriteEnable,
+  ParamChanged, SystemInitChanged: Boolean;
+  ParseRcvStr, ParseRcvStrOSC: String[80]; // auch für INI-Files
+  ParseSendStr: String[40];
+  ParamValue: LongInt;
+
+procedure PA_CheckSer;
+procedure PA_Init;
+procedure PA_HandleCmdString(var cmd_str: String[80]);
+procedure PA_SendResult(param: Word);
+procedure PA_RunSDscript(var file_str: String[16]);
+
+implementation
+
+var
+  idx, temp_w: Word;
+  temp_b: Byte;
+  idx_10er, idx_100er, idx_1000er: Word;
+  idx_mod_10, idx_mod_100, idx_mod_1000: Word;
+
+  BinaryStart: byte;     // ESC char
+  BinaryCmd: byte;       // Command (1 = Set, 2 = Read)
+  BinaryAdr: Word;       // Adresse (Parameter-Nummer, SubCh)
+  BinaryLen: byte;       // Anzahl Datenbytes
+  BinaryCRC:  Byte;      // kann irgendwo stehen
+  BinaryValid: boolean;
+  BinaryBuffer: Array[0..1023] of Byte;
+  
+
+const
+// nur noch allgemeine und Konfigurations-Parameter über Mnemonics!
+  c_cmdAnzahl= 27; // letzter Eintrag, statt tCmdwhich
+  c_cmdErr = c_cmdAnzahl + 1;// Error, Statt tCmdwhich
+  c_CmdStrArr: array[0..c_cmdAnzahl] of string[3] = (
+    'STR',// Status Request 255
+    'IDN',// Identify Version number 254
+    'VAL',// 0..9999
+    'EDT',// 1000 ff.  alle Edit-Vars
+    'PHR',// 2500 ff.  Phasing Rotor Params
+    'MXS',// 2800 ff.  Mixture Sets
+
+    'COR',// 7000 Core Load, z.B. COR 192=firmware.bin  - nicht benutzt!
+
+    'CFG',// 8000 FPGA Config from Flash
+    'UPD',// 8200 Update from SD
+    'INI',// 8300 INI-Datei ausführen
+    'SCI',// 8500 Scan Core Info, 0=ID, 1=Revision
+    'RCB',// 8600 4K-Block überspezielles Protokoll empfangen
+    'WFB',// 8601 4K-Block in DataFlash speichern, Param = Blocknummer abs.
+    'DFI',// 8800 DF Init Presets
+    'RCS',// 8900 Receive Binary Stream (+Core #)
+
+    'FIN',// 9940 Finalisieren, DF Preset INIT
+    'KEY',// 9950 DNA Key Eingabe 0 und 1
+    'DIR',// 9960 List SD Card Directory
+    'EPS',// 9970 EEPROM Save to DF
+    'EPR',// 9980 EEPROM Restore from DF
+    'DMP',// 9989
+    'USR',// 9990 User Name
+
+    'RPE',// 9997 Reset User Interface, DB/Peripherals and ADC/Btn Remap
+    'RLD',// 9998 Reload All
+    'RST',// 9999 System Reset
+
+    'WEN',// 250 Write enable
+    'ERC',// 251 ErrCount seit letztem Reset
+    'NOP');
+
+ c_Cmd2SubChArr: array[0..c_cmdAnzahl] of Word   = (
+    255, 254,
+    0,
+    1000, 2500, 2800,
+    7000, 8000, 8200, 8300, 8500, 8600, 8601, 8800, 8900,
+    9940, 9950, 9960, 9970, 9980, 9989, 9990,
+    9997, 9998, 9999,
+    250, 251, 253
+  );
+
+procedure pa_setup_idx(param: Word);
+begin
+  // für dezimalen Suchbaum
+  idx_1000er:= param div 1000; // 0, 1, 2, 3... Tausender-Stelle
+  idx_mod_1000:= param mod 1000; // 0..999
+  idx_mod_100:=  param mod 100;  // 0..99
+  idx_mod_10:=   param mod 10;   // 0..9
+  idx_100er:=  idx_mod_1000 div 100;  // 0, 1, 2, 3... Hunderter-Stelle
+  idx_10er:=   idx_mod_100 div 10;   // 0, 1, 2, 3...  Zehner-Stelle
+end;
+
+procedure pa_bool_to_sendstr(my_bool: Boolean);
+begin
+  if my_bool then
+    ParseSendStr:= '255'
+  else
+    ParseSendStr:= '0';
+end;
+
+procedure pa_word_to_sendstr(pval: Word);
+begin
+  IntToStr(pval, ParseSendStr);
+  ltrim(ParseSendStr);
+end;
+
+procedure pa_byte_to_sendstr(pval: Byte);
+begin
+  ByteToStr(pval, ParseSendStr);
+  ltrim(ParseSendStr);
+end;
+
+procedure pa_long_to_sendstr(pval: DWord);
+begin
+  LongWordToStr(pval, ParseSendStr);
+  ltrim(ParseSendStr);
+end;
+
+procedure pa_long_to_sendstr_hex(pval: DWord);
+begin
+  LongWordToStr(pval, ParseSendStr);
+  ltrim(ParseSendStr);
+  LongWordToHex(pval, temp_str);
+  ParseSendStr:= ParseSendStr + ' [$' + temp_str +']';
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure PA_SendResult(param: Word);
+const
+  s_err_card = '-5 [ERR SD CARD NOT RDY]';
+  s_err_cmd = '-1 [ERR CMD]';
+  s_ok_resp = '0 [OK]';
+begin
+  pa_setup_idx(param);
+  
+  // Default-Antwort: Fehler
+  ParseSendStr:= s_err_cmd;
+
+  // dezimaler Suchbaum
+  case idx_1000er of
+  0: // 0..999
+    case idx_mod_1000 of
+      0,   // Bit 0..7: Status
+      1,   // Bit 0: SAM5504 Bootloader
+      2,   // Bit 0..23: MIDI FIFO
+      3,   // FPGA Version
+      4,   // Throb position
+      240, // FPGA Key 0
+      241, // FPGA Key 1
+      242, // FPGA Sernum 0
+      243, // FPGA Sernum 1
+      244: // Bit 0, 1: FPGA Keys valid
+        pa_long_to_sendstr_hex(SPI_fpga_xfer_32(Byte(param), 0, false));
+      8, 9, 10, 11,  // Audio Level Selects
+      12, 13:  // Audio Level auf 12
+        pa_long_to_sendstr(SPI_fpga_xfer_32(Byte(param), 0, false));
+      245:
+        pa_bool_to_sendstr(F_INT_FIFO);
+      250:
+        pa_bool_to_sendstr(WriteEnable);
+      254:
+        ParseSendStr:= s_Vers1Str + ' [' + s_DeviceStr + ']';
+      255:
+        ParseSendStr:= s_ok_resp;
+      900, 901, 902, 903:
+        begin
+          temp_b:= EDIT_GetParamVal(param, false);  // holt temp_b
+          ByteToStr(temp_b, ParseSendStr);
+          ltrim(ParseSendStr);
+        end;
+      908:
+        pa_byte_to_sendstr(edit_OrganModel);
+      909:
+        pa_byte_to_sendstr(edit_RotaryModel);
+    end;
+  1, 2, 3, 5, 6: // 1000..1999
+    begin
+      temp_b:= EDIT_GetParamVal(param, false);  // holt temp_b
+      ByteToStr(temp_b, ParseSendStr);
+      ltrim(ParseSendStr);
+    end;
+    
+  4: 
+    if idx_mod_1000 < 768 then begin
+      // 4 Bytes gepackt als 32-Bit-Werte: (msb) MIN MAX CH CC (lsb)
+      Temp_Bvals[0]:= MIDIset.CCs[idx_mod_1000];
+      Temp_Bvals[1]:= MIDIset.CHs[idx_mod_1000];
+      Temp_Bvals[2]:= MIDIset.CCmaxs[idx_mod_1000];
+      Temp_Bvals[3]:= MIDIset.CCmins[idx_mod_1000];
+      pa_long_to_sendstr(Temp_Dval);
+    end else begin  // Custom-NRPN-Tabelle
+      Temp_Wvals[0]:= MIDIset.NRPNs[idx_mod_1000 - 768].EditIdx;
+      Temp_Wvals[1]:= MIDIset.NRPNs[idx_mod_1000 - 768].NRPN;
+      pa_long_to_sendstr(Temp_Dval);
+    end;
+  8: // 8000..8999
+    case idx_mod_1000 of
+      201, 202:
+        pa_long_to_sendstr($1234);  // TODO!
+      203:
+        pa_long_to_sendstr_hex(SPI_fpga_xfer_32(3, 0, false));  // FPGA Version
+      204:
+        pa_long_to_sendstr(eep_BoardInfo.DSPversion);
+      500:
+        pa_long_to_sendstr(eep_BoardInfo.ScanVersion);
+      501:
+        pa_byte_to_sendstr(eep_BoardInfo.ScanRevision);
+      520:
+        pa_word_to_sendstr(DF_getChecksum(c_FPGA_base_DF, c_fpga_bcount - 1));
+      521:
+        pa_word_to_sendstr(DF_getChecksum(c_scan_base_DF, c_scan_bcount - 1));
+      529:
+        pa_word_to_sendstr(1);
+      960:
+        begin
+          SD_Init;
+          if SD_present then
+            pa_word_to_sendstr(SD_DirSerial)
+          else
+            ParseSendStr:= s_err_card;
+        end;
+    end;
+  9: // 9000..9999
+    begin
+      case idx_mod_1000 of
+        0:
+          pa_long_to_sendstr(MIDI_received);
+        1:
+          pa_long_to_sendstr(MIDI_nrpn); 
+        940:  // Finalized-Info, obsolet
+          pa_byte_to_sendstr(byte(eep_BoardInfo.InitFlag = c_magic_flag_DW));
+        950:
+          pa_long_to_sendstr(eep_BoardInfo.LicenceOrgan);
+        951:
+          pa_long_to_sendstr(eep_BoardInfo.LicenceExtd);
+        960:
+          begin
+            SD_Init;
+            if SD_present then begin
+              ParseSendStr:= s_ok_resp;
+              SD_DirSerial;
+            end else
+              ParseSendStr:= s_err_card;
+          end;
+        990:
+          ParseSendStr:= '0 [OWNER: ' + eep_BoardInfo.Username + ']'
+      else
+        if (idx_mod_1000 >= 800) and (idx_mod_1000 <= 899) then begin
+          SR_GetCommonPresetName(idx_mod_100, temp_str);
+          ParseSendStr:= '0 [' + temp_str + ']';
+        end;
+      end;
+    end;
+  end;
+  if CommandSource = c_command_source_wifi then
+    Serial2_sendstringCRLF(ParseSendStr)
+  else
+    Serial1_sendstringCRLF(ParseSendStr);
+end;
+
+// #############################################################################
+
+
+procedure PA_SetParam(param: Word; pvalue: DWord; event_source: Byte);
+const
+ s_err_str = '-1 [ERR COM]';
+var
+  my_bool: Boolean;
+begin
+  ParseSendStr:= '';
+  // dezimaler Suchbaum
+{    0,   // Bit 0..7: Status
+      1,   // Bit 0: SAM5504 Bootloader
+      2,   // Bit 0..23: MIDI FIFO
+      3,   // FPGA Version
+      4,   // Throb position
+      80,  // Core-Daten an LC und INC-Impuls
+      81,  // LC Select/Reset
+      240, // FPGA Key 0
+      241, // FPGA Key 1
+      242, // FPGA Sernum 0
+      243, // FPGA Sernum 1
+      244, // Bit 0, 1: FPGA Keys valid
+      248, // Testsignal Frequenz
+      249: // Testsignal Pegel und Start
+      }
+  if param < 248 then begin
+    SPI_fpga_xfer_32(Byte(param), pvalue, true);
+    exit;
+  end;
+  pa_setup_idx(param);
+  my_bool:= pvalue <> 0;
+  case idx_1000er of
+  0: // 0..9999
+    case idx_mod_1000 of
+      248:
+          SPI_fpga_send_word(248, pvalue);
+      249:
+          SPI_fpga_send_word(249, pvalue);
+      250:
+        begin
+          if WriteEnable then begin
+            SaveDefaultsRequest:= true;
+            SetSysTimer(c_SaveDefaultsTimer, 100);
+          end;
+          WriteEnable:= my_bool;
+        end;
+      900:
+        begin
+          SR_SaveCommonPreset(pvalue);
+          edit_CommonPreset:= pvalue;
+        end;
+      901:
+        begin
+          SR_SaveUpperVoice(pvalue);
+          edit_UpperVoice:= pvalue;
+        end;
+      902:
+        begin
+          SR_SaveLowerVoice(pvalue);
+          edit_LowerVoice:= pvalue;
+        end;
+      903:
+        begin
+          SR_SavePedalVoice(pvalue);
+          edit_PedalVoice:= pvalue;
+        end;
+      905:
+        SR_StoreDefaults;
+      906:
+        SR_StoreSystemInits;
+      907:
+        SR_StoreExtendedParams;
+      908:
+        begin
+          edit_OrganModel:= pvalue and 15;
+          SR_StoreOrganModel(edit_OrganModel);
+        end;
+      909:
+        begin
+          edit_RotaryModel:= pvalue and 15;
+          SR_StoreRotaryModel(edit_RotaryModel);
+        end
+      else
+        SPI_fpga_send_byte(Byte(param), pvalue);
+    end;
+  1:
+    begin
+      if ValueInRange(param, 1000, 1495) then
+        ParamChanged:= true;
+      if ValueInRange(param, 1496, 1511) then
+        SystemInitChanged:= true;
+      NewParamEvent(param, pvalue, event_source);
+    end;
+  2, 3, 4, 5, 6: // alle Edit- und Board-Parameter
+    NewParamEvent(param, pvalue, event_source);
+  8:
+    // 8000 als ParamAlpha!
+    case idx_mod_1000 of
+      200, 201: // #8200
+        begin  // Befehl an Bootloader: Alle Cores und Firmware von SD updaten
+          bkp_init;
+          bkp_write(0, $55AA);   // Mitteilung an Bootloader
+          // Bit 0: Scan, Bit 1: FIR_COE, Bit 2: Standard-CC, Bit 3: Custom CC,
+          // Bit 4: Wavesets, Bit 5: Taperings, Bit 6: FPGA,
+          // Bit 7: Firmware ins DF auf c_shadow_firmware_base
+          // Bit 8: Firmware direkt
+          if idx_mod_1000 = 201 then
+            bkp_write(1, $0100)  // Firmware direkt
+          else
+            bkp_write(1, $017F); // Firmware direkt, FPGA und alle LC-Files
+          bkp_write(2, 0);       // Länge in Blocks nur nötig falls Bit 7 gesetzt
+          bkp_shutdown;
+          SystemReset;
+        end;
+      202:  // #8202 = UPD 2, Cores ohne neustart
+        begin
+          SD_Init;
+          if SD_present then begin
+            for idx:= 0 to c_max_loadableFiles do
+              SD_fileToDF(c_LoadableFileTypes[idx].FileName,
+                          c_LoadableFileTypes[idx].FileDestBlock);
+            SD_LoadAndFlashStandardCCsets;
+            SD_LoadAndFlashCustomCCsets;
+            SD_LoadAndFlashWavesets;
+            SD_LoadAndFlashTaperings;
+            for idx:= 0 to c_max_loadableBackupFiles do
+              SD_fileToDF(c_LoadableBackupFileTypes[idx].FileName,
+                          c_LoadableBackupFileTypes[idx].FileDestBlock);
+            // Kein Reload, sonst MIDI-Connect verloren!
+            MenuRefresh:= true;
+          end;
+        end;
+      203:  // #8203 = UPD3, Scan Core ohne neustart
+        begin
+          SD_Init;
+          if SD_present then begin
+            SD_fileToDF(s_scan_name, c_scan_base_DF);
+            DF_LoadScanDriver;
+            if eep_BoardInfo.FPGAloaded then
+              ReloadRequest:= true;
+            MenuRefresh:= true;
+          end;
+        end;
+      205:  // #8205 = UPD 5, Voices, Presets, Organs, Speakers
+        begin
+          SD_Init;
+          if SD_present then begin
+            SD_fileToDF(s_voices_name, c_voice_base_DF);
+            SD_fileToDF(s_presets_name, c_preset_base_DF);
+            SD_fileToDF(s_organs_name, c_organModel_base_DF);
+            SD_fileToDF(s_speakers_name, c_leslieModel_base_DF);
+            MenuRefresh:= true;
+          end;
+        end;
+      210:  // #8210 = UPD 10, Taperings
+        begin
+          SD_Init;
+          if SD_present then begin
+            SD_LoadAndFlashTaperings;
+            MenuRefresh:= true;
+          end;
+        end;
+      211:  // #8211 = UPD 11, Wavesets
+        begin
+          SD_Init;
+          if SD_present then begin
+            SD_LoadAndFlashWavesets;
+            MenuRefresh:= true;
+          end;
+        end;
+      219: // FPGA neu laden
+        if my_bool then begin
+          SPI_InitFPGA(true);  // FPGA neu laden
+          eep_BoardInfo.FPGAloaded:= SPI_CheckFPGA(false); // sperrt ggf. FPGA wenn fail
+          if eep_BoardInfo.FPGAloaded then
+            DF_LoadScanDriver;
+        end;
+      300: // #8300, direkter Befehl ($0..$F) an Bootloader
+        begin
+          bkp_init;
+          bkp_write(0, c_blcmd_startdfu or Word(pvalue and $000F));
+          bkp_shutdown;
+          SystemReset;
+        end;
+
+      600:  // #8600 Empfange 4KByte-Block
+        begin
+          if pvalue < 32 then
+            pvalue:= 4096;
+          FillBlock(@BlockBuffer8, 4096, 255);
+          NB_BytesRcvMsg(pvalue);
+          // in BlockArray zwischenspeichern
+          if not NB_SerReceiveBlock(@BlockBuffer8, pvalue) then begin
+            ParseSendStr:= s_err_str;
+            Serial1_sendstringCRLF(ParseSendStr);
+            NB_BlockErrMsg(-1);
+          end;
+          
+        end;
+      601:  // #8601 Soeben empfangenen 4KByte-Block in DF speichern, absolute Blocknummer
+        DF_EraseWriteBlock(pvalue, 4096);
+      605:  // 4KByte-Block als temporäres Preset laden, 512 Bytes genutzt
+        SR_GetPresetFromBlockBuffer;
+      606:  // 4KByte-Block als Preset mit # abspeichern, 512 Bytes genutzt
+        DF_EraseWriteBlock(c_preset_base_DF + Lo(pvalue), c_edit_array_len);
+          
+      700:  // #8700, 4096-Byte-Block senden, ValueInt = absolute Blocknummer aus DF
+        begin
+          DF_ReadBlock(pvalue, 4096);
+          NB_SerSendBlock(@BlockBuffer8, 4096);
+        end;
+      702:  // #8702, 512-Byte-Block senden, ValueInt = absolute Blocknummer aus DF, für Presets
+        begin
+          DF_ReadBlock(pvalue, c_edit_array_len);
+          NB_SerSendBlock(@BlockBuffer8, c_edit_array_len);
+        end;
+      703:  // #8703, 512-Byte-EditPages 0 und 1 senden, ValueInt ignoriert
+            // z.B. für Preset-Speicherauszug
+        begin
+          CString_to_PStringArr(CurrentPresetName,  @edit_array + c_PresetNameStrArr);
+          NB_SerSendBlock(@edit_array, c_edit_array_len);
+          FillBlock(@edit_PresetNameStrTemp, 16, 0);
+        end;
+      704:  // 3200-Byte-Block CC-Sets senden, ValueInt ignoriert
+        NB_SerSendBlock(@MIDIset, c_midicc_send_len);
+        
+      800:  // DFI =8800, Re-Init from ROM, Presets/Voices löschen
+        if my_bool then 
+          SR_InitBoardAndPresets;
+
+      900, 902: // Scan Core und FIR Serial Receive, LongWords
+        if CommandSource = c_command_source_ftdi then begin
+          SPI_AutoIncSetup(idx_mod_100); // for Write
+          for idx:= 0 to word(pValue) - 1 do begin // Länge in LongWords!
+            Serial1_rcvbyte_to(SPI_bytes[0], 200);
+            Serial1_rcvbyte_to(SPI_bytes[1], 50);
+            Serial1_rcvbyte_to(SPI_bytes[2], 50);
+            Serial1_rcvbyte_to(SPI_bytes[3], 50);
+            SPI_fpga_rw_32(SPI_DWord);
+          end;
+          SPI_AutoIncReset(idx_mod_100);
+          if idx_mod_1000  = 900 then
+            FH_BoardInfo;
+        end;
+      901, 903: // Tapering und Keymap Serial Receive, Bytes
+        if CommandSource = c_command_source_ftdi then begin
+          SPI_AutoIncSetup(idx_mod_100); // for Write
+          for idx:= 0 to word(pValue) - 1 do begin // Länge in Bytes!
+            Serial1_rcvbyte_to(SPI_byte, 200);
+            SPI_fpga_rw_byte(SPI_byte);
+          end;
+          SPI_AutoIncReset(idx_mod_100);
+        end;
+      904, 905, 906, 907, 908, 909, 910, 911, 912, 913, 914, 915: 
+        // WaveSets, TuningSet und FilterFacs, Words
+        if CommandSource = c_command_source_ftdi then begin
+          SPI_AutoIncSetup(idx_mod_100); // for Write
+          for idx:= 0 to word(pValue) - 1 do begin // Länge in LongWords!
+            Serial1_rcvbyte_to(SPI_bytes[0], 200);
+            Serial1_rcvbyte_to(SPI_bytes[1], 50);
+            SPI_fpga_rw_word(SPI_Word);
+          end;
+          SPI_AutoIncReset(idx_mod_100);
+        end;
+    end;
+  9:
+    case idx_mod_1000 of
+      900, 901:   // #9900, #9901
+        if CommandSource = c_command_source_ftdi then    // HX3 sendet binär
+          ConnectMode:= c_connect_editor_serial
+        else if CommandSource = c_command_source_midi then // Sysex
+          ConnectMode:= c_connect_editor_midi;
+      902:                         // 9902
+        ConnectMode:= pvalue;
+      950:
+        if eep_BoardInfo.Valid then begin
+          eep_BoardInfo.LicenceOrgan:= pvalue;
+          FH_LicenceToFPGA;
+          CopyBlock(@eep_BoardInfo, @BlockBuffer8, sizeof(eep_BoardInfo));
+          DF_EraseWriteBlock(c_boardinfo_DF, sizeof(eep_BoardInfo));
+        end;
+      951:
+        if eep_BoardInfo.Valid then begin
+          eep_BoardInfo.LicenceExtd:= pvalue;
+          FH_LicenceToFPGA;
+          CopyBlock(@eep_BoardInfo, @BlockBuffer8, sizeof(eep_BoardInfo));
+          DF_EraseWriteBlock(c_boardinfo_DF, sizeof(eep_BoardInfo));
+        end;
+      952:
+        begin
+          CopyBlock(@eep_BoardInfo, @BlockBuffer8, sizeof(eep_BoardInfo));
+          DF_EraseWriteBlock(c_boardinfo_DF, sizeof(eep_BoardInfo));
+        end;
+      994:
+        ADCtestMode:= my_bool;
+      995:  // ESP8266 RESET
+        begin
+          BT_RST:= not my_bool;
+          if not my_bool then
+            mDelay(250);
+        end;
+      997:    // RPE
+        ReloadRequest:= true;
+      998:    // RLD
+        if my_bool then begin
+          SPI_InitFPGA(true);  // FPGA neu laden
+          eep_BoardInfo.FPGAloaded:= SPI_CheckFPGA(false); // sperrt ggf. FPGA wenn fail
+          ReloadRequest:= true;
+        end;
+      999:    // RST
+        if my_bool then
+          SystemReset();
+    end;
+  end;
+end;
+
+procedure PA_SetParamAlpha(const param: Word; var val_str: String[32]);
+begin
+  pa_setup_idx(param);
+  if (param >= 8000) and (param <= (8000 + c_max_loadableFiles)) then begin
+    // s_fpga_name      8000
+    // s_scan_name      8001
+    // s_defaults_name  8002
+    // s_voices_name    8003
+    // s_presets_name   8004
+    // s_params_name    8005
+    // s_organs_name    8006
+    // s_speakers_name  8007
+    // s_fircoe_name    8008
+    SD_Init;
+    if SD_present then
+      SD_fileToDF(val_str, c_LoadableFileTypes[idx_mod_10].FileDestBlock);
+  end else if (param >= 8010) and (param <= (8010 + c_max_loadableBackupFiles)) then begin
+    // s_fpgabkup_name  8010
+    // s_scanbkup_name  8011
+    // s_fwbackup_name  8012
+    SD_Init;
+    if SD_present then
+      SD_fileToDF(val_str, c_LoadableBackupFileTypes[idx_mod_10].FileDestBlock);
+  end else if (param >= 9800) and (param <= 9899) then begin // Set Preset Names
+    CurrentPresetName:= val_str;
+    if param > 9800 then
+      SR_ChangeCommonPresetName(idx_mod_100, val_str);
+  end else case param of
+    9100, 9101:
+      begin
+        if length(val_str) > 15 then
+          str_cut_right(val_str, 16);
+        LCD_TWI_XY(0, param mod 2);
+        LCD_TWI_WriteStr(val_str);
+        LCD_TWI_ClrEOL;
+        setSysTimer(c_DisplayTimer, 1000); // zurück nach 2 Sekunden
+        MenuIndex_Requested:= MenuIndex;
+      end;
+    9990:
+      if eep_BoardInfo.Valid then begin
+        if length(val_str) > 15 then
+          str_cut_right(val_str, 16);
+        eep_BoardInfo.Username:= val_str;
+        CopyBlock(@eep_BoardInfo, @BlockBuffer8, sizeof(eep_BoardInfo));
+        DF_EraseWriteBlock(c_boardinfo_DF, sizeof(eep_BoardInfo));
+      end;
+  end;
+end;
+
+// #############################################################################
+
+function PA_Cmd2Index(var param_str: String[16]): Word;
+// Umsetzen eines Text-Befehls in Index-Eintrag der Befehlstabelle
+begin
+  if length(param_str) > 2 then begin
+    Uppercase(param_str);
+    for idx:= 0 to c_cmdAnzahl do
+      if strcmp(param_str, c_CmdStrArr[idx]) = 0 then begin
+        result:= idx;
+        exit;
+      end;
+  end;
+  result:= c_cmdErr;
+end;
+
+function PA_Extract(const nachGleich : boolean; var is_alpha: Boolean; var parse_ptr: Word;
+                    var param_str: String[16]; var parse_str: String[32]) : boolean;
+//extrahiert ParamStr oder CmdStr aus SerInpStr,
+//liefert true, wenn Parameter, sonst false, wenn Command
+//akzeptiert auch alphanumerische Parameter als String nach "="
+var
+  my_char  : char;
+  myBool  : boolean;
+begin
+  param_str:= '';
+  myBool:= false;
+  while parse_str[parse_ptr] = ' ' do // Leerzeichen überspringen
+    Inc(parse_ptr);
+  my_char:= parse_str[parse_ptr];
+  if (my_char >= '0') and (my_char <='9') then begin
+    // Zahlen oder Wildcard, es wird ein Parameter
+    myBool:= true;
+    for idx:= parse_ptr to length(parse_str) do begin
+      my_char:= parse_str[idx];
+      if (my_char >= '0') and (my_char <='9')  then
+        param_str:= param_str + my_char
+      else begin // Buchstabe oder sonstirgendwas, abbrechen
+        parse_ptr:= idx;
+        result:= myBool;
+        exit;
+      end;
+    end;
+  end else
+    for idx:= parse_ptr to length(parse_str) do begin
+      my_char:= parse_str[idx];
+      if my_char = '"' then
+        is_alpha:= true
+      else
+        if (my_char >= 'A') or is_alpha then begin
+          if (my_char = '!') or (my_char = '?') or (my_char = '$') then begin
+            parse_ptr:= idx;
+            result:= myBool;
+            exit;
+          end else
+            param_str:= param_str + my_char;
+          if nachGleich then
+            is_alpha:= true;
+        end else begin// Ziffer oder sonstirgendwas, abbrechen
+          parse_ptr:= idx;
+          result:= myBool;
+          exit;
+        end;
+    end;
+  result:= myBool;
+end;
+
+procedure PA_HandleCmdString(var cmd_str: String[80]);
+// SerInpStr parsen
+const 
+  s_err_str = '-1 [ERR:CMD 255 - 1]';
+var
+  gleich_pos, parse_ptr : Word;
+  my_param, my_SubChOffset : Word;
+  is_request, is_alpha : boolean;
+  param_value: LongInt;
+  cmd_which: Word;
+begin
+  if length(cmd_str) = 0 then
+    exit;
+  gleich_pos:= strchr(cmd_str, '=');     // Set-'='
+  is_request:= (gleich_pos > 255);// Abfrage
+  parse_ptr:= 0;
+  val_str:= '';
+  is_alpha:= false;
+  my_SubChOffset:= 0;   // direkter SubCh-Aufruf
+//Parse einzelnen Befehl
+  if not PA_Extract(false, is_alpha, parse_ptr, val_str, cmd_str) then begin
+    cmd_which:= PA_Cmd2Index(val_str);  // Klartext übersetzen
+    if cmd_which = c_cmdErr then begin
+      if CommandSource = c_command_source_wifi then
+        Serial2_sendstringCRLF(s_err_str)
+      else
+        Serial1_sendstringCRLF(s_err_str);
+      exit;
+    end;
+    my_SubChOffset:= c_Cmd2SubChArr[cmd_which];
+    PA_Extract(false, is_alpha, parse_ptr, val_str, cmd_str); // SubCh-Parameter holen
+  end;
+  my_param:= StrToInt(val_str) + my_SubChOffset; //auf neuen SubCh umrechnen
+  if is_request then
+    PA_SendResult(my_param)
+  else begin
+    parse_ptr:= gleich_pos + 1;  // Set-'='
+    if PA_Extract(true, is_alpha, parse_ptr, val_str, cmd_str) then
+      param_value:= StrToLongInt(val_str)
+    else
+      param_value:= 0;
+    if is_alpha then 
+      PA_SetParamAlpha(my_param, val_str)
+    else
+      PA_SetParam(my_param, param_value, c_editor_event_source);
+  end;
+end;
+
+// #############################################################################
+// ###                         BINARY MODE PARSER                            ###
+// #############################################################################
+
+// BinaryMode-Funktionen, Protokoll:
+// CMD=1: SetParam
+// Parameter setzen:
+// ESC CMD ADRL ADRH LEN DATA0...DATAn CRC then wait for <--ACK
+// mit
+// LEN = Anzahl der folgenden Datenbytes, 0 => 256
+// CRC = einfache Modulo-Prüfsumme über alle Bytes von ESC bis DATAn
+// als Antwort wird gesendet:
+// ACK oder NAK wenn CRC falsch oder TimeOut
+
+// CMD=2: GetParam
+// Parameter holen:
+// ESC CMD ADRL ADRH LEN CRC then wait for <--ACK
+// mit
+// LEN = Anzahl der gewünschten Datenbytes, 0 => 256
+// CRC = einfache Modulo-Prüfsumme über alle empfangenen Bytes von ESC bis LEN
+
+// CMD=3: SetParam mit Response (setzt kein parsed_table!)
+// Parameter setzen:
+// ESC CMD ADRL ADRH LEN DATA0...DATAn CRC then wait for <--ACK
+// mit
+// LEN = Anzahl der folgenden Datenbytes, 0 => 256
+// CRC = einfache Modulo-Prüfsumme über alle Bytes von ESC bis DATAn
+// als Antwort wird gesendet:
+// ACK oder NAK wenn CRC falsch oder TimeOut
+
+// Antwort sofort ACK, oder NAK wenn CRC falsch oder TimeOut, bei NAK Abbruch
+// als Ergebnis wird gesendet:
+// ACK ESC CMD ADRL ADRH LEN DATA0...DATAn CRC
+// CMD=1: SetParam, CMD=2: GetParam
+// mit
+// LEN = Anzahl der folgenden oder gewünschten Datenbytes, 0 => 256
+// CRC = einfache Modulo-Prüfsumme über alle Bytes von ESC bis DATAn
+
+procedure PA_HandleBinary;
+var
+  my_temp_crc, my_val, temp_byte: byte;
+  my_param: Word;
+begin
+  BinaryStart:= 27;   // ESC bereits empfangen
+  ParseRcvStr:= '';
+  Serial1_rcvbyte_to(BinaryCmd, 10);   // CMD
+  if BinaryCmd = 4 then begin
+    Serial1_sendchar(#6); // ACK
+    exit;
+  end;
+  Serial1_rcvbyte_to(lo(BinaryAdr), 10);  // ADRL, ADRH
+  Serial1_rcvbyte_to(hi(BinaryAdr), 10);
+  BinaryValid:= Serial1_rcvbyte_to(BinaryLen, 10);
+
+  my_temp_crc:= BinaryStart + BinaryCmd + lo(BinaryAdr) + hi(BinaryAdr) + BinaryLen;
+
+  if BinaryValid then begin
+    CommandSource:= c_command_source_ftdi;
+    if (BinaryCmd = 1) then begin  //    or (BinaryCmd = 3)
+      // Command: fortlaufende Parameter setzen
+      // auf Datensatz warten, Länge steht fest. Buffer füllen
+      // Mit Cmd=1 Änderungen nicht erneut senden
+      for idx:= 0 to BinaryLen-1 do
+        if not Serial1_rcvbyte_to(temp_byte, 10) then begin
+          BinaryValid:= false;
+          break;
+        end else begin
+          BinaryBuffer[idx]:= temp_byte;
+          my_temp_crc:= my_temp_crc + temp_byte;
+        end;
+
+      Serial1_rcvbyte_to(BinaryCRC, 10);
+      BinaryValid:= BinaryValid and (BinaryCRC = my_temp_crc);
+      if BinaryValid then begin
+        SysLEDflash(50);
+        // Datensatz vollständig, CRC stimmt. Befehl bestätigen.
+        // Nur an FPGA, nicht zurücksenden, kommt von Editor oder OSC Wifi
+        for idx:= 0 to BinaryLen-1 do begin
+          my_param:= BinaryAdr + Integer(idx);
+          my_val:= BinaryBuffer[idx];
+          NewParamEvent(my_param, my_val, c_editor_event_source);
+        end;
+        Serial1_sendchar(#6); // ACK
+      end else
+        Serial1_sendchar(#21); // NAK
+
+    end else if (BinaryCmd = 2) then begin
+      // Command: fortlaufende Parameter holen
+      Serial1_rcvbyte_to(BinaryCRC, 10);
+      BinaryValid:= BinaryValid and (BinaryCRC = my_temp_crc);
+      if BinaryValid then begin
+        SysLEDflash(50);
+        Serial1_sendchar(#6); // ACK
+        // Datensatz vollständig, CRC stimmt. Befehl bestätigen
+        my_temp_crc:= NB_SendBinaryHeader(2, BinaryAdr);
+        Serial1_sendchar(BinaryLen);     // LEN
+        my_temp_crc:= my_temp_crc + BinaryLen;
+        my_param:= BinaryAdr;
+        for idx:= 0 to BinaryLen - 1 do begin  // DATA0..DATAn
+          temp_b:= EDIT_GetParamVal(my_param, false);
+          Serial1_sendchar(temp_b);
+          my_temp_crc:= my_temp_crc + temp_b;
+          inc(my_param);
+        end;
+        Serial1_sendchar(my_temp_crc);   // CRC
+      end else
+        Serial1_sendchar(#21); // NAK
+    end;
+  end else
+    while Serial1_rxstat do // ungültigen Rest lesen
+      Serial1_rcvchar();
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure PA_HandleBinaryOSC;
+var
+  my_temp_crc, my_val, temp_byte: byte;
+  my_param: Word;
+begin
+  BinaryStart:= 27;   // ESC bereits empfangen
+  Serial2_rcvbyte_to(BinaryCmd, 10);   // CMD
+  ParseRcvStrOSC:= '';
+  if BinaryCmd = 4 then begin
+    Serial2_sendchar(#6); // ACK
+    exit;
+  end;
+  Serial2_rcvbyte_to(lo(BinaryAdr), 10);  // ADRL, ADRH
+  Serial2_rcvbyte_to(hi(BinaryAdr), 10);
+  BinaryValid:= Serial2_rcvbyte_to(BinaryLen, 10);
+
+  my_temp_crc:= BinaryStart + BinaryCmd + lo(BinaryAdr) + hi(BinaryAdr) + BinaryLen;
+
+  if BinaryValid then begin
+    CommandSource:= c_command_source_wifi;
+    if (BinaryCmd = 1) then begin  //    or (BinaryCmd = 3)
+      // Command: fortlaufende Parameter setzen
+      // auf Datensatz warten, Länge steht fest. Buffer füllen
+      // Mit Cmd=1 Änderungen nicht erneut senden
+      for idx:= 0 to BinaryLen-1 do
+        if not Serial2_rcvbyte_to(temp_byte, 10) then begin
+          BinaryValid:= false;
+          break;
+        end else begin
+          BinaryBuffer[idx]:= temp_byte;
+          my_temp_crc:= my_temp_crc + temp_byte;
+        end;
+
+      Serial2_rcvbyte_to(BinaryCRC, 10);
+      BinaryValid:= BinaryValid and (BinaryCRC = my_temp_crc);
+      if BinaryValid then begin
+        SysLEDflash(50);
+        // Datensatz vollständig, CRC stimmt. Befehl bestätigen.
+        // Nur an FPGA, nicht zurücksenden, kommt von Editor oder OSC Wifi
+        for idx:= 0 to BinaryLen-1 do begin
+          my_param:= BinaryAdr + Integer(idx);
+          my_val:= BinaryBuffer[idx];
+          NewParamEvent(my_param, my_val, c_editor_event_source);
+        end;
+        Serial2_sendchar(#6); // ACK
+      end else
+        Serial2_sendchar(#21); // NAK
+
+    end else if (BinaryCmd = 2) then begin
+      // Command: fortlaufende Parameter holen
+      Serial2_rcvbyte_to(BinaryCRC, 10);
+      BinaryValid:= BinaryValid and (BinaryCRC = my_temp_crc);
+      if BinaryValid then begin
+        SysLEDflash(50);
+        Serial2_sendchar(#6); // ACK
+        // Datensatz vollständig, CRC stimmt. Befehl bestätigen
+        my_temp_crc:= NB_SendBinaryHeader(2, BinaryAdr);
+        Serial2_sendchar(BinaryLen);     // LEN
+        my_temp_crc:= my_temp_crc + BinaryLen;
+        my_param:= BinaryAdr;
+        for idx:= 0 to BinaryLen - 1 do begin  // DATA0..DATAn
+          temp_b:= EDIT_GetParamVal(my_param, false);
+          Serial2_sendchar(temp_b);
+          my_temp_crc:= my_temp_crc + temp_b;
+          inc(my_param);
+        end;
+        Serial2_sendchar(my_temp_crc);   // CRC
+      end else
+        Serial2_sendchar(#21); // NAK
+    end;
+  end else
+    while Serial2_rxstat do // ungültigen Rest lesen
+      Serial2_rcvchar();
+end;
+
+// #############################################################################
+// ###                     PA_CheckSer: Befehlszeile parsen                  ###
+// #############################################################################
+
+procedure PA_CheckSer;
+// sammelt Zeichen von FTDI oder WIFI
+var
+  rcv_char: Char;
+begin
+  if Serial1_rxstat then begin
+    rcv_char:= Serial1_rcvchar;
+    case rcv_char of
+      #8:   // BS
+        if (length(ParseRcvStr) > 0) then begin
+          str_cut_right(ParseRcvStr, length(ParseRcvStr) - 1);
+        end;
+      #13:  // CR
+        begin
+          if (length(ParseRcvStr) > 0) and ParseRcvStr[0] <> '/' then begin
+            // Eingabe vollständig
+            SysLEDflash(50);
+            CommandSource:= c_command_source_ftdi;
+            PA_HandleCmdString(ParseRcvStr);
+            SendPromptRequest_1:= true;
+          end;
+          ParseRcvStr:= '';
+        end;
+      #27:  // ESC --> Binärmodus starten, niemals auf EEPROM loslassen!
+        PA_HandleBinary
+    else
+      if (rcv_char >= #32) and (rcv_char <= #122) then
+        ParseRcvStr:= ParseRcvStr + rcv_char;
+    end;
+  end;
+
+  if Serial2_rxstat then begin
+    rcv_char:= Serial2_rcvchar;
+    case rcv_char of
+      #8:   // BS
+        if (length(ParseRcvStrOSC) > 0) then begin
+          str_cut_right(ParseRcvStrOSC, length(ParseRcvStrOSC) - 1);
+        end;
+      #13:  // CR
+        begin
+          if (length(ParseRcvStrOSC) > 0) and ParseRcvStrOSC[0] <> '/' then begin
+            // Eingabe vollständig
+            SysLEDflash(50);
+            CommandSource:= c_command_source_wifi;
+            PA_HandleCmdString(ParseRcvStrOSC);
+            SendPromptRequest_2:= true;
+          end;
+          ParseRcvStrOSC:= '';
+        end;
+      #27:  // ESC --> Binärmodus starten, niemals auf EEPROM loslassen!
+        PA_HandleBinaryOSC
+    else
+      if (rcv_char >= #32) and (rcv_char <= #122) then
+        ParseRcvStrOSC:= ParseRcvStrOSC + rcv_char;
+    end;
+  end;
+end;
+
+function pa_readline(fHandle: short): Boolean;
+// liest Zeile aus File in ParseRcvStr, liefert TRUE wenn nicht EOF
+var my_char: Char; 
+  buf_pos: Word;
+  eof: Boolean;
+begin
+  ParseRcvStr:= '';
+  buf_pos:= 0;
+  eof:= false;
+  repeat 
+    eof:= FAT32_Eof(fhandle) <> 0;
+    if not eof then begin
+      FAT32_Read(fhandle, @my_char, 1);
+      if my_char >= #32 then begin
+        ParseRcvStr:= ParseRcvStr + my_char;
+        inc(buf_pos);
+      end;
+    end;
+  until eof or (buf_pos > 79) or (my_char = #13);
+  // erstes Zeichen des Strings Ende-0? C-Strings!
+  result:= (not eof);
+end;
+
+procedure PA_RunSDscript(var file_name: String[16]);
+var fHandle : short;                // file handle variable should be signed
+begin
+  if LCD_TWI_present then begin
+    LCD_TWI_Clr;
+    LCD_TWI_WriteStr(file_name);
+  end;
+  if FAT32_Exists(@file_name) = 1 then begin
+    fHandle := FAT32_Open(@file_name, FILE_READ);
+    while pa_readline(fHandle) do
+      if (ParseRcvStr[0] <> '/')  and (ParseRcvStr[0] <> 0) then begin
+        if LCD_TWI_present then begin
+          LCD_TWI_XY(0, 1);
+          LCD_TWI_WriteStr(ParseRcvStr);
+          LCD_TWI_ClrEOL;
+          mDelay(200);
+        end;
+        PA_HandleCmdString(ParseRcvStr);
+      end;
+    FAT32_Close(fHandle);
+    LCD_TWI_XY(0, 1);
+    LCD_TWI_WriteStr(s_script_ended);
+    LCD_TWI_ClrEol;
+    mDelay(1500);
+  end;
+end;
+
+
+procedure PA_Init;
+begin
+  ParseSendStr:= '';
+  ParseRcvStr:= '';
+  ParseRcvStrOSC:= '';
+  ConnectMode:= c_connect_midi;
+  CommandSource:= c_command_source_none;
+  PresetStoreRequest:= false;
+  SaveDefaultsRequest:= false;
+  WriteEnable:= false;
+{$IFDEF DEBUG_INITS}
+  Serial1_sendstringCRLF('/ PARSER Init ');
+{$ENDIF}
+end;
+
+
+end.

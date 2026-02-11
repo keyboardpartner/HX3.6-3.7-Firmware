@@ -1,0 +1,307 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// Display-Basisroutinen, LCD 44700 an PCA9555 D
+
+unit lcd_twi;
+
+uses twi_systimer, serial1, avrco_compat;
+
+type t_LCD_cgarr = Array[0..7] of Byte;
+
+  procedure LCD_TWI_Init();
+  procedure LCD_TWI_WriteCG(cg_char: Byte; var cg_arr: t_LCD_cgarr);
+  procedure LCD_TWI_WriteChar(lcd_char: Char);
+  procedure LCD_TWI_WriteStr(var lcd_str: String[32]);
+  procedure LCD_TWI_WriteVal(num_val: Integer; width: Word);
+  procedure LCD_TWI_WriteValFill0(num_val: Integer; width: Word);
+  procedure LCD_TWI_XY(x, y: Byte);
+  procedure LCD_TWI_Clr;
+  procedure LCD_TWI_ClrEOL;
+  procedure LCD_TWI_UnderlineCursor;
+  procedure LCD_TWI_BlockCursor;
+  procedure LCD_TWI_NoCursor;
+  function LCD_TWI_GetButtons: Byte;
+
+var
+  LCD_TWI_present: Boolean;
+  lcd_str: String[16];   // allgemein verwendbar für Anzeigezwecke, 1 Zeile
+  
+const PCA9555_0 = $20;
+
+
+// -----------------------------------------------------------------------------
+
+implementation
+
+
+var data_ : array[16] of byte;
+    lcd_x, lcd_y, dd_addr: Byte;
+    idx: Word;
+
+// #############################################################################
+
+function LCD_TWI_ReadReg(reg: Byte): byte;
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/W
+  // Port 1.2 = RS
+  result:= TWI_ReadRegB(PCA9555_0, reg);
+end;
+
+procedure LCD_TWI_WriteReg(reg, pd_0: Byte);
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/W
+  // Port 1.2 = RS
+  TWI_WriteRegB(PCA9555_0, reg, pd_0);
+end;
+
+procedure LCD_TWI_WriteReg2(reg, pd_0, pd_1: Byte);
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/W
+  // Port 1.2 = RS
+  data_[0]:= reg;
+  data_[1]:= pd_0;
+  data_[2]:= pd_1;
+  I2C1_Start();
+  // issue I2C start signal
+  I2C1_Write(PCA9555_0, @data_, 3, END_MODE_STOP);
+end;
+
+procedure LCD_TWI_SetWriteMode;
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/W
+  // Port 1.2 = RS
+  LCD_TWI_WriteReg2(6, 0, $F8);   // DDR, 1 = Input
+  LCD_TWI_WriteReg(3, $00);   // Port 1 LCD not Enable, Write
+end;
+
+procedure LCD_TWI_WaitBusy;
+var busy: Byte;
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/_W, 1 = READ
+  // Port 1.2 = RS
+  // Ports auf READ umschalten
+  LCD_TWI_WriteReg(6, $FF);   // DDR Port 0, 1 = Input
+  LCD_TWI_WriteReg(3, $02);   // Port 1 LCD not Enable, Read
+  repeat
+    LCD_TWI_WriteReg(3, $03); // Port 1 LCD Enable, Read
+    busy:= LCD_TWI_ReadReg(0) and $80;  // Bit 7 = Busy
+    LCD_TWI_WriteReg(3, $02);   // Port 1 LCD not Enable, Read
+  until busy = 0;
+  LCD_TWI_SetWriteMode;
+end;
+
+procedure LCD_TWI_WriteCmd(lcd_data: Byte);
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/_W, 1 = READ
+  // Port 1.2 = RS
+  // LCD_TWI_WriteReg(3, $00);  // nicht unbedingt nötig
+  LCD_TWI_WriteReg2(2, lcd_data, $00);
+  LCD_TWI_WriteReg(3, $01);  // nur Enable
+  LCD_TWI_WriteReg(3, $00);
+  // Delay_us(50);
+  // LCD_TWI_WaitBusy;
+end;
+
+// #############################################################################
+
+
+procedure LCD_TWI_UnderlineCursor;
+begin
+  LCD_TWI_WriteCmd($0E);   // Display ON
+end;
+
+procedure LCD_TWI_BlockCursor;
+begin
+  LCD_TWI_WriteCmd($0F);   // Display ON
+end;
+
+procedure LCD_TWI_NoCursor;
+begin
+  LCD_TWI_WriteCmd($0C);   // Display ON
+end;
+
+function LCD_TWI_ReadButtons: Byte;
+// Bit 0: Enter, Bit 1: Up, Bit 2: Down
+begin
+  result:= ((LCD_TWI_ReadReg(1) shr 3) xor $07) and $07;
+end;
+
+function LCD_TWI_GetButtons: Byte;
+// Bit 0: Enter, Bit 1: Up, Bit 2: Down
+var buttons_temp: Byte;
+begin
+  if LCD_TWI_present then begin
+    buttons_temp:= LCD_TWI_ReadButtons;
+    mDelay(10);
+    buttons_temp:= buttons_temp and LCD_TWI_ReadButtons;
+  end else
+    buttons_temp:= 0;
+  result:= buttons_temp;
+end;
+
+procedure LCD_TWI_Clr;
+begin
+  if LCD_TWI_present then begin
+    lcd_x:= 0;
+    lcd_y:= 0;
+    dd_addr:= 0;
+    LCD_TWI_WriteCmd($01);
+    LCD_TWI_WaitBusy;
+  end;
+end;
+
+procedure LCD_TWI_PutChar(lcd_char: Char);
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/_W, 1 = READ
+  // Port 1.2 = RS
+  LCD_TWI_WriteReg2(2, byte(lcd_char), $04);
+  LCD_TWI_WriteReg(3, $05);  // RS=1, Enable=1
+  LCD_TWI_WriteReg(3, $04);  // RS=1, Enable=0 - Hold Time 10ns für RS!
+  // LCD_TWI_WriteReg(3, $00);
+end;
+
+procedure LCD_TWI_WriteChar(lcd_char: Char);
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/_W, 1 = READ
+  // Port 1.2 = RS
+  if LCD_TWI_present then begin
+    if lcd_y > 1 then
+      exit;
+    inc(lcd_x);
+    if lcd_x > 16 then begin
+      inc(lcd_y);
+      lcd_x:= 0;
+      dd_addr:= lcd_y * $40;
+      LCD_TWI_WriteCmd(dd_addr or $80);
+    end else
+      dd_addr:= lcd_x + (lcd_y * $40);
+    LCD_TWI_PutChar(lcd_char);
+  end;
+end;
+
+procedure LCD_TWI_ClrEOL;
+var col: Byte;
+begin
+  if LCD_TWI_present and (lcd_x < 15) then
+    for col:= lcd_x to 15 do
+      LCD_TWI_WriteChar(' ');
+  lcd_x:= col;
+end;
+
+
+procedure LCD_TWI_XY(x, y: Byte);
+begin
+  if LCD_TWI_present then begin
+    lcd_x:= x;
+    lcd_y:= y;
+    dd_addr:= lcd_x + (lcd_y * $40);
+    LCD_TWI_WriteCmd(dd_addr or $80);
+  end;
+end;
+
+procedure LCD_TWI_WriteCG(cg_char: Byte; var cg_arr: t_LCD_cgarr);
+begin
+  // Port 0 = D0..D7
+  // Port 1.0 = Enable
+  // Port 1.1 = R/_W, 1 = READ
+  // Port 1.2 = RS
+  if LCD_TWI_present then begin
+    cg_char:= ((cg_char * 8) and $3F) or $40;
+    LCD_TWI_WriteCmd(cg_char);
+    for idx:= 0 to 7 do
+      LCD_TWI_PutChar(cg_arr[idx]);
+    LCD_TWI_WaitBusy;
+    LCD_TWI_WriteCmd(dd_addr or $80);
+  end;
+end;
+
+procedure LCD_TWI_WriteStr(var lcd_str: String[32]);
+var s_idx: Word;
+begin
+  if LCD_TWI_present then
+    for s_idx:= 0 to strlen(lcd_str) - 1 do
+      LCD_TWI_WriteChar(lcd_str[s_idx]);
+end;
+
+procedure LCD_TWI_WriteVal(num_val: Integer; width: Word);
+// nur Leerzeichen entfernen wenn width = 0
+var num_str: String[7];
+begin
+  if LCD_TWI_present then begin
+    IntToStr(num_val, num_str);
+    if width = 0 then
+      ltrim(num_str)
+    else
+      str_cut_left(num_str, length(num_str) - width);
+    LCD_TWI_WriteStr(num_str);
+  end;
+end;
+
+procedure LCD_TWI_WriteValFill0(num_val: Integer; width: Word);
+var num_str: String[7];
+begin
+  if LCD_TWI_present then begin
+    IntToStr(num_val, num_str);
+    ltrim(num_str);
+    num_str:= '0000' + num_str;
+    str_cut_left(num_str, length(num_str) - width);
+    LCD_TWI_WriteStr(num_str);
+  end;
+end;
+
+// #############################################################################
+
+procedure LCD_TWI_Init();
+const
+  msg_lcdok_str = '/ LCD found';
+begin
+  // Rotary Encoder A/B
+  LCD_TWI_present:= TWI_Stat(PCA9555_0);
+  if LCD_TWI_present then begin
+    mDelay(10);
+    Serial1_sendstringCRLF(msg_lcdok_str);
+    LCD_TWI_SetWriteMode;
+    mDelay(15);
+    LCD_TWI_WriteCmd($30);
+    mDelay(5);
+    LCD_TWI_WriteCmd($30);   // 8-Bit-Mode
+    mDelay(5);
+    LCD_TWI_WriteCmd($38);   // zweizeilig, 5x8 Matrix
+    LCD_TWI_WriteCmd($08);   // Display löschen, Cursor OFF
+    LCD_TWI_WaitBusy;
+    LCD_TWI_WriteCmd($01);   // Clear Display
+    LCD_TWI_WaitBusy;
+    LCD_TWI_WriteCmd($0C);   // Display ON
+  end else
+    mDelay(50);
+  lcd_x:= 0;
+  lcd_y:= 0;
+  dd_addr:= 0;
+end;
+
+end.

@@ -1,0 +1,397 @@
+unit midi_com;
+
+uses const_def, var_def, edit_vals, spi_rw, avrco_compat, intflash;
+
+var
+  SysExArray: Array[0..255] of Byte; aligned 4;
+  SysExID_long: DWord at SysExArray;     // Sempra ID, $042000F0
+  SysExID_short: Word at SysExArray;    // Roland, 2 Bytes $41F0
+
+  SysExArray_w: Array[0..127] of Word at SysExArray;
+
+
+  SysExCmd_sempra: Word;       // 2 Bytes auf SysExArray_w[2]
+
+  // zwei 7-Bit-Fragmente zu einem Word zusammenbasteln
+  function MIDI_14_to_Word(msb, lsb: byte): Word;
+//  procedure int_to_MIDI_14(var msb, lsb: Byte; my_param: integer);
+  // aus Konstanten, wenn from_custom TRUE aus EEPROM Custom
+
+  procedure MIDI_SendByte(const myparam: byte);
+  procedure MIDI_SendWord(const my_Word: Word); 
+  
+  procedure MIDI_SendNRPN(my_nrpn: Word; my_val: byte);
+
+  procedure MIDI_SendController(my_channel_offset, my_ctrl, my_val: byte);
+  procedure MIDI_SendPitchwheel(my_channel_offset, my_val: byte);
+  procedure MIDI_SendSustainSostEnable;
+  function  MIDI_SendIndexedController(idx: Word; scaled_val: Byte): Boolean;
+  procedure MIDI_ResetGMprogs;
+
+  procedure MIDI_SendProgramChange(my_channel_offset, my_val: byte);
+  procedure MIDI_SendChangedSwell(my_val: Word);
+  procedure MIDI_SendBoolean(my_channel_offset, my_ctrl: byte; my_bool: boolean);
+  procedure MIDI_SendVent;
+
+  // werden schon hier und in apply_changes gebraucht
+  procedure MIDI_SendSysExParam(my_param, my_val: Word);
+  procedure MIDI_SendSysEx_header_ID(my_cmd_id: Byte);
+  procedure MIDI_SendSysEx_end;
+  procedure MIDI_SendSysEx_header;
+
+  procedure MIDI_SendSysEx_blockbuf(my_param, my_count: Integer);
+  procedure MIDI_SendSysEx_ParamVals(my_param, my_count: Word; add_checksum: Boolean);
+
+implementation
+
+var 
+  idx, temp_w: Word;
+  temp_b: Byte;
+  midi_old_swell: Word;
+  send_ch: Byte;
+
+// #############################################################################
+// ###                        MIDI-Basisfunktionen                           ###
+// #############################################################################
+
+function MIDI_14_to_Word(msb, lsb: byte): Word;
+// zwei 7-Bit-Fragmente zu einem Word zusammenbasteln
+begin
+  result:=(Word(msb) shl 7) or Word(lsb);
+end;
+
+procedure MIDI_SendWord(const my_word: Word);
+// Integer in zwei MIDI-Bytes umrechnen und senden
+var msb, lsb: Byte;
+begin
+  //int_to_MIDI_14(msb, lsb, my_int);
+  lsb:= byte(my_word) and $7F;
+  msb:= byte(my_word shr 7) and $7F;
+  MIDI_SendByte(msb);
+  MIDI_SendByte(lsb);
+end;
+
+
+procedure MIDI_SendNRPN(my_nrpn: Word; my_val: byte);
+// benötigt für Piano- und Reverb-Fernsteuerung
+begin
+  if (my_nrpn and $8080) = 0 then begin// $0000..$7F7F
+    MIDI_SendController(0, $62, lo(my_nrpn));   // LSB
+    MIDI_SendController(0, $63, hi(my_nrpn));   // MSB
+    MIDI_SendController(0, 6, my_val);
+    Delay_us(40);
+  end;
+end;
+
+// Achtung: FIFO nur 16 Bytes groß, deshalb Delays!
+// Statusbyte auf SPI (0):
+// Bit 7 = 1: hat Status, 0: alte Version
+// Bit 5/4 = MIDI TO SAM Buffer full/almost_full
+// Bit 3/2 = MIDI UART Buffer full/almost_full
+// Bit 1/0 = AVR FIFO Buffer full/almost_full
+
+procedure MIDI_SendByte(my_byte: byte);
+var buffer_full: boolean;
+begin
+  if eep_BoardInfo.FPGAloaded then begin
+    // Warten bis gesendet oder Buffer wieder aufnahmebereit
+    repeat
+      // STATUS anfordern
+      buffer_full:= (SPI_fpga_xfer_32(0, 0, false) and 3) <> 0;
+      if buffer_full then
+        mDelay(2);   // kritischer Füllstand, Buffer leert sich um 6 Bytes
+    until not buffer_full;
+    SPI_fpga_send_byte($0C, my_byte);
+  end;
+end;
+
+procedure MIDI_SendController(my_channel_offset, my_ctrl, my_val: byte);
+// falls my_channel_offset 5..15, Kanal direkt und
+// ohne Berücksichtigung von edit_MIDI_Channel senden
+begin
+  if my_channel_offset > 4 then
+    send_ch:= my_channel_offset
+  else
+    send_ch:= valuetrimlimit(edit_MIDI_Channel + my_channel_offset, 0, 15);
+  MIDI_SendByte($B0 + send_ch);  // Control Change
+  MIDI_SendByte(my_ctrl);
+  MIDI_SendByte(my_val and $7F);
+end;
+
+procedure MIDI_SendPitchwheel(my_channel_offset, my_val: byte);
+// falls my_channel_offset 5..15, Kanal direkt und
+// ohne Berücksichtigung von edit_MIDI_Channel senden
+begin
+  if my_channel_offset > 4 then
+    send_ch:= my_channel_offset
+  else
+    send_ch:= valuetrimlimit(edit_MIDI_Channel + my_channel_offset, 0, 15);
+  MIDI_SendByte($E0 + send_ch);  // Pitchwheel
+  MIDI_SendByte(0);
+  MIDI_SendByte(my_val and $7F);
+end;
+
+procedure MIDI_SendBoolean(my_channel_offset, my_ctrl: byte; my_bool: boolean);
+begin
+  MIDI_SendController(my_channel_offset, my_ctrl, byte(my_bool) shr 1);
+end;
+
+procedure MIDI_SendProgramChange(my_channel_offset, my_val: byte);
+// falls my_channel_offset 5..15, Kanal direkt und
+// ohne Berücksichtigung von edit_MIDI_Channel senden
+begin
+  if my_channel_offset > 4 then
+    send_ch:= my_channel_offset
+  else
+    send_ch:= valuetrimlimit(edit_MIDI_Channel + my_channel_offset, 0, 15);
+  MIDI_SendByte($C0 + send_ch);
+  MIDI_SendByte(my_val);   // Program Change
+end;
+
+procedure MIDI_SendChangedSwell(my_val: Word);
+begin
+  if midi_old_swell <> my_val then begin
+    MIDI_SendController(0, edit_SwellCC, lo(my_val));
+    midi_old_swell:=  my_val;
+  end;
+end;
+
+procedure MIDI_SendVent;
+begin
+  SPI_fpga_send_byte(73, $B0);  // Control Change
+  Delay_us(50);
+  SPI_fpga_send_byte(73, 21);   // Control Change #21
+  Delay_us(50);
+  if edit_LogicalTab_LeslieRun then begin
+    if edit_LogicalTab_LeslieFast then
+      SPI_fpga_send_byte(73, 2)
+    else
+      SPI_fpga_send_byte(73, 1);
+  end else
+    SPI_fpga_send_byte(73, 0);  // Control Change
+end;
+
+procedure MIDI_SendSustainSostEnable;
+begin
+  SPI_fpga_send_byte(5, edit_MIDI_Option or UseSustainSostMask);  // MIDI-Option
+  MIDI_SendNRPN($3513, UseSustainSostMask shr 1); // an GM
+end;
+
+// #############################################################################
+// ###                 Komplexe und MIDI-SysEx-funktionen                    ###
+// #############################################################################
+
+procedure MIDI_ResetGMprogs;
+begin
+  MIDI_SendNRPN($3550, edit_UpperGMprg_0);
+  MIDI_SendNRPN($3551, edit_LowerGMprg_0);
+  MIDI_SendNRPN($3552, edit_PedalGMprg_0);
+  mdelay(5);
+  MIDI_SendNRPN($3554, edit_UpperGMprg_1);
+  MIDI_SendNRPN($3555, edit_LowerGMprg_1);
+  MIDI_SendNRPN($3556, edit_PedalGMprg_1);
+  mdelay(5);
+  MIDI_SendNRPN($3530, edit_UpperGMharm_0);
+  MIDI_SendNRPN($3560, edit_UpperGMlvl_0);
+  // layer 2:
+  if eep_Boardinfo.LicenceExtValid then begin
+    MIDI_SendNRPN($3524, edit_UpperGMdetune_1 + 57);
+    MIDI_SendNRPN($3534, edit_UpperGMharm_1);
+    MIDI_SendNRPN($3564, edit_UpperGMlvl_1);
+  end else
+    MIDI_SendNRPN($3564, 0);  //  edit_UpperGMlvl_1
+  mdelay(5);
+  MIDI_SendNRPN($3531, edit_LowerGMharm_0);
+  MIDI_SendNRPN($3561, edit_LowerGMlvl_0);
+  if eep_Boardinfo.LicenceExtValid then begin
+    MIDI_SendNRPN($3525, edit_LowerGMdetune_1 + 57);
+    MIDI_SendNRPN($3535, edit_LowerGMharm_1);
+    MIDI_SendNRPN($3565, edit_LowerGMlvl_1);
+  end else
+    MIDI_SendNRPN($3565, 0);  //  edit_LowerGMlvl_1
+  mdelay(5);
+  MIDI_SendNRPN($3532, edit_PedalGMharm_0);
+  MIDI_SendNRPN($3562, edit_PedalGMlvl_0);
+  if eep_Boardinfo.LicenceExtValid then begin
+    MIDI_SendNRPN($3526, edit_PedalGMdetune_1 + 57);
+    MIDI_SendNRPN($3536, edit_PedalGMharm_1);
+    MIDI_SendNRPN($3566, edit_PedalGMlvl_1);
+  end else
+    MIDI_SendNRPN($3566, 0);  //  edit_PedalGMlvl_1
+  mdelay(5);
+end;
+
+procedure MIDI_SendSysExParam(my_param, my_val: Word);
+// Parameter und Wert über MIDI-SysEx senden
+// für Event-Messages an Editor, schneller als Klartext
+// Format: F0 00 20 04 33 06 PP pp VV vv F7
+// PP pp = 14Bit-Parameter-Nummer (00PPPPPP Pppppppp wird zu 0PPPPPPP 0ppppppp)
+// VV vv = 14Bit-Parameter-Wert (00VVVVVV Vvvvvvvv wird zu 0VVVVVV 0vvvvvvv)
+begin
+  MIDI_SendSysEx_header_ID($06);
+  MIDI_SendWord(my_param);
+  MIDI_SendWord(my_val);
+  MIDI_SendSysEx_end;
+end;
+
+procedure MIDI_SendSysEx_header;
+begin
+  SysExID_long:= $042000F0;  // umgekehrte Folge in LongInt!
+  for idx := 0 to 3 do
+    MIDI_SendByte(SysExArray[idx]);
+end;
+
+procedure MIDI_SendSysEx_header_ID(const my_cmd_id: Byte);
+begin
+  MIDI_SendSysEx_header;
+  MIDI_SendByte($33);
+  MIDI_SendByte(my_cmd_id);
+end;
+
+procedure MIDI_SendSysEx_end;
+begin
+  MIDI_SendByte($F7);
+end;
+
+// -----------------------------------------------------------------------------
+
+function MIDI_SendIndexedController(idx: Word; scaled_val: Byte): Boolean;
+// berechnet scaled_val anhand Flags neu, sendet Controller anhand Index
+// liefert TRUE wenn in Tabelle gefunden und gesendet
+// edit_array_flag-Bitpositionen
+// c_sendfpga:Byte = 0;
+// c_sendserial:Byte = 1;
+// c_sendmidicc:Byte = 2;
+// c_sendsysex:Byte = 3;
+var
+  mode, ch, cc, cc_min, cc_max: Byte;
+  arr_idx: Word;
+  threshold: Word;
+begin
+  ch:= MIDIset.CHs[idx];
+  result:= false;
+  if ch <> 255 then begin              // gültig?
+    cc:= MIDIset.CCs[idx];            // Params 1000..1511
+    cc_min:= MIDIset.CCmins[idx];
+    cc_max:=  MIDIset.CCmaxs[idx];
+    threshold:= (cc_max + cc_min) div 2 ;  // Schaltschwelle für Tabs
+    mode:= ch shr 4; // oberes Nibble nach unten, enthält Flags
+    ch:= ch and $0F;
+    case mode of     // Limit, SCale, Ignore, Invert, Toggle
+      1: // Scale to min/max
+        begin
+          temp_b:= cc_max - cc_min;      // Wertebereich
+          if temp_b > 0 then
+            scaled_val:= mulDivByte(scaled_val, temp_b, 127) + cc_min;
+          if scaled_val > cc_max then
+            scaled_val:= cc_max;
+        end;
+      3: // Invert value
+        begin
+          scaled_val:= valueTrimLimit(scaled_val, cc_min, cc_max);
+          scaled_val:= cc_max + cc_min - scaled_val;
+        end;
+      4: // Toggle value
+        scaled_val:= cc_max;
+(*
+      5: // Threshold
+        if scaled_val >= threshold then
+          scaled_val:= cc_max
+        else
+          scaled_val:= cc_min;
+      6: // Inverted Threshold
+        if scaled_val >= threshold then
+          scaled_val:= cc_min
+        else
+          scaled_val:= cc_max;
+      7: // within Range
+        if (scaled_val >= cc_min) and (scaled_val <= cc_max) then begin
+          MIDI_SendController(ch, cc, scaled_val);
+          exit; // sonst NICHT senden
+        end;
+*)
+      8: // Mult/Div value
+        begin
+          scaled_val:= mulDivByte(scaled_val, cc_min, cc_max);
+          scaled_val:= valueTrimLimit(scaled_val, 0, 127);
+        end
+    else   // Limit to min/max,  Ignore out of range
+      scaled_val:= valueTrimLimit(scaled_val, cc_min, cc_max);
+    end;
+    if cc = 6 then begin // NRPN mitsenden, so vorhanden
+      for arr_idx:= 0 to 31 do // Eintrag suchen
+        if idx = MIDIset.NRPNs[arr_idx].EditIdx then begin
+          MIDI_SendNRPN(MIDIset.NRPNs[arr_idx].NRPN, scaled_val);
+          break;
+        end;
+    end else
+      MIDI_SendController(ch, cc, scaled_val);
+    result:= true;
+  end;
+end;
+
+
+procedure MIDI_SendSysEx_blockbuf(my_param, my_count: Integer);
+// Daten aus BlockArray senden, ggf. my_count mod 7 Bytes zuviel!
+var calc_cs, bn, msbits: Byte;
+    my_adr: Integer;
+begin
+  MIDI_SendWord(my_param);
+  MIDI_SendWord(my_count);
+  calc_cs:= 0;
+  my_adr:= 0;
+  repeat
+    msbits:= 0;
+    for idx := 0 to 6 do begin
+      bn:= BlockBuffer8[my_adr];
+      if bn >= 128 then
+        msbits:= (msbits shl 1) or 1
+      else
+        msbits:= msbits shl 1;
+      bn:= bn and $7F;
+      MIDI_SendByte(bn);  // 7 Bytes Data
+      calc_cs:= calc_cs + bn;
+      inc(my_adr);
+    end;
+    MIDI_SendByte(msbits);  // 1 Byte MSBits
+    calc_cs:= calc_cs + msbits;
+  until my_adr >= my_count; // Länge erreicht?
+  MIDI_SendByte(calc_cs and $7F);
+  MIDI_SendSysEx_end;
+end;
+
+procedure MIDI_SendSysEx_ParamVals(my_param, my_count: Word; add_checksum: Boolean);
+// Daten aus edit_array senden
+// F0 00 20 04 33 0A PP pp VV vv ... F7
+// bzw.
+// F0 00 20 04 33 2A PP pp NN nn VV vv ... 00 CS F7
+// CS = 7-Bit-Prüfsumme über alle Parameter- und DatenBytes PP pp VV vv VV vv...
+// Werte VV vv werden N-mal wiederholt, jeweils eine Parameternummer höher
+var calc_cs, bn: Byte;
+  my_idx, my_val: Word;
+begin
+  if add_checksum then
+    MIDI_SendSysEx_header_ID($2A) // kommt mit Checksum
+  else
+    MIDI_SendSysEx_header_ID($0A);
+  MIDI_SendWord(my_param);
+  calc_cs:= lo(my_param) + hi(my_param);
+  if add_checksum then begin // Anzahl senden, nur wenn Cmd $29
+    MIDI_SendWord(my_count);
+    calc_cs:= lo(my_count) + hi(my_count);
+  end;
+  for my_idx:= 0 to my_count - 1 do begin
+    bn:= EDIT_GetParamVal(my_param, false);
+    my_val:= Word(bn); // Wert holen
+    inc(my_param);
+    MIDI_SendWord(my_val);
+    calc_cs:= lo(my_val) + hi(my_val);
+  end;
+  if add_checksum then begin // Checksum senden, nur bei Sysex-Cmd $29
+    MIDI_SendByte(0);
+    MIDI_SendByte(calc_cs and $7F);
+  end;
+  MIDI_SendSysEx_end;
+end;
+
+end.

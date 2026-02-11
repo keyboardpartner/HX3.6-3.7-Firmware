@@ -1,0 +1,263 @@
+unit var_def;
+// globale Variablen, vorzugsweise Arrays
+
+uses const_def; // für Types
+
+procedure PortInit();
+
+type
+  t_nrpn_entry = record
+     EditIdx: Word;  // verweist auf edit_array 0..511, -1 wenn nicht zugewiesen
+     NRPN:    Word;  // NRPN MSB/LSB, -1 wenn nicht zugewiesen
+  end;
+
+  Tword_ovl = record
+    lsb: Byte;
+    msb: Byte;
+  end;
+
+  TMIDIsetCC = record
+    CCs: array[0..767] of byte;      // Index Param-1000, liefert CC-Nummer
+    CHs: array[0..767] of byte;      // Index Param-1000, liefert Channel
+    CCmins: array[0..767] of byte;   // Index Param-1000, liefert CC-Maximalwert
+    CCmaxs: array[0..751] of byte;   // Index Param-1000, liefert CC-Minimalwert
+    CCnameP: array[0..15] of Byte;  // Angezeigter Name, Pascal-String!
+    NRPNs: array[0..31] of t_nrpn_entry;  // je 4 Bytes
+    Fill: array[0..127] of Byte;     // Filler für ganze 256-Byte-Seiten in DF
+  end;
+  
+  TMIDIrecord = record
+    CH_CC: Word;   // MSB Channel, LSB CC
+    ParamIdx: Word;   // Verweis auf Parameter  0..767
+  end;
+
+  
+const
+  PCA9532_0  = $60; // Upper Voice
+  PCA9532_1  = $61; // Lower Voice
+  PCA9532_2  = $62; // Panel16 onboard
+  PCA9532_3  = $63; // ext. Panels
+  PCA9532_4  = $64;
+  PCA9532_5  = $65;
+  PCA9532_6  = $66;
+  PCA9532_7  = $67; // auch XB2!
+
+  PCA9554A_0 = $38; // VibSw
+  PCA9554A_1 = $39; // Preamp Ctrl
+  PCA9554A_2 = $3A;
+  PCA9554A_3 = $3B;
+  PCA9554A_4 = $3C;
+  PCA9554A_5 = $3D;
+  PCA9554A_6 = $3E;
+  PCA9554A_7 = $3F;
+  
+  PCA9536 = $41;
+
+  PCA9555_4 = $24;   // Upper Indicators
+  PCA9555_5 = $25;   // Lower Indicators
+  
+var
+  // Port-Bits
+  TFT_PWRDN: sbit at GPIOB_ODR.B8;        // PB8 TFT RST
+  TFT_SEL: sbit at GPIOB_ODR.B9;          // PB8 TFT /SS
+
+  FSW_FAST:  sbit at GPIOA_IDR.B15;      // Input A
+  FSW_RUN:   sbit at GPIOA_IDR.B12;      // Input A
+  EXT_LESL_RUN:  sbit at GPIOC_ODR.B10;  // Output C
+  EXT_LESL_FAST: sbit at GPIOC_ODR.B11;  // Output C
+  LED1:          sbit at GPIOC_ODR.B8;   // Output C
+  LEDactivity:   sbit at GPIOC_ODR.B8;   // PC8, same as LED1
+  LED2:          sbit at GPIOC_ODR.B9;   // Output C
+  LEDaux:        sbit at GPIOC_ODR.B9;   // PC9, same as LED2
+
+
+  MPX_INH_1: sbit at GPIOC_ODR.B14;      // Output C
+  MPX_INH_2: sbit at GPIOC_ODR.B15;      // Output C
+  MPX_INH_3: sbit at GPIOC_ODR.B3;       // Output C
+
+  MPX_SELA:  sbit at GPIOC_ODR.B0;       // Output C
+  MPX_SELB:  sbit at GPIOC_ODR.B1;       // Output C
+  MPX_SELC:  sbit at GPIOC_ODR.B2;       // Output C
+
+  MPX_CLR:   sbit at GPIOA_ODR.B0;       // Output A
+  MPX_AUX:   sbit at GPIOA_ODR.B1;       // Output A
+  BT_RST:    sbit at GPIOA_ODR.B11;      // Output A
+  
+  MPX_Q:     sbit at GPIOC_ODR.B0;       // Alias MPX_SELA
+  MPX_CLK:   sbit at GPIOC_ODR.B1;       // Alias MPX_SELB
+
+  // globale Variablen
+  TaskScheduler: Word;
+
+  send_str: String[60];
+  temp_str, val_str: String[15];
+  debug_str: String[31];
+  CurrentPresetName: String[16];
+
+  InitMsgEnable: Boolean;
+  ConnectMode: Word;
+  ReverbKnob_old: Word;
+  
+  UseSustainSostMask: Byte; // $80 wenn Sostenuto und Sustain benutzbar
+
+  MenuIndex, MenuIndex_Splash, MenuIndex_SplashIfEnabled, 
+  MenuIndex_Requested: Word;
+  MenuRefresh: Boolean;
+
+  EditIdx2MenuInverseArray: array[0..511] of byte;
+  PresetInvalids: Array[0..3] of Boolean;  // Reihenfolge wie edit_voices
+  DigitalInputBytes: Array[0..15] of Byte; // Letzter Port-Zustand für Parser
+
+  PresetLoadRequest,
+  PresetStoreRequest,
+  PresetPreview, PresetNameEdit,
+  SpeedBlinkToggle,
+  DisablePercussion: Boolean;
+  DisableDB1, ToneChanged,
+  SwellPedalControlledByMIDI: Boolean;
+  
+  UpperSecondaryActive, LowerSecondaryActive,
+  UpperIsLive, LowerIsLive: Boolean;
+  
+  SingleDBsetSelect: Word;  // 0 = Upper, 1 = Lower, 2 = Pedal
+  
+  CurrentADSRmask: Word;
+  CommandSource: Word; // Quelle des Parser-Kommandos
+  
+  ReloadRequest, ForceSplitRequest: Boolean;
+
+  MIDIswell128: Word;
+  MIDIswellIntegrator: Word;
+  MIDI_NewSwellVal: Word;  // Wird bei Änderung alle 8ms gesendet
+
+  MIDI_DisablePercussion: Boolean;  // temp. Percussion-Abschaltung per MIDI
+  MIDI_OverrideCancelDB1: Boolean;  // temp. DisableDB1-Abschaltung per MIDI
+  MIDI_data_entry: Word;
+  MIDI_data_entry_msb, MIDI_data_entry_lsb: Word; // für Sempra
+  
+  MIDI_received: DWord;             // letzter empfangener MIDI-Befehl
+
+  MIDI_rpn_flags, MIDI_nrpn_flags: Byte;  
+  MIDI_nrpn: Word;
+  MIDI_nrpn_bytes: Array[0..1] of Byte at MIDI_nrpn;
+
+  MIDI_rpn: Word;
+  MIDI_rpn_bytes: Array[0..1] of Byte at MIDI_rpn;
+
+  MIDI_sysex_busyflag: Boolean;
+
+  MIDIset_CCdisplayedName: String[15];
+  
+  MIDIdummyAlign: DWord; aligned 4;
+  // Inverse MIDI CC/CH Arrays zum Senden von Parameteränderungen, 4 Kanäle
+  // CCarray_i mit Index [ch, cc]  liefert zugehörige Parameter-Nummer
+  // MIDIccToParamArray: array[0..3] of array [0..127] of Word; // 4 x 128 x 2 = 1024
+  
+  MIDIset: TMIDIsetCC;    // entspricht vom DF gelesenen Format
+  // Koprimiertes, ggf. sortiertes Array nur mit gültigen CHs/CCs mit Verweis auf ParamIdx
+  MIDIsortedCCrecords: Array[0..255] of TMIDIrecord;  // Komprimierte, ggf. sortierte Tabelle mit Channels, CCs und Param-Index
+  MIDIsortedCCarr: Array[0..255] of Array[0..1] of Word at MIDIsortedCCrecords;  // Overlay
+  MIDIsortedCClen: Word; // Länge des Arrays für binäre Suche
+
+  // 100..108: Secondary DB Set 1
+  // 112..120: Secondary DB Set 2
+  ADC_Values   : Array[0..127] of Integer;   // Werte 0..255
+  ADCtestMode: Boolean;
+  DFUrunning: Boolean;
+
+  FootSwFast, FootSwRun,
+  FootSwFast_old, FootSwRun_old: Boolean;
+  FootSwFast_debounce, FootSwRun_debounce: Word;
+  
+  LeslieHornSpeed, LeslieRotorSpeed: Byte;
+  LeslieDestHornSpeed, LeslieDestRotorSpeed: Byte;
+  PhasingSpeed, PhasingDestSpeed: Byte;
+
+  HalfmoonSw, HalfmoonSw_old: Byte;
+  HalfmoonSwFast_debounce, HalfmoonSwSlow_debounce: Word;
+
+  ToggleLEDcount: Word;
+  ToggleLEDstate: Boolean;
+
+  Temp_Dval: DWord; aligned 4;
+  Temp_Bvals: Array[0..3] of Byte at Temp_dval;
+  Temp_Wvals: Array[0..1] of Word at Temp_dval;
+
+// gemeinsamer Buffer für IntFlash-, SD- und DF-Operationen
+// Endianess wie AVR:
+// BlockBuffer8[0]:= LLSB
+// BlockBuffer8[1]:= 2;
+// BlockBuffer8[2]:= 3;
+// BlockBuffer8[3]:= MMSB
+
+  BlockBuffer32: Array[0..1023] of DWord; aligned 4; // für SD-Karte und DF
+  BlockBuffer16: Array[0..2047] of Word at BlockBuffer32; // Overlays
+  BlockBuffer8:  Array[0..4095] of Byte at BlockBuffer32;
+  BlockBuffer32rec: TEditArray32rec at BlockBuffer32;
+
+implementation
+
+procedure PortInit();
+begin
+{ // Port-Bits I/O
+  QFL_RST:   sbit at GPIOC_ODR.B12;      // Output C
+  SAM_RST:   sbit at GPIOC_ODR.B13;      // Output C
+
+  MPX_INH_1: sbit at GPIOC_ODR.B14;      // Output C
+  MPX_INH_2: sbit at GPIOC_ODR.B15;      // Output C
+  MPX_INH_3: sbit at GPIOC_ODR.B3;       // Output C
+
+  MPX_SELA:  sbit at GPIOC_ODR.B0;       // Output C
+  MPX_SELB:  sbit at GPIOC_ODR.B1;       // Output C
+  MPX_SELC:  sbit at GPIOC_ODR.B2;       // Output C
+
+  EXT_LESL_RUN:  sbit at GPIOC_ODR.B10;  // Output C
+  EXT_LESL_FAST: sbit at GPIOC_ODR.B11;  // Output C
+  LED1:          sbit at GPIOC_ODR.B8;   // Output C
+  LED2:          sbit at GPIOC_ODR.B9;   // Output C
+
+  FSW_FAST:  sbit at GPIOA_IDR.B15;      // Input A
+  FSW_RUN:   sbit at GPIOA_IDR.B12;      // Input A
+
+  MPX_CLR:   sbit at GPIOA_ODR.B0;       // Output A
+  MPX_AUX:   sbit at GPIOA_ODR.B1;       // Output A
+  BT_RST:    sbit at GPIOA_ODR.B11;      // Output A
+}
+  // Disable JTAG Port, sonst PB3/PB4 (MikroE-SPI3, ST SPI2-Pins) nicht nutzbar!
+  AFIOEN_bit:= true;    // RCC_APB2ENR.AFIOEN   Alternate function clk ena
+  SWJ_CFG1_bit:= true;  // AFIO_MAPR.SWJ(1),SWJ_CFG = 010
+
+  // TFT_SEL/TFT_PWRDN
+  GPIO_Digital_Output(@GPIOB_BASE, _GPIO_PINMASK_8 or _GPIO_PINMASK_9);
+  // TFT INT PD2
+  GPIO_Digital_Input(@GPIOD_BASE, _GPIO_PINMASK_2);
+
+  // Resets, MPX, Ext. Leslie Steuerung etc. Port C, Outputs
+  GPIO_Digital_Output(@GPIOC_BASE, _GPIO_PINMASK_12       // QSPI Reset
+                      or _GPIO_PINMASK_13                 // SAM Reset
+                      or _GPIO_PINMASK_14 or _GPIO_PINMASK_15   // 4051 MPX
+                      or _GPIO_PINMASK_3  or _GPIO_PINMASK_0    // 4051 MPX
+                      or _GPIO_PINMASK_1  or _GPIO_PINMASK_2    // 4051 MPX
+                      or _GPIO_PINMASK_10 or _GPIO_PINMASK_11 );  // Ext. Leslie
+
+  // Leslie Footswitches Port A, Inputs
+  GPIO_Digital_Input(@GPIOA_BASE, _GPIO_PINMASK_15 or _GPIO_PINMASK_12);
+  // MPX_CLR, MPX_AUX, MPX/BT  Port A, Outputs
+  GPIO_Digital_Output(@GPIOA_BASE, _GPIO_PINMASK_0 or _GPIO_PINMASK_1
+                      or _GPIO_PINMASK_11);
+
+  TFT_PWRDN:= false;
+  MPX_INH_1:= true;  // ADC Inhibit 4051-1
+  MPX_INH_2:= true;  // ADC Inhibit 4051-2
+  MPX_INH_3:= true;  // ADC Inhibit 4051-3
+  EXT_LESL_RUN:= false;
+  EXT_LESL_FAST:= false;
+  MPX_CLR:= false;
+  MPX_AUX:= false;
+  LED1:= false;
+  LED2:= false;
+  BT_RST:=  false;   // WIFI Reset
+  DFUrunning:= false;
+end;
+
+end.

@@ -1,0 +1,183 @@
+
+  c_SOH = 1;  // Start of Header
+  c_STX = 2;  // Start of Text
+  c_ETX = 3;  // End of Text
+  c_EOT = 4;  // End of Trnsmission
+  c_ENQ = 5;  // Enquiry
+  c_ACK = 6;  // Acknowledge
+  c_DC1 = 17;
+  c_DC2 = 18;
+  c_DC3 = 19;
+  c_DC4 = 20;
+  c_NAK = 21; // Not ACK
+  c_CAN = 24; // Cancel
+  c_EM = 25;  // End of Medium
+  c_FS = 28;  // File separator
+  
+  e_none = 0;
+  e_lastblock = 1;
+  e_timeout = 2;
+  e_nak = 4;
+  e_checksum = 8;
+  e_invalid_hdr = 16;
+  e_nodata = 32;
+  e_no_eot = 64;
+
+{$IFDEF STM32F_2XX_4XX}
+procedure boot_protect(prot_sector: Word);
+var boot_code_sector: dword;
+begin
+  { protect bootloader code }
+  // unlock option bytes
+  FLASH_OPTKEYR := 0x08192A3B;
+  FLASH_OPTKEYR := 0x4C5D6E7F;
+
+  // set write protection for bootloader sector
+  boot_code_sector := FLASH_AddressToSector(prot_sector) div 8;
+  FLASH_OPTCR := FLASH_OPTCR and not((dword(1) shl boot_code_sector) shl 16);
+
+  // write option bytes
+  FLASH_OPTCR.OPTSTRT := 1;
+  while (FLASH_SR.BSY) do begin
+  end;
+
+  FLASH_OPTCR.OPTLOCK := 1;
+end;
+{$ENDIF}
+
+// serielle Schnittstelle. Protokoll für Einsprung (BL=Bootloader):
+// mit BB = Blocknummer, NN = Anzahl Bytes, CC = 16-Bit-Summe aller Datenbytes
+
+// Protokoll Einsprung:
+// BL: ENQ-ENQ-ENQ-ENQ-----ACK----<receive blocks>
+// PC: ----------------ACK-----<send blocks>
+
+// Erster und weitere Blöcke:
+// BL: ----STX----------------------------ACK-----------ACK----<prog>--ACK--0
+// PC: SOH-----5AA5bbBBnnNNccCC-<data128>-----<data128>-----FS--------------
+
+// Übertragungsfehler (Block muss vom PC wiederholt werden):
+// BL: ----STX----------------------------ACK-----------ACK----<prog>--NAK--ERR
+// PC: SOH-----5AA5bbBBnnNNccCC-<data128>-----<data128>-----FS--------------
+
+// Letzter Block:
+// BL: ----STX----------------------------ACK-----------ACK-----<prog>--ACK--0/ERR
+// PC: SOH-----5AA5bbBBnnNNccCC-<data128>-----<data128>-----EOT--------------
+
+// mit BB = Blocknummer, NN = Anzahl Bytes, CC = 16-Bit-Summe aller Datenbytes
+
+function ser_rcv_block: Word;
+// 4K-Block seriell empangen und in BlockBuffer8 speichern, eigenes Protokoll.
+// Liefert BlockErr zurück
+// Format: $5A A5 bb BB nn NN cc CC <4K data> 
+// mit BB = Blocknummer, NN = Anzahl Bytes, CC = 16-Bit-Summe aller Datenbytes
+// Alle 128 Bytes empfangener Nutzdaten wird ein ACK (#6) gesendet
+var
+  idx_w, checksum_received, checksum_calculated: Word;
+  temp_b: Byte;
+  is_ok: Boolean;
+  block_nr, num_bytes, block_cmd: Word;
+begin
+  LEDcard:= false;
+  LEDactivity:= false;
+  result:= e_none;
+  num_bytes:= 0;
+  // warte auf SOH
+  Serial1_rcvbyte_to(temp_b, 100);
+  if temp_b <> c_SOH then begin
+    Serial1_sendchar(c_NAK);  // NAK senden, timeout
+    result:= e_timeout;       // Ende
+    exit;
+  end;
+  Serial1_sendchar(c_STX);  // Anforderung verstanden, STX senden
+  Serial1_rcvbyte_to(temp_b, 100);    // erstes Byte
+  if (temp_b = $5A) then begin
+    LEDactivity:= true;
+    Serial1_rcvbyte_to(temp_b, 10);
+    block_cmd:= Word(temp_b);         // nicht benutzt
+    
+    Serial1_rcvbyte_to(temp_b, 10);   // bb BB empfangen
+    lo(block_nr):= temp_b;
+    Serial1_rcvbyte_to(temp_b, 10);
+    hi(block_nr):= temp_b;
+    Serial1_rcvbyte_to(temp_b, 10);   // nn NN empfangen
+    lo(num_bytes):= temp_b;
+    Serial1_rcvbyte_to(temp_b, 10);
+    hi(num_bytes):= temp_b;
+    Serial1_rcvbyte_to(temp_b, 10);   // cc CC empfangen
+    lo(checksum_received):= temp_b;
+    Serial1_rcvbyte_to(temp_b, 10);
+    hi(checksum_received):= temp_b;
+    
+    if (num_bytes > 0) then begin
+      checksum_calculated:= 0;
+      for idx_w:= 0 to num_bytes - 1 do begin
+        if not Serial1_rcvbyte_to(temp_b, 50) then
+          result:= result or e_timeout;
+        BlockBuffer8[idx_w]:= temp_b;
+        checksum_calculated:= checksum_calculated + word(temp_b);
+        // Host wartet nach 128 Bytes auf ACK
+        // deshalb alle 128 Bytes ACK (oder NAK, falls Fehler) senden
+        if (idx_w mod 128 = 0) or (idx_w >= num_bytes - 1) then
+          if result = e_none then
+            Serial1_sendchar(c_ACK)  // ACK senden
+          else
+            Serial1_sendchar(c_NAK); // Fehler
+        if result <> e_none then
+          break;
+      end;
+      if (checksum_calculated <> checksum_received) then begin
+        result:= result or e_checksum;
+        LEDcard:= true;
+      end;
+    end;
+    
+    Serial1_rcvbyte_to(temp_b, 20);    // warte auf FS oder EOT
+    if (temp_b <> c_FS) and (temp_b <> c_EOT) then
+        result:= result or e_no_eot;
+    if temp_b = c_EOT  then
+        result:= result or e_lastblock; // war letzter Block
+
+    if result <= e_lastblock then begin // keine Fehler angesammelt?
+      LEDcard:= true;                   // Store Block to IntFlash
+      IFL_StoreIntFlash_Proc(block_nr, num_bytes);
+      LCD_TWI_XY(10, 1);
+      LCD_TWI_WriteVal(block_nr, 4);
+      LEDactivity:= false;
+      Serial1_sendchar(c_ACK) // ACK senden
+    end else
+      Serial1_sendchar(c_NAK); // Fehler
+      
+    Serial1_sendchar(Byte(result)); // Err-Code senden
+
+  end else begin
+    result:= e_invalid_hdr;
+    Serial1_sendchar(c_NAK); // NAK senden
+    Serial1_sendchar(e_invalid_hdr); // Err-Code senden
+  end;
+  LEDcard:= false;
+end;
+
+// Protokoll:
+// erster Block:
+// BL: ENQ-ENQ-ENQ-ENQ-----ACK----<receive blocks>
+// PC: ----------------ACK-----<send blocks>
+
+procedure try_serial_load;
+var block_err: Word; temp_b: Byte;
+begin
+  Serial1_rcvbyte_to(temp_b, 500);  // ACK muss beim ersten Durchlauf vorliegen
+  if temp_b <> c_ACK then
+    SystemReset;
+  Serial1_sendchar(c_ACK);          // bestätigen
+  LCD_TWI_XY(0, 1);
+  LCD_TWI_WriteStr(lcd_block_str);
+  LCD_TWI_ClrEOL;
+  repeat
+    Delay_ms(10);
+    block_err:= ser_rcv_block;
+  until block_err = e_lastblock;
+  Delay_ms(50); // Zeit zum Senden der restlichen Zeichen vor Reset
+  SystemReset;
+end;
+

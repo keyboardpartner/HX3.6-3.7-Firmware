@@ -1,0 +1,264 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// SysTimer, Serielle Schnitstelle, Hilfsroutinen
+
+unit twi_systimer;
+
+uses var_def, avrco_compat;
+
+procedure TWI_Init();     // PB67 auf 400
+function TWI_Stat(twi_addr: Byte): Boolean; // liefert TRUE wenn vorhanden
+
+function TWI_ReadRegB(twi_addr, reg: Byte): byte;
+function TWI_ReadRegW(twi_addr, reg: Byte): Word;
+
+procedure TWI_WriteRegB(twi_addr, reg, reg_val: Byte);
+procedure TWI_WriteRegW(twi_addr, reg: Byte; reg_val: Word);
+procedure TWI_WriteRegDW(twi_addr, reg: Byte; reg_val: DWord);
+
+procedure SysLEDflash(timer_Val: Word);
+function IsSysTimerZero(const timer_nr: Word): Boolean;
+procedure SetSysTimer(const timer_nr: Word; const value: Word);
+procedure SysTimerInit;
+procedure SysTimerDeInit;
+
+const
+  c_LEDtimer = 0;  // SysTimer-Nummern
+  c_SysExTimer = 1;
+  c_DisplayTimer = 2;
+  c_EncoderIntegratorTimer = 3;
+  c_MomentaryTimer = 4;
+  c_DoubleClickTimer = 5;
+  
+  c_HornTimer = 6;
+  c_RotorTimer = 7;
+  c_PhasingTimer = 8;
+  
+  c_SaveDefaultsTimer = 9;
+
+  c_NumSysTimers = 10;    // Anzahl vorhandener SysTimer
+
+var
+
+  IRQ_Toggle: Boolean;       // 1 Hz Toggle
+  IRQ_Incr_delta, IRQ_Incr_acc: Integer;  // Drehgeber-Steps
+  IRQ_sema, IRQ_EncoderTouched: boolean;  // Drehgeber wurde betätigt
+  IRQ_SysTimer: DWord;    // Zähler mit Überlauf, alle 2ms inkrementiert
+
+implementation
+
+
+var
+  TWI_present: Boolean; volatile;
+  IRQ_Count: Word; volatile;
+  IRQ_Incr0, IRQ_Incr1, IRQ_Incr2: Word; volatile; // Für Dreh-Encoder, in Systick-IRQ benutzt
+  IRQ_SysTimers: Array[0..c_NumSysTimers - 1] of Word; volatile;
+
+  twi_data: array[0..7] of byte; aligned 4;
+  twi_data_dw: DWord at twi_data;
+  twi_data_w: Word at twi_data;
+  twi_data_b: Byte at twi_data;
+  
+// -----------------------------------------------------------------------------
+
+// define timeout callback function
+procedure I2C1_TimeoutCallback(errorCode : byte);
+begin
+  if (errorCode = _I2C_TIMEOUT_RD) then
+    TWI_present:= false;
+  if (errorCode = _I2C_TIMEOUT_WR) then
+    TWI_present:= false;
+end;
+
+procedure TWI_Init();
+begin
+  I2C1_CR1.B9:= 1;  // Stop Condition, falls noch aktiv
+  nop;
+  SWRST_bit:= 1;    // Software Reset, I2C1_CR1 Bits
+  nop;
+  I2C1_CR1:= 0;     // Reset-Zustand
+  I2C1_CR2:= 0;
+  I2C1_Init_Advanced(400000, @_GPIO_MODULE_I2C1_PB67);
+  // set timeout period and callback function
+  I2C1_SetTimeoutCallback(10000, @I2C1_TimeoutCallback);
+end;
+
+function TWI_Stat(twi_addr: Byte): Boolean;
+// versucht, etwas in Control-Register 0 zu schreiben
+var temp_data: Word;
+begin
+  twi_data_dw:= 0;
+  TWI_present:= true; // wird bei Fehler von Callback auf FALSE gesetzt
+  I2C1_Start();
+  I2C1_Write(twi_addr, @twi_data, 1, END_MODE_RESTART);
+  I2C1_Read(twi_addr, @twi_data, 1, END_MODE_STOP);
+  mDelay(10);
+  result:= TWI_present;
+end;
+
+// -----------------------------------------------------------------------------
+
+function TWI_ReadRegB(twi_addr, reg: Byte): byte;
+begin
+  twi_data_b:= reg;
+  I2C1_Start();  // issue I2C start signal
+  I2C1_Write(twi_addr, @twi_data, 1, END_MODE_RESTART);
+  I2C1_Read(twi_addr, @twi_data, 1, END_MODE_STOP);
+  result:= twi_data_b;
+end;
+
+function TWI_ReadRegW(twi_addr, reg: Byte): Word;
+begin
+  twi_data_b:= reg;
+  I2C1_Start();  // issue I2C start signal
+  I2C1_Write(twi_addr, @twi_data, 1, END_MODE_RESTART);
+  I2C1_Read(twi_addr, @twi_data, 2, END_MODE_STOP);
+  result:= twi_data_w;
+end;
+
+procedure TWI_WriteRegB(twi_addr, reg, reg_val: Byte);
+begin
+  twi_data[0]:= reg;
+  twi_data[1]:= reg_val;
+  I2C1_Start();  // issue I2C start signal
+  I2C1_Write(twi_addr, @twi_data, 2, END_MODE_STOP);
+end;
+
+procedure TWI_WriteRegW(twi_addr, reg: Byte; reg_val: Word);
+begin
+  twi_data[0]:= reg;
+  twi_data[1]:= lo(reg_val);
+  twi_data[2]:= hi(reg_val);
+  I2C1_Start();  // issue I2C start signal
+  I2C1_Write(twi_addr, @twi_data, 3, END_MODE_STOP);
+end;
+
+procedure TWI_WriteRegDW(twi_addr, reg: Byte; reg_val: DWord);
+begin
+  twi_data[0]:= reg;
+  twi_data[1]:= Byte(reg_val);
+  twi_data[2]:= Byte(reg_val shr 8);
+  twi_data[3]:= Byte(reg_val shr 16);
+  twi_data[4]:= Byte(reg_val shr 24);
+  I2C1_Start();  // issue I2C start signal
+  I2C1_Write(twi_addr, @twi_data, 5, END_MODE_STOP);
+end;
+
+// #############################################################################
+// ###                         System Timer                                  ###
+// #############################################################################
+
+procedure SysLEDflash(timer_ms: Word);
+// kurzes Aufblitzen der Board-LED
+begin
+  LEDactivity:= false; // LED ON
+  setsystimer(c_LEDtimer, timer_ms div 2);  // 2ms-Timer-IRQ
+end;
+
+function IsSysTimerZero(const timer_nr: Word): Boolean;
+begin
+  result:= IRQ_SysTimers[timer_nr] = 0;
+end;
+
+procedure SetSysTimer(const timer_nr: Word; const value: Word);
+begin
+  IRQ_SysTimers[timer_nr]:= value;
+end;
+
+procedure SysTimerInit;
+// benutzt Timer 2
+var systimer_idx: Word;
+begin
+  // Rotary Encoder configure PORTB pins as input
+  GPIO_Digital_Input(@GPIOB_BASE, _GPIO_PINMASK_0 or _GPIO_PINMASK_1 );
+  // 2 LED Outputs
+  GPIO_Digital_Output(@GPIOC_BASE, _GPIO_PINMASK_8 or _GPIO_PINMASK_9);
+  LEDactivity:= true; // LEDs OFF
+  LEDaux:= true;
+  // Drehgeber initialisieren
+  IRQ_Count:= 0;
+  IRQ_Toggle:= false;
+  IRQ_Incr1:= 0;
+  IRQ_Incr2:= 0;
+  IRQ_Incr_acc:= 0;
+  IRQ_Incr_delta:= 0;
+  IRQ_SysTimer:= 0;
+  // SysTimer auf 0
+  for systimer_idx:= 0 to c_NumSysTimers - 1 do
+    IRQ_SysTimers[systimer_idx]:= 0;
+
+  // Setup Timer
+  RCC_APB1ENR.TIM2EN := 1;       // Enable clock gating for timer module 2
+  TIM2_CR1.CEN := 0;             // Disable timer
+  TIM2_PSC := 84;                // Set timer prescaler
+  TIM2_ARR := 2000;              // Timer auto reload value 2ms
+  NVIC_IntEnable(IVT_INT_TIM2);  // Enable timer interrupt
+  TIM2_DIER.UIE := 1;            // Update interrupt enable
+  TIM2_CR1.CEN := 1;             // Enable timer
+  setsystimer(c_LEDtimer, 250);
+end;
+
+procedure SysTimerDeInit;
+// benutzt Timer 2
+var systimer_idx: Word;
+begin
+  // Setup Timer
+  TIM2_SR.UIF := 0;
+  NVIC_IntDisable(IVT_INT_TIM2); // Disable timer interrupt
+  TIM2_CR1.CEN := 0;             // Disable timer
+  RCC_APB1ENR.TIM2EN := 0;       // Disable clock gating for timer module 2
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure Timer2_interrupt(); iv IVT_INT_TIM2; ics ICS_AUTO;
+// 2ms Interrupt von Timer 2
+var systimer_idx: Word;
+begin
+  TIM2_SR.UIF := 0;
+  inc(IRQ_Count);
+  inc(IRQ_SysTimer);  // Zähler mit Überlauf
+  if IRQ_Count >= 125 then begin
+    IRQ_Toggle:= not IRQ_Toggle;              // Toggle PORT LEDs 500ms Cycle
+    IRQ_Count:= 0;
+  end;
+  
+  IRQ_sema:= true;
+
+  IRQ_Incr0:=  GPIOB_IDR and 3;               // A/B input Port D
+
+  if IRQ_Incr0 <> IRQ_Incr1 then begin
+    if IRQ_Incr0 = 0 then begin               // Rastpunkt überschritten
+      if IRQ_Incr2 = 3 then begin             // kommt aus Ruheposition
+        if IRQ_Incr1 = 1 then begin           // Rechtsdrehung
+          inc(IRQ_Incr_delta);                // Encoder-Änderung
+          inc(IRQ_Incr_acc);                  // für Beschleunigung
+          IRQ_EncoderTouched:= true;
+        end else if IRQ_Incr1 = 2 then begin  // Linksdrehung
+          dec(IRQ_Incr_delta);                // Encoder-Änderung
+          dec(IRQ_Incr_acc);                  // für Beschleunigung
+          IRQ_EncoderTouched:= true;
+        end;
+      end;
+    end;
+    IRQ_Incr2:= IRQ_Incr1;  // vorvorheriger Wert
+    IRQ_Incr1:= IRQ_Incr0;  // vorheriger Wert
+  end;
+  // SysTimer updaten
+  for systimer_idx:= 0 to c_NumSysTimers - 1 do
+    if IRQ_SysTimers[systimer_idx] > 0 then
+      dec(IRQ_SysTimers[systimer_idx]);
+  if IRQ_SysTimers[c_LEDtimer] = 0 then
+    LEDactivity:= true;   // LED OFF
+end;
+
+end.

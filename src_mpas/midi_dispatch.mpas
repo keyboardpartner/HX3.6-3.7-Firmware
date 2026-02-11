@@ -1,0 +1,1236 @@
+unit midi_dispatch;
+
+uses const_def, var_def, edit_vals, midi_com,
+     spi_rw, twi_systimer, events, edit_offsets,
+     intflash, dataflash, fpga_hilevel, avrco_compat, parser, 
+     switch_if, nuts_bolts, lcd_twi, menu_entries;
+
+var
+  SysExCount: Word;
+  SysExActive: Boolean;
+
+  procedure MIDI_Dispatch;
+  procedure MIDI_DispatchSysEx;
+  procedure MIDI_getDSPinfo;
+  function MIDI_GetParamIdxFromCC(ch, cc: Byte): Integer;
+
+implementation
+
+const
+  vk_to_vibknob_arr:Array[0..7] of Byte = (0, 2, 4, 1, 3, 5, 5, 5); // für Roland VK
+
+var
+  idx: Word;
+  bn, bm: Byte;
+  temp_str: String[40];
+  SysExArrayTemp: array[0..7] of byte;
+
+  ms, mv, mp, mcmd, mch: Word;
+  mbool: Boolean;
+
+  midi_fpga_dw: DWord;
+  midi_fpga_bytes: Array[0..3] of Byte at midi_fpga_dw;
+  
+  midi_nrpn: Tword_ovl; // besteht aus LSB, MSB
+  midi_nrpn_W: Word at midi_nrpn;
+  midi_rpn: Tword_ovl;
+  midi_rpn_W: Word at midi_rpn;
+
+// MIDI interpreter, MIDI_ni muss immer vorhanden sein und ganz oben stehen
+// MIDI-CC-Sets:
+//  'NI B4 d3c  ' , // 0, interpretiert, teilw. über Custom 'ccset0.dat'
+//  'Hammond XK ' , // 1, interpretiert, teilw. über Custom 'ccset1.dat'
+//  'Hammond SK ' , // 2, interpretiert, teilw. über Custom 'ccset2.dat'
+//  'Versatile  ' , // 3, interpretiert, teilw. über Custom 'ccset3.dat'
+//  'Nord C1/C2 ' , // aus DF Core Block c_midicc_base +4, 'ccset4.dat'
+//  'VoceDrawbar' , // aus DF Core Block c_midicc_base +5, 'ccset5.dat'
+//  'KeyB/Duo   ' , // aus DF Core Block c_midicc_base +6, 'ccset6.dat'
+//  'Hamichord  ' , // aus DF Core Block c_midicc_base +7, 'ccset7.dat'
+//  'KBP/Touchp ' , // aus DF Core Block c_midicc_base +8, 'ccset8.dat'
+//  'Custom 1   ' , // aus DF Core Block c_midicc_base +9, 'ccset9.dat'
+//  'Custom 2   ' );// aus DF Core Block c_midicc_base +10,'ccset10.dat'
+
+// #############################################################################
+//     ######  ########    ###    ########   ######  ##     ##
+//    ##    ## ##         ## ##   ##     ## ##    ## ##     ##
+//    ##       ##        ##   ##  ##     ## ##       ##     ##
+//     ######  ######   ##     ## ########  ##       #########
+//          ## ##       ######### ##   ##   ##       ##     ##
+//    ##    ## ##       ##     ## ##    ##  ##    ## ##     ##
+//     ######  ######## ##     ## ##     ##  ######  ##     ## 
+// #############################################################################
+
+// Zum Ermitteln der Parameternummer bei empfangener CH/CC-Kombination
+
+function MIDI_SearchCustomArrByCC(ch, cc: Byte): Integer;
+// Eintrag mit passendem CH und CC suchen; es können weitere vorhanden sein!
+// liefert Index auf Eintrag in MIDIsortedCCrecords 0..255
+var my_idx, search_ch_cc, ch_cc: Word;
+  low_idx, hi_idx, mid_idx: Integer;
+begin
+  result:= -1;
+  low_idx:= 0;
+  hi_idx:= MIDIsortedCClen - 1;
+  if MIDIsortedCClen > 0 then begin
+    hi(search_ch_cc):= ch and $0F;
+    lo(search_ch_cc):= cc;
+    while low_idx <= hi_idx do begin
+      mid_idx := low_idx + (hi_idx - low_idx) div 2; // Mitte berechnen
+      ch_cc:= MIDIsortedCCrecords[mid_idx].CH_CC;
+      if ch_cc = search_ch_cc then begin
+        Result:= mid_idx; // Element gefunden
+        Exit;
+      end else if ch_cc < search_ch_cc then
+        low_idx:= mid_idx + 1 // Rechte Hälfte suchen
+      else
+        hi_idx:= mid_idx - 1; // Linke Hälfte suchen
+    end;
+  end;
+end;
+
+function MIDI_GetParamIdxFromCC(ch, cc: Byte): Integer;
+// Eintrag mit passendem CH und CC suchen; es können weitere vorhanden sein!
+// Liefert ParamIdx 0..767 aus MIDIsortedCCrecords
+var my_idx: Integer;
+begin
+  result:= -1;
+  my_idx:= MIDI_SearchCustomArrByCC(ch, cc);
+  if my_idx >= 0 then
+    result:= MIDIsortedCCrecords[my_idx].ParamIdx; // Element gefunden
+end;
+
+// #############################################################################
+
+procedure MIDIset_CCdisplayRequest;
+// aktuell empfangene MIDI-Werte anzeigen:
+//      mv:= FPGAreceiveLong0;     // Byte 2, Wert
+//      mp:= FPGAreceiveLong1;     // Byte 1, Parameter oder CC
+//      mcmd:= FPGAreceiveLong2 and $F0;
+//      mch:= FPGAreceiveLong2 and $0F;
+var my_idx: Integer; m_ch_cmd, temp_b: Byte;
+  my_str: String[31];
+begin
+  if LCD_TWI_present then begin
+    m_ch_cmd:= mch or mcmd;
+    LCD_TWI_XY(0, 1);  // untere Zeile
+    LCD_TWI_WriteStr('MIDI: $');
+    ByteToHex(m_ch_cmd, my_str);
+    LCD_TWI_WriteStr(my_str);
+    LCD_TWI_WriteChar(#32);
+    ByteToHex(mp, my_str);
+    LCD_TWI_WriteStr(my_str);
+    if (mcmd <> $C0) then begin  // Program Change
+      LCD_TWI_WriteChar(#32);
+      ByteToHex(mv, my_str);
+      LCD_TWI_WriteStr(my_str);
+    end;
+    LCD_TWI_ClrEOL;
+    setSysTimer(c_DisplayTimer, 1000);
+    if (mcmd = $B0) then begin // alle CCs
+      my_idx:= MIDI_GetParamIdxFromCC(mch, mp); // liefert Parameter 0..511
+      temp_b:= 255;
+      if valueInRange(my_idx, 0, 511) then
+        temp_b:= EditIdx2MenuInverseArray[my_idx] ; // auf Menu wechseln
+      if temp_b = 255 then begin
+        MenuIndex_Requested:= MenuIndex;
+        LCD_TWI_XY(0, 0);  // obere Zeile
+        LCD_TWI_WriteStr('CC not assigned');
+      end else begin
+        MenuIndex_Requested:= temp_b;  
+        LCD_TWI_WriteStr(s_MenuHeaderArr[temp_b]);
+      end;
+    end;
+    LCD_TWI_ClrEOL;
+  end;
+end;
+
+{ $I MIDI_Custom.pas}   // für CC-Sets 4..10
+{ $I MIDI_ni.pas}
+{ $I MIDI_sempra.pas}
+
+
+{$IFDEF DEBUG_MIDI}
+procedure writeser_midibytes;
+begin
+  write(serout, '/ MidiCC $' +  ByteToHex(mcmd or mch) + '.'
+                  + ByteToHex(mp) + '.' + ByteToHex(mv) + #9);
+end;
+
+procedure writeser_valstr(my_param: Integer; my_val: Byte);
+begin
+  writeser_midibytes;
+  write(serout, IntToStr(my_param) + '=' + ByteToStr(my_val)  + '  ' + #9);
+  if valueInRange(my_param, 1000, 1511) then
+    write(serout, s_MidiDebugStrArr[my_param - 1000]);
+
+end;
+{$ENDIF}
+
+// #############################################################################
+//     ######  ##    ##  ######  ######## ##     ##
+//    ##    ##  ##  ##  ##    ## ##        ##   ##
+//    ##         ####   ##       ##         ## ##
+//     ######     ##     ######  ######      ###
+//          ##    ##          ## ##         ## ##
+//    ##    ##    ##    ##    ## ##        ##   ##
+//     ######     ##     ######  ######## ##     ## 
+// #############################################################################
+// ######################### HX3.5 SysEx Receive ###############################
+// #############################################################################
+
+procedure midi_set_sysex_mode;
+begin
+  CommandSource:= c_command_source_midi;
+  if edit_MIDI_Option <> 0 then begin   // ggf temporär auf Ausgang schalten
+    edit_MIDI_Option:= 0;               // Senden hardwaremäßig freigeben
+    FH_OrganParamsToFPGA;
+  end;
+end;
+
+// #############################################################################
+
+function MIDI_GetSysEx_int(var my_idx: byte; var my_val: Integer): boolean;
+// Standard-Antwort auf Parameter-Änderungen und Fehlerabfrage:
+var msb, lsb: Byte;
+begin
+  my_val:= 0;
+  msb:= SysExArray[my_idx];
+  if msb = $F7 then begin
+    result:= false;
+    exit;
+  end;
+  inc(my_idx);
+  lsb:= SysExArray[my_idx];
+  if lsb = $F7 then begin
+    result:= false;
+    exit;
+  end;
+  inc(my_idx);
+  my_val:= MIDI_14_to_Word(msb, lsb);
+  result:= true;
+end;
+
+procedure MIDI_SendSysEx_Status(err: Word);   // F0 00 20 04 33 02 <er> F7
+begin
+  MIDI_SendSysEx_header_ID($02); // Status-ID
+  if midi_sysex_busyflag then
+    err:= err or $40
+  else
+    err:= err and $3F;
+  MIDI_SendByte(Byte(err) and $7F);
+  MIDI_SendSysEx_end;
+end;
+
+procedure MIDI_SendSysExParamStr(const header_id: Byte); // ID und ParseSendStr senden
+// Antwort-String in ParseSendStr
+begin
+  MIDI_SendSysEx_header_ID(header_id);
+  for idx:= 0 to length(temp_str) - 1 do    // C-String!
+    MIDI_SendByte(Byte(temp_str[idx]));
+  MIDI_SendByte(0);
+  MIDI_SendSysEx_end;
+end;
+
+procedure MIDI_SendSysExSernum; // Format: F0 00 20 04 33 26 <ASCII-TEXT> 00 F7
+begin
+  LongWordToStr(eep_BoardInfo.FPGAsernum, temp_str);   // FPGA-Seriennummer
+  MIDI_SendSysExParamStr($26);  // Header ID
+end;
+
+
+// Parameter setzen, wir haben empfangen:
+// F0 00 20 04 33 07 PP pp VV vv ... F7
+// mit
+// PP pp = 14Bit-Parameter-Nummer (00PPPPPP Pppppppp wird zu 0PPPPPPP 0ppppppp)
+// VV vv = 14Bit-Parameter-Wert (00VVVVVV Vvvvvvvv wird zu 0VVVVVV 0vvvvvvv)
+// dieser Block wird sooft wiederholt, bis F7 kommt.
+// z.b. F0 0020043307 0400 017F F7  wird zu  Param 512 = 255
+// Wir senden Status:
+// F0 00 20 04 33 02 <er> F7
+
+// Befehl in Klartext - wir haben empfangen:
+// Befehlsformat:
+// F0 00 20 04 33 03 <ASCII-TEXT> F7
+// ASCII-Text kann ein beliebiger HX3-Parser-Befehl sein
+// wir senden Status:
+// F0 00 20 04 33 02 <er> F7
+
+// Parameter abfragen - wir haben empfangen:
+// F0 00 20 04 33 05 PP pp PP pp ... F7
+// PP pp = 14Bit-Parameter-Nummer (00PPPPPP Pppppppp wird zu 0PPPPPPP 0ppppppp)
+// dieser Block wird sooft wiederholt, bis F7 kommt.
+// wir senden:
+// F0 00 20 04 33 06 PP pp VV vv F7
+// mit
+// PP pp = 14Bit-Parameter-Nummer (00PPPPPP Pppppppp wird zu 0PPPPPPP 0ppppppp)
+// VV vv = 14Bit-Parameter-Wert (00VVVVVV Vvvvvvvv wird zu 0VVVVVV 0vvvvvvv)
+// dieser Block wird sooft wiederholt, bis F7 kommt.
+
+// Parameter-Serie abfragen - wir haben empfangen:
+// F0 00 20 04 33 09 PP pp NN nn F7
+// PP pp = 14Bit-Startparameter-Nummer
+// NN nn = 14Bit-Parameter-Anzahl (1 = 1 Wert, 0 unzulässig)
+// wir senden:
+// F0 00 20 04 33 0A PP pp VV vv VV vv ... F7
+// Werte VV vv werden sooft wiederholt, bis F7 kommt.
+
+// Status abfragen, wir haben empfangen:
+// F0 00 20 04 33 01 F7
+// wir senden Status:
+// F0 00 20 04 33 02 <er> F7
+
+// #############################################################################
+// Eigene SysEx behandeln. SysEx-ID von Keyswerk/Böhm oder Roland
+// SysEx-Anfrage erhalten, steht jetzt in SysEx-Buffer.
+// #############################################################################
+
+procedure MIDI_DispatchSysEx;
+var my_param, my_val, my_count, my_adr: Word;
+    my_idx, msb, lsb: Byte;
+    from_eeprom: Boolean;
+    sysex_id: Byte;
+    block_page, block_page_cs, calc_cs: Byte;
+begin
+
+// #############################################################################
+// +++++++++++++++++++++++++++ S E M P R A +++++++++++++++++++++++++++++++++++++
+// #############################################################################
+
+  if (SysExID_long = $042000F0) then begin  // Reihenfolge F0 00 20 04 im Buffer
+    SysExCmd_sempra:= SysExArray_w[2];
+{$IFDEF DEBUG_SYSEX}
+    Serial3_sendstringCRLF('SYSEX cmd');
+{$ENDIF}
+    my_idx:= 6;
+
+    if (SysExCmd_sempra = $0000) then begin
+
+// #############################################################################
+// Es kam eine Anfrage an alle: ID senden
+// Kennung (Name und Version) senden:
+// SysEx: F0 00 20 04 00 01 <ID (33)>
+// <16 Bytes ASCII Device-Name>
+// <8 Bytes ASCII Version>
+// <8 Byte ASCII Release> $F7
+// #############################################################################
+
+      midi_set_sysex_mode;
+      MIDI_SendSysEx_header;
+      MIDI_SendByte(0);
+      MIDI_SendByte(1);
+      MIDI_SendByte($33);
+      for idx := 0 to 23 do
+        MIDI_SendByte(s_SysExDeviceStr[idx]);
+
+      LongWordToHex(eep_Boardinfo.FPGAversion, temp_str);
+      for idx := 0 to 7 do
+        MIDI_SendByte(temp_str[idx]);
+
+      MIDI_SendSysEx_end;
+
+    end else if (lo(SysExCmd_sempra) = $33) then begin  // Empfangen: ID für uns
+      sysex_id:= hi(SysExCmd_sempra);
+
+// #############################################################################
+// Empfangen: Parameter setzen  ($07)
+// SysEx: F0 00 20 04 33 07 <PP pp VV vv> F7
+// PP pp = Parameter-Nummer (0PPPPPPP 0ppppppp wird zu 00PPPPPP Pppppppp)
+// VV vv = Parameter-Wert (0VVVVVV 0vvvvvvv wird zu 00VVVVVV Vvvvvvvv)
+// dieser Block wird sooft wiederholt, bis F7 kommt.
+// z.b. F0 0020043307 0400 017F F7  wird zu  Param 512 = 255
+// #############################################################################
+
+      if (sysex_id = $07) then begin // Empfangen: Parameter setzen
+        midi_set_sysex_mode;
+        repeat
+          if not MIDI_GetSysEx_int(my_idx, my_param) then
+            break;
+          if not MIDI_GetSysEx_int(my_idx, my_val) then
+            break;
+          // Sysex kann nur über Editor kommen, kein Feedback
+          NewParamEvent(my_param, my_val, c_midi_sysex_source);
+        until false;
+        // ACK später senden, wenn Änderungen abgeschlossen
+        MIDI_SendSysEx_status(0);
+
+// #############################################################################
+// Empfangen: Befehl in Klartext ($03)
+// SysEx: F0 00 20 04 33 03 <ASCII-TEXT> [00] F7
+// ASCII-Text kann ein beliebiger HX3-Parser-Befehl sein
+// #############################################################################
+
+      end else if (sysex_id = $03) then begin
+        midi_set_sysex_mode;
+        temp_str:='';
+        repeat
+          bn:= SysExArray[my_idx];
+          if (bn = $F7) or (bn = $00) then
+            break;
+          if bn >= 32 then
+            temp_str:= temp_str + char(bn);
+          inc(my_idx);
+        until false;
+{$IFDEF DEBUG_SYSEX}
+       Serial3_sendstringCRLF('SYSEX CmdStr (03): ' + temp_str);
+{$ENDIF}
+        PA_HandleCmdString(temp_str);  // wie Befehl über Com-Schnittstelle
+        // ACK später senden, wenn Änderungen abgeschlossen
+        MIDI_SendSysEx_status(0);
+
+// #############################################################################
+// Empfangen: einzelnen Parameter abfragen, Antwort als Klartext ($17)
+// SysEx: F0 00 20 04 33 17 PP pp F7
+// mit PP pp = Parameter-Nummer
+// wir senden:
+// F0 00 20 06 33 18 <string> F7
+// #############################################################################
+
+      end else if (sysex_id = $17) then begin
+        midi_set_sysex_mode;
+        from_eeprom:= false;
+        if not MIDI_GetSysEx_int(my_idx, my_param) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        PA_SendResult(my_param); // Antwort-String in ParseSendStr
+        temp_str:= ParseSendStr;
+        MIDI_SendSysExParamStr($18);
+
+// #############################################################################
+// Empfangen: einzelnen Parameter 1000...7999 abfragen, Antwort binär ($05)
+// SysEx: F0 00 20 04 33 05 PP pp F7
+// mit PP pp = Parameter-Nummer
+// wir senden:
+// F0 00 20 04 33 06 PP pp VV vv F7
+// mit
+// PP pp = 14Bit-Parameter-Nummer (00PPPPPP Pppppppp wird zu 0PPPPPPP 0ppppppp)
+// VV vv = 14Bit-Parameter-Wert (00VVVVVV Vvvvvvvv wird zu 0VVVVVV 0vvvvvvv)
+// #############################################################################
+
+      end else if (sysex_id = $05) then begin
+        midi_set_sysex_mode;
+        from_eeprom:= false;
+        if not MIDI_GetSysEx_int(my_idx, my_param) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        bn:= EDIT_GetParamVal(my_param, false);
+        MIDI_SendSysExParam(my_param, Word(bn));
+
+// #############################################################################
+// Empfangen: Parameter-Serie abfragen ($09 oder $29 mit CS)
+// SysEx: F0 00 20 04 33 09 PP pp NN nn F7
+// bzw.
+// SysEx: F0 00 20 04 33 29 PP pp NN nn F7 (CS verlangt)
+// PP pp = 14Bit-Startparameter-Nummer
+// NN nn = 14Bit-Parameter-Anzahl (1 = 1 Wert, 0 unzulässig)
+// Wir senden:
+// F0 00 20 04 33 0A PP pp VV vv ... F7
+// bzw.
+// F0 00 20 04 33 2A PP pp NN nn VV vv ... 00 CS F7
+// CS = 7-Bit-Prüfsumme über alle Parameter- und DatenBytes PP pp VV vv VV vv...
+// Werte VV vv werden N-mal wiederholt, jeweils eine Parameternummer höher
+// #############################################################################
+
+      end else if (sysex_id = $09) or (sysex_id = $29) then begin
+        midi_set_sysex_mode;
+        from_eeprom:= false;
+        if MIDI_GetSysEx_int(my_idx, my_param) then begin
+          if MIDI_GetSysEx_int(my_idx, my_count) then
+            MIDI_SendSysEx_ParamVals(my_param, my_count, (sysex_id = $29))
+          else
+            MIDI_SendSysEx_Status(1);
+        end else
+          MIDI_SendSysEx_Status(1);
+
+
+// #############################################################################
+// Empfangen: 32 Byte-Segment für Buffer ($20)
+// SysEx: F0 00 20 04 33 20 BB <7data> MS <7data> MS <7data> MS ... CC F7
+// BB = 7-Bit-Blockseiten-Nummer 0..128, 32 Bytes pro Seite
+// CS = 7-Bit-Prüfsumme über alle 32 Daten- und MSBytes
+// MS = MSBits der letzten 7 Bytes
+// data = n * (7 Bytes Nutzdaten AND $7F, gefolgt von 1 Byte MSBits)
+// Beispiel:
+// #0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45
+// SYSEX-HEADER-- CM BN  0  1  2  3  4  5  6 MS  7  8  9 10 11 12 13 MS 14 15 16 17 18 19 20 MS 21 22 23 24 25 26 27 MS 28 29 30 31 MS CS END
+// F0 00 20 04 33 20 00 00 01 02 00 01 7F 7E 0F 44 00 01 02 00 01 7F 47 7E 44 00 01 02 00 01 63 7F 7E 44 00 01 02 00 71 01 7F 7E 44 0F 4D F7
+// #############################################################################
+
+      end else if (sysex_id = $20) then begin
+        block_page:= SysExArray[6];
+{$IFDEF DEBUG_SYSEX}
+        Serial3_sendstringCRLF('SYSEX GetBlockPage (20): ' + ByteToStrTrim(block_page));
+{$ENDIF}
+        // LED_timer250;   // Timer refreshen
+        my_idx:= 7;
+        my_adr:= Integer(block_page) * 32;
+        calc_cs:= 0;
+        repeat
+          if my_idx > 38 then
+            bn:= 3
+          else
+            bn:= 6;
+          for idx:= 0 to bn do begin
+            bm:= SysExArray[my_idx];
+            calc_cs:= calc_cs + bm;
+            SysExArrayTemp[idx]:= bm;
+            inc(my_idx);
+          end;
+          msb:= SysExArray[my_idx];  // nach 7 Bytes folgt ein Byte mit allen MSBits
+          inc(my_idx);
+          calc_cs:= calc_cs + msb;
+          for idx:= bn downto 0 do begin
+            bm:= SysExArrayTemp[idx];
+            if (msb and 1) = 1 then
+              SysExArrayTemp[idx]:= bm or 128;
+            msb:= msb shr 1;
+          end;
+          for idx:= 0 to bn do begin
+            BlockBuffer8[my_adr]:= SysExArrayTemp[idx];
+            inc(my_adr);
+          end;
+        until (my_idx > 43);
+        block_page_cs:= SysExArray[my_idx];   // Prüfsumme über alle Datenbytes
+        calc_cs:= calc_cs and $7F;
+        if block_page_cs <> calc_cs then
+          MIDI_SendSysEx_Status(8)
+        else
+          MIDI_SendSysEx_Status(0);
+
+// #############################################################################
+// Anforderung: fertigen Block in Flash speichern ($21)
+// SysEx: F0 00 20 04 33 21 PP pp VV vv F7
+// PP pp = 14-Bit-Flash-Seiten-Nummer, 4096 Bytes pro Seite
+// VV vv = 14-Bit-Länge, max. 4096 Bytes pro Seite
+// #############################################################################
+
+      end else if (sysex_id = $21) then begin
+        my_idx:= 6;
+        if MIDI_GetSysEx_int(my_idx, my_param) then begin // Blocknummer
+          if MIDI_GetSysEx_int(my_idx, my_val) then begin // Länge
+            NB_BlockRcvMsg(my_param);
+            // aus im BlockArray zwischengespeicherten Block ins DF
+            DF_EraseWriteBlock(my_param, my_val);
+          end;
+          MIDI_SendSysEx_status(0);
+        end else
+          MIDI_SendSysEx_status(1);
+
+// #############################################################################
+// Anforderung GM2-Sound-Name Upper/Lower/Pedal ($10..$16)
+// wurde von DSP gesendet, kein ACK!
+// Befehlsformat:
+// SysEx: F0 00 20 04 33 1X <string> 00 F7      mit X = Layer-Nummer 0..6
+// #############################################################################
+(*
+      end else if (sysex_id >= $10) and (sysex_id <=  $16) then begin
+        my_idx:= 6;
+        temp_str:='';
+        repeat
+          bm:= SysExArray[my_idx];
+          if (bm = $F7) or (bm = $00) then
+            break;
+          if bm > 32 then  // Leerzeichen ignorieren
+            temp_str:= temp_str + char(bm);
+          inc(my_idx);
+        until (my_idx > 20);
+        // Index = 0=upper_0, 1=lower_0, 2=pedal_0, xxx, 4=upper_1, 5=lower_1, 6=pedal_1, xxx;
+        idx:= sysex_id - $10;
+        GM_VoiceNames[idx]:= temp_str;
+{$IFDEF DEBUG_SYSEX}
+        Serial3_sendstringCRLF('SYSEX VoiceName: ' + temp_str);
+{$ENDIF}
+*)
+// #############################################################################
+// Anforderung Versionsnummer 2 Bytes HHLL ($0F)
+// wurde von DSP gesendet, kein ACK!
+// SysEx: F0 00 20 04 33 0F HH LL F7
+// #############################################################################
+
+      end else if (sysex_id = $0F) then begin
+        hi(eep_BoardInfo.DSPversion):= SysExArray[6];
+        lo(eep_BoardInfo.DSPversion):= SysExArray[7];
+
+// #############################################################################
+// Anforderung Flash-Block-Seite ($1A, Antwort $1B)
+// SysEx: F0 00 20 04 33 1A PP pp LL ll F7
+// PP pp = 14Bit-Page-Nummer (00PPPPPP Pppppppp wird zu 0PPPPPPP 0ppppppp)
+// VV vv = 14Bit-Länge Bytes (00VVVVVV Vvvvvvvv wird zu 0VVVVVV 0vvvvvvv)
+// wir senden:
+// F0 00 20 04 33 1B PP pp VV vv <7+1 data> <7+1 data> ... CC F7
+// mit
+// CC = 7-Bit-Prüfsumme über alle Daten- und MSBytes
+// #############################################################################
+
+      end else if (sysex_id = $1A) then begin
+        if not MIDI_GetSysEx_int(my_idx, my_param) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        if not MIDI_GetSysEx_int(my_idx, my_count) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        DF_readblock(my_param, my_count);  // Block aus Flash in Buffer
+        MIDI_SendSysEx_header_ID($1B);
+        MIDI_SendSysEx_blockbuf(my_param, my_count);
+
+
+// #############################################################################
+// Anforderung EditPages ($1E, Antwort $1F)
+// SysEx: F0 00 20 04 33 1E 00 00 LL ll F7
+// VV vv = 14Bit-Page-Länge (00VVVVVV Vvvvvvvv wird zu 0VVVVVV 0vvvvvvv)
+// wir senden:
+// F0 00 20 04 33 1F 00 00 VV vv <7+1 data> <7+1 data> ... CC F7
+// mit
+// CC = 7-Bit-Prüfsumme über alle Daten- und MSBytes
+// #############################################################################
+
+      end else if (sysex_id = $1E) then begin
+        // Preset-Namen einfügen in IncDec-Button-Bereich
+        CString_to_PStringArr(CurrentPresetName,  @edit_array + c_PresetNameStrArr);
+        if not MIDI_GetSysEx_int(my_idx, my_param) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        if not MIDI_GetSysEx_int(my_idx, my_count) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        // gesamte EditPages in Buffer kopieren:
+        CopyBlock(@edit_array, @BlockBuffer8, sizeof(edit_array));
+        MIDI_SendSysEx_header_ID($1F);
+        MIDI_SendSysEx_blockbuf(my_param, my_count);
+        FillBlock(@edit_PresetNameStrTemp, 16, 0);
+
+// #############################################################################
+// Anforderung aktuelle MIDI-Custom-Page, c_midiarr_len Bytes ($30, Antwort $31)
+// #############################################################################
+
+      end else if (sysex_id = $30) then begin
+        if not MIDI_GetSysEx_int(my_idx, my_param) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        if not MIDI_GetSysEx_int(my_idx, my_count) then begin
+          MIDI_SendSysEx_Status(1);
+          exit;
+        end;
+        // gesamtes aktuelles MIDIset_Array in Buffer kopieren:
+        CopyBlock(@MIDIset, @BlockBuffer8, c_midicc_len);
+
+        MIDI_SendSysEx_header_ID($31);
+        MIDI_SendSysEx_blockbuf(my_param, my_count);
+
+// #############################################################################
+// ErrFlags abfragen und löschen ($01)
+// SysEx: F0 00 20 04 33 01 F7
+// #############################################################################
+
+      end else if (sysex_id = $01) then
+        MIDI_SendSysEx_status(0);
+    end;
+{$IFDEF DEBUG_SYSEX}
+  end else begin
+    Serial3_sendstring('SYSEX  (other): ');
+    my_idx:= 0;
+    repeat
+      bm:= SysExArray[my_idx];
+      Serial3_sendstring(ByteToHex(bm));
+      LCD_TWI_WriteChar(#32);
+      if (bm = $F7) then
+        break;
+      inc(my_idx);
+    until false or (my_idx = 255);
+    Serial3_CRLF;
+{$ENDIF}
+  end;
+end;
+
+// #############################################################################
+
+procedure MIDI_SysExReceived(sysex_byte: Byte);
+begin
+  if sysex_byte = $F0 then begin  // SysEx-Beginn, 8 Bit zulässig wg. SPI
+    SysExCount:= 0;
+    SysExActive:= true;
+    // innerhalb 50ms muss nächstes SyEx-Byte eintreffen
+    SetSysTimer(c_SysExTimer, 25);
+  end;
+  if SysExActive then begin
+    SysExArray[SysExCount]:= sysex_byte;
+    inctolimW(SysExCount, 255);
+    // innerhalb 50ms muss nächstes SyEx-Byte eintreffen
+    SetSysTimer(c_SysExTimer, 25);
+  end;
+  if (sysex_byte = $F7) then begin // vollständig, korrektes Ende
+    MIDI_DispatchSysEx;
+    SysExCount:= 0;
+    SysExActive:= false;
+  end;
+end;
+
+// #############################################################################
+//     ######  ##     ##  ######  ########  #######  ##     ##
+//    ##    ## ##     ## ##    ##    ##    ##     ## ###   ###
+//    ##       ##     ## ##          ##    ##     ## #### ####
+//    ##       ##     ##  ######     ##    ##     ## ## ### ##
+//    ##       ##     ##       ##    ##    ##     ## ##     ##
+//    ##    ## ##     ## ##    ##    ##    ##     ## ##     ##
+//     ######   #######   ######     ##     #######  ##     ## 
+// #############################################################################
+// #########################  MIDI-DISPATCHER CUSTOM  ##########################
+// #############################################################################
+
+procedure MIDIset_CheckTransposeTuning(const my_param: Integer);
+begin
+  if (my_param = 1355) or (my_param = 1395) then // Transpose
+    mv:= mv - 64;
+  if (my_param = 1391)  then // Generator Tuning
+    mv:= mv - 64 + 7;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure MIDI_Setval(my_param: Word);
+// Parameter auf Wert mv setzen, ggf. in echte Booleans für Buttons wandeln
+// CH in MIDIset_CHarray enthält auch Mode im oberen Nibble:
+// 0  (Limit to min/max)
+// 1  (Scale to min/max)
+// 2  (Ignore out of range)
+// 3  (Invert value)
+// 4  (Toggle value)
+// Hammond-Drawbar-Matrix muss vor apply_changes abgefangen werden,
+// sonst gehen Zwischenwerte verloren!
+
+var ch, cc, cc_min, cc_max, threshold: Byte;
+  mode: byte;
+  my_db, my_val, my_pos, temp_b: byte;
+  // last_ch, last_cc: byte;
+  my_idx: Word;
+begin
+  if valueInRange(my_param, 1000, 1751) then begin
+    SysLEDflash(50);
+    my_idx:= my_param - 1000;
+    ch:= MIDIset.CHs[my_idx]; // mit MODE-Nibble
+    cc:= MIDIset.CCs[my_idx];
+
+    case my_param of
+    1208, 1209, 1210:  // Hammond Specials
+      begin
+        my_pos:= (mv mod 9); // 0..8
+        my_db:= mv div 9;
+        my_val:= muldivbyte(my_pos, 158, 10);  //0..127
+        case my_param of  //
+        1208:  // Upper
+          begin
+            if valueinrange(my_db, 0, 8) then
+              NewEditIdxEvent(c_UpperDBs + my_db, my_val , c_midi_event_source);
+            edit_HammondDBUpperDecode:= mv;
+          end;
+        1209:  // Lower
+          begin
+            if valueinrange(my_db, 0, 8) then
+              NewEditIdxEvent(c_LowerDBs + my_db, my_val , c_midi_event_source);
+            edit_HammondDBLowerDecode:= mv;
+          end;
+        1210:  // Bass
+          begin
+            edit_PedalDBsetup:= 0; // nur 2 Drawbars, Umrechnung erzwingen
+            if my_db = 0 then
+              NewEditIdxEvent(c_PedalDB_B3_16, my_val , c_midi_event_source)
+            else if my_db = 1 then
+              NewEditIdxEvent(c_PedalDB_B3_8, my_val , c_midi_event_source);
+            edit_HammondDBPedalDecode:= mv;
+          end;
+        end;
+        exit; // nicht über apply_changes und PA_NewParamEvent!
+      end;
+
+    1211:  // Hammond Specials
+      begin
+        my_val:= edit_VibKnob and 1;
+        case mv of
+        0: // XB2 und XK
+          edit_VibKnob:= 0;
+        1: // XB2 und XK
+          edit_VibKnob:= 2;
+        2: // XB2 und XK
+          edit_VibKnob:= 4;
+        3: // XB2 und XK
+          edit_VibKnob:= 1;
+        4: // XB2 und XK
+          edit_VibKnob:= 3;
+        5: // XB2 und XK
+          edit_VibKnob:= 5;
+        $20: // XB3
+          edit_VibKnob:= 0 + my_val;
+        $40: // XB3
+          edit_VibKnob:= 2 + my_val;
+        $60: // XB3
+          edit_VibKnob:= 4 + my_val;
+        $7F: // XB3
+          edit_VibKnob:= edit_VibKnob or 1;
+        end;
+        NB_VibknobToVCbits;
+        edit_HammondVibKnobDecode:= mv;
+        event_array[c_VibKnob]:= c_midi_event_source;
+        exit; // nicht über apply_changes und PA_NewParamEvent!
+      end;
+    end;
+
+    mode:= ch shr 4; // oberes Nibble nach unten
+    cc_min:= MIDIset.CCmins[my_idx];
+    cc_max:= MIDIset.CCmaxs[my_idx];
+    threshold:= (cc_max + cc_min) div 2 ;  // Schaltschwelle für Tabs
+
+    case mode of // Limit, Scale, Ignore, Invert, Toggle
+    0:  // Limit to min/max
+      begin
+        mv:= ValueTrimLimit(mv, cc_min, cc_max);
+        MIDIset_CheckTransposeTuning(my_param);
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    1:  // Scale to min/max
+      begin
+        temp_b:= cc_max - cc_min;      // Wertebereich
+        mv:= mulDivByte(mv, temp_b, 127) + cc_min;
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    2: // Only when in range
+      // 1670, 1672 Disable Percussion, setzt MIDI_DisablePercussion
+      // 1680..1685 Vibrato-Knob, mv auf Parameter-Index umsetzen
+      // 1686..1689 FAST/STOP/SLOW/RUN, mv auf Parameter-Index umsetzen
+      begin
+        if valueInRange(mv, cc_min, cc_max) then
+          NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    3: // Invert value
+      begin
+        mv:= valueTrimLimit(mv, cc_min, cc_max);
+        mv:= cc_max + cc_min - mv;
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    4: // Toggle value
+      if (mv >= 64) then begin
+        temp_b:= edit_array[my_idx];
+        if temp_b > cc_min then
+          mv:= cc_min;
+        if temp_b < cc_max then
+          mv:= cc_max;
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    5: // Switch mit Schwelle, Mitte zwischen min und max
+      begin
+        if mv > threshold then
+          mv:= 127
+        else
+          mv:= 0;
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    6: // Inverted Switch mit Schwelle, Mitte zwischen min und max
+      begin
+        if mv > threshold then
+          mv:= 0
+        else
+          mv:= 127;
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    7: // Send ON only when in range
+      begin
+        if valueInRange(mv, cc_min, cc_max) then begin
+          mv:= 127;
+          NewParamEvent(my_param, mv, c_midi_event_source);
+        end;
+      end;
+    8: // Multiply by max div min
+      begin
+        if cc_min = 0 then
+          cc_min:= 1;
+        mv:= muldivByte(mv, cc_max, cc_min);
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    9: // Send ON when in range, Send OFF when not in range
+      begin
+        if valueInRange(mv, cc_min, cc_max) then
+          mv:= 127
+        else
+          mv:= 0;
+        NewParamEvent(my_param, mv, c_midi_event_source);
+      end;
+    10: // Event ON when = max, OFF when = min (exact match)
+      begin
+        if mv = cc_min then
+           NewParamEvent(my_param, 0, c_midi_event_source);
+        if mv = cc_max then
+           NewParamEvent(my_param, 127, c_midi_event_source);
+      end;
+    end;
+  end;
+end;
+
+// #############################################################################
+// ###                   MIDI-DISPATCHER CUSTOM ALLEGMEIN                    ###
+// #############################################################################
+
+procedure MIDI_Dispatch_custom;
+// wird angesprungen, sobald ein vollständiger MIDI-Datensatz
+// (zwei oder drei Bytes, ja nach Command-Byte) im FIFO ist.
+// MIDI-Daten können von beiden MIDI-Schnittstellen stammen,
+// aber auch von der PicoBlaze-CPU im FPGA (Keyboard/MIDI-ScanCore) selbst.
+// mcmd = Command isoliert,
+// mch = Channel isoliert,
+// mp = Controller-Nr,
+// mv = Controller-Wert
+var
+  my_param, rcvd_ch_cc, ch_cc: Word;
+  arr_idx: Integer;
+begin
+  // my_ch:= mch - edit_MIDI_Channel;
+  if (mcmd = $B0) and valueinRange(mch, edit_MIDI_Channel, edit_MIDI_Channel + 3) then begin
+    if (mp = 6) and (midi_nrpn_flags = 7) then begin
+      // NRPNs behandeln
+      for arr_idx:= 0 to 31 do
+        if midi_nrpn_W = MIDIset.NRPNs[arr_idx].NRPN then begin
+          my_param:= MIDIset.NRPNs[arr_idx].EditIdx + 1000;
+          if valueInRange(my_param, 1000, 1751) then // gültiger Index?
+            MIDI_Setval(my_param); // Limit/Scale/Toggle etc.
+          break;
+        end;
+    end else begin
+      // Upper bis Pedal Channel
+      // NEU: Gesamte sortierte Tabelle absuchen, wichtig für Mehrfachnennungen
+      // Diese liegen in der sortierten Tabelle direkt hintereinander.
+      if MIDIsortedCClen > 0 then begin
+        // Binäre Suche in sortierter Tabelle, < 5 us statt 40..120 us
+        LEDaux:= false; // LED2 ON
+        arr_idx:= MIDI_SearchCustomArrByCC((mch - edit_MIDI_Channel) and $0F, mp); // -1 wenn erfolglos
+        if arr_idx >= 0 then begin  // gefunden?
+          hi(rcvd_ch_cc):= (mch - edit_MIDI_Channel) and $0F;
+          lo(rcvd_ch_cc):= mp;
+          // weitere gleiche CH/CC können unterhalb oder oberhalb des gefundenen
+          // Index liegen. Rückwärts gehen, bis anderer CH_CC gefunden ist
+          repeat
+            dec(arr_idx);
+          until (arr_idx < 0) or (MIDIsortedCCrecords[arr_idx].CH_CC <> rcvd_ch_cc);
+          // der nächste Eintrag arr_idx + 1 ist wieder übereinstimmend,
+          // vorwärts gehen und senden, bis anderer CH_CC auftaucht
+          repeat
+            inc(arr_idx);
+            ch_cc:= MIDIsortedCCrecords[arr_idx].CH_CC;
+            if ch_cc = rcvd_ch_cc then
+              MIDI_Setval(MIDIsortedCCrecords[arr_idx].ParamIdx + 1000) // Limit/Scale/Toggle etc.
+            else
+              break;
+            // NB_SerialSendCCentry(arr_idx);
+          until (arr_idx > MIDIsortedCClen - 1);
+          LEDaux:= true; // LED2 OFF
+        end;
+      end;
+      // Sonderkanal Spezialfunktionen und Statusmeldungen über Parser
+      if (mch < edit_MIDI_Channel + 3) and PresetStoreRequest then begin
+        MIDI_SendBoolean(3, 90, false);  // OSC Store Request LED
+        PresetStoreRequest:= false;
+      end;
+    end;
+  end;
+end;
+
+// #############################################################################
+// ###         MIDI-DISPATCHER NI und Doepfer d3c Drawbars                   ###
+// #############################################################################
+
+procedure MIDI_Dispatch_ni;
+begin
+// mcmd = Command isoliert,
+// mch = Channel isoliert,
+// mp = Controller-Nr,
+// mv = Controller-Wert
+  if (mch=edit_MIDI_Channel) then
+    // d3c sendet immer auf Basiskanal 0
+    if (edit_MIDI_DisableProgramChange = 0) and (mcmd = $C0) then begin  // Program Change
+      if valueinrange(mp, 0, 11) then
+        NewEditIdxEvent(c_UpperVoice, mp, c_midi_event_source)
+      else if valueinrange(mp, 12, 23) then
+        NewEditIdxEvent(c_LowerVoice, mp - 12, c_midi_event_source);
+    end else
+      // Upper bis Pedal Channel
+      MIDI_Dispatch_custom;
+
+  if mch = edit_MIDI_Channel + 1 then
+    MIDI_Dispatch_custom;
+  if mch = edit_MIDI_Channel + 2 then
+    MIDI_Dispatch_custom;
+end;
+
+// #############################################################################
+// ###                        MIDI-Hilfsroutinen                             ###
+// #############################################################################
+
+function MIDI_setswell: Boolean;
+// Volume/Expression setzen, wird überall gebraucht
+// liefert TRUE wenn tatsächlich Schweller oder MasterVolume gemeint war
+begin
+  result:= false;
+  if mp = edit_VolumeCC then begin    // norm. 7, Overall Volume
+    edit_MasterVolume:= mv;
+    event_array[c_MasterVolume]:= c_midi_event_source;
+    result:= true;
+  end else if mp = edit_SwellCC then begin // 11, Expression Pedal
+    MIDIswell128:= mv;
+    SwellPedalControlledByMIDI:= true;
+    result:= true;
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure MIDI_SendAllOSCvals;
+begin
+  for idx:= 0 to c_common_preset_len - 1 do begin
+    MIDI_SendIndexedController(idx, edit_array[idx]);
+    event_array[idx]:= event_array[idx] and (not c_midi_event_source);  // Bit löschen
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure MIDI_getDSPinfo;
+begin
+  MIDI_SendNRPN($357E, 127); // Request DSP Version Info, get ID $0F SysExResponse
+  mDelay(50);
+  MIDI_Dispatch;   // empfange Sysex mit Info
+end;
+
+// #############################################################################
+//    ########  ####  ######  ########     ###    ########  ######  ##     ##
+//    ##     ##  ##  ##    ## ##     ##   ## ##      ##    ##    ## ##     ##
+//    ##     ##  ##  ##       ##     ##  ##   ##     ##    ##       ##     ##
+//    ##     ##  ##   ######  ########  ##     ##    ##    ##       #########
+//    ##     ##  ##        ## ##        #########    ##    ##       ##     ##
+//    ##     ##  ##  ##    ## ##        ##     ##    ##    ##    ## ##     ##
+//    ########  ####  ######  ##        ##     ##    ##     ######  ##     ##
+// #############################################################################
+// ########################### MIDI-DISPATCHER #################################
+// #############################################################################
+
+procedure MIDI_Dispatch;
+var 
+  mch_idx, midi_prog, mch_is_valid: Byte;
+begin
+  mch_idx:= mch - edit_MIDI_Channel;
+  if eep_BoardInfo.FPGAloaded then begin
+    while (not F_INT_FIFO) do begin
+      midi_fpga_dw:= SPI_fpga_xfer_32(c_MIDIreceiveReg, 0, false);
+      mv:= midi_fpga_bytes[0];     // Byte 2, Wert
+      mp:= midi_fpga_bytes[1];     // Byte 1, Parameter oder CC
+      ms:= midi_fpga_bytes[2];     // MIDI-Statusbyte
+      mcmd:= ms and $F0;
+      mch:= ms and $0F;
+      mbool:= mv > 63;
+      mch_is_valid:= valueinrange(mch, edit_MIDI_Channel, edit_MIDI_Channel + 3);
+      mch_idx:= mch - edit_MIDI_Channel;
+      // von Scan Driver, nur Kanal 1!
+      if (ms = $B0) and (mch_idx = 0) then
+        case mp of
+        $76:   // 118 = Split Mode setzen
+           begin
+             // 0 = PedalToLower, 1 = LowerToUpper
+             // 2 = PedalToUpper, 3 = LowerToUpper + 1 Oktave
+             // 4 = LowerToUpper +2 Oktaven
+             {$IFDEF DEBUG_SYSEX}
+               Serial1_sendstringCRLF('/ MIDI New Split Mode from FPGA: ' + ByteToSTrtrim(mv));
+             {$ENDIF}
+             NewEditIdxEvent(c_SplitMode, ValueTrimLimit(mv, 0, 5), c_control_event_source);
+             continue;
+           end;
+        $77: // 119
+           begin
+             {$IFDEF DEBUG_SYSEX}
+               Serial1_sendstringCRLF('/ MIDI New Split Point from FPGA: ' + ByteToSTrTrim(mv));
+             {$ENDIF}
+             NewEditIdxEvent(c_SplitPoint, ValueTrimLimit(mv, 11, 49), c_control_event_source);
+             continue;
+           end;
+        $78: // 120
+           begin
+             // umgesetzte SysEx-Daten mit CC $78 vom FPGA Scan Driver
+             // können nur auf Kanal 0 kommen!
+             MIDI_SysExReceived(mv);
+             continue;
+           end;
+        end;
+        
+      // auf Bank Selects reagieren
+      if mch_is_valid then begin // Channel für uns?
+        // Program Changes allgemein, kann ggf. in CC-Sets noch geändert werden
+        if edit_ShowCC then
+          MIDIset_CCdisplayRequest;
+        MIDI_received:= midi_fpga_dw and $00FFFFFF;  // 00, cmd, cc, val
+        if (edit_MIDI_DisableProgramChange = 0) and (mcmd = $C0) then begin
+          if (edit_MIDI_CC_Set <> 0) then begin
+            // nicht für NI B4
+            if (edit_MIDI_CC_Set = 1) and (mch_idx <= 1) then begin
+              // für Hammond XK/XB
+              if mp = 0 then
+                midi_prog:= 0 // Cancel-Taste bei XB2, Cancel-C bei XB3/XK3
+              else
+                // umgekehrte Reihenfolge, B-Preset = 11, A#-Preset = 10
+                midi_prog:= valueTrimLimit(11 - mp, 0, 15);
+            end else
+              midi_prog:= valueTrimLimit(mp, 0, 15);
+              
+            case mch of
+            edit_MIDI_Channel: //
+              begin
+                if edit_MIDI_CC_Set = 7 then begin// Hamichord sendet eigene Preset-Daten!
+                  edit_UpperVoice_old:= midi_prog;  // Laden verhindern
+                  InvalEditIdxEvent(c_UpperVoice, midi_prog);
+                end else
+                  NewEditIdxEvent(c_UpperVoice, midi_prog, c_midi_event_source);
+              end;
+            edit_MIDI_Channel + 1: //
+              begin
+                if edit_MIDI_CC_Set = 7 then begin // Hamichord sendet eigene Preset-Daten!
+                  edit_LowerVoice_old:= midi_prog;  // Laden verhindern
+                  InvalEditIdxEvent(c_LowerVoice, midi_prog);
+                end else
+                  NewEditIdxEvent(c_LowerVoice, midi_prog, c_midi_event_source);
+              end;
+            edit_MIDI_Channel + 2: //
+              NewEditIdxEvent(c_PedalVoice, midi_prog, c_midi_event_source);
+            end;
+          end;
+        end;
+
+        // Spezielle Controller außerhalb MIDI-CC-Set Interpreter, immer behandeln
+        if mcmd = $B0 then begin
+          if MIDI_setswell then
+            continue;
+          // Default: Bank Select LSB als Common Preset
+          if (mp = edit_PresetCC) and (mv < 100) then begin
+            NewEditIdxEvent(c_CommonPreset, mv, c_midi_event_source);
+            exit;
+          end;
+
+          case mp of
+          6:  // Set RPN/NRPN
+            begin
+              midi_data_entry:= mv;
+              SetBit(midi_rpn_flags, 2); // wird von auswertender Routine wieder auf 0 gesetzt
+              SetBit(midi_nrpn_flags, 2);
+              // RPN, Adressen (Bit 0, 1) und Daten (Bit 2) eingetroffen?
+              // hier nur Coarse Tuning = Transpose behandelt
+              if midi_rpn_flags = 7 then begin  // RPN vollständig?
+                if midi_rpn_W = $0002 then
+                  // Generator Transpose, +1 = 1 Halbton nach oben
+                  NewEditIdxEvent(c_GenTranspose, midi_data_entry - 64, c_midi_event_source);
+                midi_rpn_flags:= 0;
+              end;
+            end;
+          98:  // NRPN LSB
+            begin
+              midi_nrpn.lsb:= mv;
+              SetBit(midi_nrpn_flags, 0);
+            end;
+          99:  // NRPN MSB
+            begin
+              midi_nrpn.msb:= mv;
+              SetBit(midi_nrpn_flags, 1);
+              if mv = 127 then
+                midi_nrpn_flags:= 0;
+            end;
+          100:  // RPN LSB
+            begin
+              midi_rpn.lsb:= mv;
+              SetBit(midi_rpn_flags, 0);
+            end;
+          101:  // RPN MSB
+            begin
+              midi_rpn.msb:= mv;
+              SetBit(midi_rpn_flags, 1);
+              if mv = 127 then
+                midi_rpn_flags:= 0;
+            end;
+          end;
+
+          // Für Touchpad und Custom CC, abschalten mit val >
+          if (mp = 124) then begin
+            ConnectMode:= c_connect_osc_midi;
+            MIDI_DisablePercussion:= false;
+            if valueInRange(mv, 0, 10) then begin
+              edit_MIDI_CC_Set:= mv;  // CC Set
+              DF_LoadCCarray(edit_MIDI_CC_Set);        // Set laden
+              NB_CreateSortedCCarrays;
+              MIDI_SendSustainSostEnable;
+              if edit_MIDI_CC_Set = 8 then begin    // MIDI-CCs immer zurücksenden
+                BT_RST:= false;             // ESP8266 Reset aktiv
+                edit_MIDI_Option:= 0;       // Senden hardwaremäßig freigeben
+                FH_OrganParamsToFPGA;
+                edit_PedalDBsetup:= 1;
+                MIDI_SendController(0, 124, 127);  // highlight Button "Connect"
+                MIDI_SendController(3, 99, 127);   // Connect LED
+                edit_LogicalTab_PHRlowerOn:= false;
+                edit_GatingKnob:= 0;
+                event_array[c_GatingKnob]:= c_midi_event_source;
+                edit_OrganModel:= 0;
+                event_array[c_OrganModel]:= c_midi_event_source;
+                for idx:= 0 to 3 do
+                  edit_LogicalTabs_KeyingModes[idx]:= false;
+                MIDI_SendAllOSCvals;  // alle Werte!
+                mdelay(100);
+                MIDI_SendController(3, 103, 127);   // Page "B3"
+              end;
+            end;
+            event_array[c_MIDI_CC_Set]:= 0;
+          end;
+        end; // mcmd = $B0
+
+        // MIDI-CC-Sets:
+        //  'NI B4 d3c  ' , // 0, interpretiert, teilw. über Custom 'ccset0.dat'
+        //  'Hammond XK ' , // 1, interpretiert, teilw. über Custom 'ccset1.dat'
+        //  'Hammond SK ' , // 2, interpretiert, teilw. über Custom 'ccset2.dat'
+        //  'Versatile  ' , // 3, interpretiert, teilw. über Custom 'ccset3.dat'
+        //  'Nord C1/C2 ' , // 4, aus DF Core Block c_midicc_base +4, 'ccset4.dat'
+        //  'VoceDrawbar' , // 5, aus DF Core Block c_midicc_base +5, 'ccset5.dat'
+        //  'KeyB/Duo   ' , // 6, aus DF Core Block c_midicc_base +6, 'ccset6.dat'
+        //  'Hamichord  ' , // 7, aus DF Core Block c_midicc_base +7, 'ccset7.dat'
+        //  'KBP/Touchp ' , // 8, aus DF Core Block c_midicc_base +8, 'ccset8.dat'
+        //  'Custom 1   ' , // 9, aus DF Core Block c_midicc_base +9, 'ccset9.dat'
+        //  'Custom 2   ' );// 10, aus DF Core Block c_midicc_base +10,'ccset10.dat'
+        case edit_MIDI_CC_Set of
+          0: // NI B4
+            begin
+              MIDI_DisablePercussion:= false;
+              MIDI_Dispatch_ni;
+            end;
+          1, 2: // XK/XB
+            begin
+              MIDI_DisablePercussion:= false;
+              MIDI_Dispatch_custom;   // SK/XB/XK series
+            end;
+          3: // Sempra, hier unvollständig!
+            begin
+              MIDI_DisablePercussion:= false;
+              MIDI_Dispatch_custom; // TODO: MIDI_Dispatch_sempra
+            end
+        else
+          MIDI_Dispatch_custom;    // Touchpad und alle CC-only
+        end; // case
+      end;
+    end;
+    // Bei Sysex-Empfang wurde 50ms-Timer gestartet, wird mit jedem Byte
+    // wieder gesetzt. Wenn zu lange nichts kommt, ist SysEx abgestürzt.
+    if SysExActive and IsSystimerzero(c_SysExTimer) then begin
+{$IFDEF DEBUG_SYSEX}
+      Serial1_sendstringCRLF('/ MIDI SysEx: ### TimeOut Error ###');
+{$ENDIF}
+      MIDI_SendSysEx_status(1);
+      SysExActive:= false;
+      SysExCount:= 0;        // Timeout, verwerfen
+    end;
+  end;
+end;
+
+end.

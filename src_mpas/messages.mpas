@@ -1,0 +1,96 @@
+unit messages;
+
+uses lcd_twi, twi_systimer;
+
+const
+  s_save_dest: Array[0..6] of String[9] = (
+    'Preset   ',  // 0
+    'UpperDbV ',  // 1
+    'LowerDbV ',  // 2
+    'PedalDbV ',  // 3
+    'OrganMdl ',  // 4
+    'RotryMdl ',  // 5
+    'Defaults '   // 6
+    );
+
+  s_sdload = 'SD Load:';
+  s_save = 'Save ';
+  s_none = '(none)';
+  s_PresetNameStr0          = 'Startup/Live';
+  s_ErrStr                  = 'ERROR';
+  s_script_ended = 'Script done.';
+  
+  s_labelpreset = '/label_preset="';
+  s_osc_connect = 'OSC Connect...';
+
+procedure MSG_SaveTo(dest_str_idx: Word);
+procedure MSG_SaveDone;
+procedure MSG_MenuHeader(var my_str: String[15]);
+procedure MSG_MenuBottom(var my_str: String[15]);
+procedure MSG_BottomStr(var msg_str: String[15]);
+
+implementation
+
+procedure MSG_MenuHeader(var my_str: String[15]);
+// Display-Überschrift aus Array, Rest löschen und in zweite Zeile wechseln
+begin
+  if LCD_TWI_present then begin
+    LCD_TWI_XY(0, 0);
+    LCD_TWI_WriteStr(my_str);
+    LCD_TWI_ClrEOL;
+    LCD_TWI_XY(0, 1);
+  end;
+end;
+
+procedure MSG_BottomStr(var msg_str: String[15]);
+begin
+  if LCD_TWI_present then begin
+    LCD_TWI_XY( 0, 1);
+    LCD_TWI_WriteStr(msg_str);
+  end;
+end;
+
+procedure MSG_MenuBottom(var my_str: String[15]);
+// Display-Überschrift aus Array, Rest löschen und in zweite Zeile wechseln
+begin
+  if LCD_TWI_present then begin
+    MSG_BottomStr(my_str);
+    // LCD_TWI_WriteChar(#32);
+    LCD_TWI_WriteChar(#7);
+    LCD_TWI_ClrEOL;  // Rest der unteren Zeile löschen
+  end;
+end;
+
+procedure MSG_SaveTo(dest_str_idx: Word);
+begin
+  // Voices und edit_CommonPreset zum Kopieren auf andere Position
+  //  'Preset   ',  // 0
+  //  'UpperDbV ',  // 1
+  //  'LowerDbV ',  // 2
+  //  'PedalDbV ',  // 3
+  //  'OrganMdl ',  // 4
+  //  'RotryMdl ',  // 5
+  //  'Defaults '   // 6
+  if LCD_TWI_present then begin
+    LCD_TWI_Clr;
+    LCD_TWI_WriteStr(s_save);
+    LCD_TWI_WriteStr(s_save_dest[dest_str_idx]);
+    LCD_TWI_XY(0, 1);
+    LCD_TWI_WriteStr('to ');
+    if dest_str_idx < 4 then
+      LCD_TWI_WriteChar('#');
+  end;
+end;
+
+procedure MSG_SaveDone;
+begin
+  if LCD_TWI_present then begin
+    LCD_TWI_XY(0, 1);
+    LCD_TWI_WriteStr('done.');
+    LCD_TWI_ClrEol;
+    setSysTimer(c_DisplayTimer, 1000);
+  end;
+end;
+
+
+end.

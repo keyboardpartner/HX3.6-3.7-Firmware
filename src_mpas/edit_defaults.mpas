@@ -1,0 +1,907 @@
+unit edit_defaults;
+
+uses const_def;
+
+const
+// #############################################################################
+{$IFNDEF BOOTLOADER}
+// #############################################################################
+
+  def_username: String[15] = 'KBP NoName';
+
+{
+0  edit_PreampSwellType,
+1  edit_TG_TuningSet,
+2  edit_TG_Size,
+3  edit_TG_FixedTaperVal,
+4  edit_TG_WaveSet,
+5  edit_TG_Flutter,
+6  edit_TG_Leakage,
+7  edit_TG_tuning,
+8  edit_TG_CapSet,
+9  edit_TG_FilterFac
+
+Waveset: 0..3 Hammond 25-38% k2,
+4: Sinus 2% THD
+5: Sägezahn gefiltert für Strings oder Cheesy
+6: Sinus 12% k3 für Conn
+7: Sinus Square 8% k3, 5% k5
+}
+
+  def_UpperDBpresets: array[0..15] of Array [0..15] of byte = (
+    // 0   1   2   3   4   5   6   7   8   9  10  11  GM0 GM1 GM2 GM3  // GMx Overlay Voice #, 0 = OFF
+    (127,127,127,127,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Live
+    (127,127,127,127,127,127,127,127,127,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 1
+    (127,127,127,127,  0,  0,  0,  0,100,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 2
+    (127,100,127,100, 20,100, 50, 50,100,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 3
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 4
+    (127,100,127,100, 20,  8,  0, 50, 90,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 5
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 6
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 7
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 8
+    (127,100,127,100, 20,  8,  0,  0, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 9
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 10
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 11
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 12
+    (127,100,127,100, 20,  8,  0,  0, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 13
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Upper DBs Preset 14
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0)  // #0..11 Upper DBs Preset 15
+    );
+
+  def_LowerDBpresets: array[0..15] of Array [0..15] of byte = (
+    // 0   1   2   3   4   5   6   7   8   9  10  11  GM0 GM1 GM2 GM3  // GMx Voice #, 0 = OFF
+    (  0,  0,127,100, 20,  8,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Live
+    (  0,  0,127,100, 20,  8,  0,  0, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 1
+    (  0,  0,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 2
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 3
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 4
+    (127,100,127,100, 20,  8,  0,  0, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 5
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 6
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 7
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 8
+    (127,100,127,100, 20,  8,  0,  0, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 9
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 10
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 11
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 12
+    (127,100,127,100, 20,  8,  0,  0, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 13
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0), // #0..11 Lower DBs Preset 14
+    ( 70,100,127,100, 20,100, 80, 80, 50,  0,  0,  0,  0,  0,  0,  0)  // #0..11 Lower DBs Preset 15
+    );
+
+// 15 Werte werden in den unteren Teil der Edit-Tabelle geladen  // #2200..#2391
+  def_PedalDBpresets: array[0..15] of Array [0..15] of byte = (
+    // 0   1   2   3   4   5   6   7   8   9  10  11  GM0 GM1 GM2 GM3  // GMx Voice #, 0 = OFF
+    (127, 95, 76, 45, 27, 16,  9,  0,  0,  0,  0,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Live
+    (127, 80, 70, 40, 20, 16,  9,  0,  0,  0,  0,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 1
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 2
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 3
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 4
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 5
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 6
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 7
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 8
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 9
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 10
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 11
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 12
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 13
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0), // #0..11 Pedal DBs Preset 14
+    (127, 80, 70, 40, 20, 16,  9,  5,  3,  1,  1,  0,  0,  0,  0,  0)  // #0..11 Pedal DBs Preset 15
+    );
+
+
+  def_PedalDB4presets: array[0..15] of Array [0..3] of byte = (
+    // 0   1   2   3
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25), // #BD16, DB16H, DB8, DB8H
+    (120, 20,100, 25)  // #BD16, DB16H, DB8, DB8H
+    );
+
+  def_PedalDBfacs: Array[0..3] of Array [0..11] of Byte = (
+    // 0    1    2    3    4   5   6   7   8   9   10  11  // Drawbar
+    (  127, 60,  80,  45,  25, 15, 10, 0,  0,  0,  0,  0 ),
+    (  105, 122, 127, 95,  35, 20, 20, 0,  0,  0,  0,  0 ),
+    (  0,   0,   127, 100, 60, 30, 20, 20, 0,  0,  0,  0 ),
+    (  0,   0,   120, 127, 75, 65, 55, 55, 0,  0,  0,  0 )
+    );
+
+def_edit_defaults: Array[0..511] of byte = (
+  127, // #1000 Upper Drawbar 16
+  127, // #1001 Upper Drawbar 5 1/3
+  127, // #1002 Upper Drawbar 8
+  127, // #1003 Upper Drawbar 4
+  0, // #1004 Upper Drawbar 2 2/3
+  0, // #1005 Upper Drawbar 2
+  0, // #1006 Upper Drawbar 1 3/5
+  0, // #1007 Upper Drawbar 1 1/3
+  0, // #1008 Upper Drawbar 1
+  0, // #1009 Upper Mixture Drawbar 10
+  0, // #1010 Upper Mixture Drawbar 11
+  0, // #1011 Upper Mixture Drawbar 12
+  0, // #1012 (RFU)
+  0, // #1013 (RFU)
+  0, // #1014 (RFU)
+  0, // #1015 (RFU)
+  0, // #1016 Lower Drawbar 16
+  0, // #1017 Lower Drawbar 5 1/3
+  127, // #1018 Lower Drawbar 8
+  127, // #1019 Lower Drawbar 4
+  0, // #1020 Lower Drawbar 2 2/3
+  0, // #1021 Lower Drawbar 2
+  0, // #1022 Lower Drawbar 1 3/5
+  0, // #1023 Lower Drawbar 1 1/3
+  0, // #1024 Lower Drawbar 1
+  0, // #1025 Lower Mixture Drawbar 10
+  0, // #1026 Lower Mixture Drawbar 11
+  0, // #1027 Lower Mixture Drawbar 12
+  0, // #1028 (RFU)
+  0, // #1029 (RFU)
+  0, // #1030 (RFU)
+  0, // #1031 (RFU)
+  127, // #1032 Pedal Drawbar 16
+  95, // #1033 Pedal Drawbar 5 1/3
+  76, // #1034 Pedal Drawbar 8
+  45, // #1035 Pedal Drawbar 4
+  27, // #1036 Pedal Drawbar 2 2/3
+  16, // #1037 Pedal Drawbar 2
+  9, // #1038 Pedal Drawbar 1 3/5
+  3, // #1039 Pedal Drawbar 1 1/3
+  0, // #1040 Pedal Drawbar 1
+  0, // #1041 Pedal Mixture Drawbar 10
+  0, // #1042 Pedal Mixture Drawbar 11
+  0, // #1043 Pedal Mixture Drawbar 12
+  0, // #1044 (RFU)
+  0, // #1045 (RFU)
+  0, // #1046 (RFU)
+  0, // #1047 (RFU)
+  0, // #1048 Upper Attack
+  75, // #1049 Upper Decay
+  127, // #1050 Upper Sustain
+  0, // #1051 Upper Release
+  64, // #1052 Upper ADSR Harmonic Decay
+  0, // #1053 (RFU)
+  0, // #1054 (RFU)
+  0, // #1055 (RFU)
+  0, // #1056 Lower Attack
+  75, // #1057 Lower Decay
+  127, // #1058 Lower Sustain
+  0, // #1059 Lower Release
+  64, // #1060 Lower ADSR Harmonic Decay
+  0, // #1061 (RFU)
+  0, // #1062 (RFU)
+  0, // #1063 (RFU)
+  0, // #1064 Pedal Attack
+  75, // #1065 Pedal Decay
+  127, // #1066 Pedal Sustain
+  0, // #1067 Pedal Release
+  64, // #1068 Pedal ADSR Harmonic Decay
+  0, // #1069 (RFU)
+  0, // #1070 (RFU)
+  0, // #1071 (RFU)
+  120, // #1072 Pedal Drawbar 16 AutoMix
+  0, // #1073 Pedal Drawbar 16H AutoMix
+  100, // #1074 Pedal Drawbar 8 AutoMix
+  0, // #1075 Pedal Drawbar 8H AutoMix
+  0, // #1076 Pitchwheel MIDI Send
+  64, // #1077 Pitchwheel Rotary Control
+  64, // #1078 Modwheel MIDI Send
+  0, // #1079 Modwheel Rotary Control
+  100, // #1080 General Master Volume
+  30, // #1081 Rotary Simulation Tube Amp Gain
+  105, // #1082 Upper Manual Level
+  105, // #1083 Lower Manual Level
+  110, // #1084 Pedal Level
+  105, // #1085 Upper Dry/2ndVoice Level
+  80, // #1086 Overall Reverb Level
+  60, // #1087 Tone Pot Equ
+  100, // #1088 Trim Cap Swell
+  20, // #1089 Minimal Swell Level
+  20, // #1090 AO 28 Triode Distortion
+  70, // #1091 Swell Loudness Bass
+  40, // #1092 Swell Midrange Response
+  40, // #1093 Swell Midrange Shelving TonePot Fac
+  35, // #1094 Swell Final Response
+  50, // #1095 Swell Loudness Treble
+  0, // #1096 Upper Envelope Drawbar 16
+  0, // #1097 Upper Envelope Drawbar 5 1/3
+  0, // #1098 Upper Envelope Drawbar 8
+  0, // #1099 Upper Envelope Drawbar 4
+  0, // #1100 Upper Envelope Drawbar 2 2/3
+  0, // #1101 Upper Envelope Drawbar 2
+  0, // #1102 Upper Envelope Drawbar 1 3/5
+  0, // #1103 Upper Envelope Drawbar 1 1/3
+  0, // #1104 Upper Envelope Drawbar 1
+  0, // #1105 Upper Envelope Mixture Drawbar 10
+  0, // #1106 Upper Envelope Mixture Drawbar 11
+  0, // #1107 Upper Envelope Mixture Drawbar 12
+  0, // #1108 (RFU)
+  0, // #1109 (RFU)
+  0, // #1110 (RFU)
+  0, // #1111 (RFU)
+  90, // #1112 Equ Bass Control
+  25, // #1113 Equ Bass Frequency if FullParametric
+  30, // #1114 Equ Bass Peak/Q if FullParametric
+  90, // #1115 Equ Mid Control
+  40, // #1116 Equ Mid Frequency
+  50, // #1117 Equ Mid Peak/Q
+  64, // #1118 Equ Treble Control
+  80, // #1119 Equ Treble Frequency if FullParametric
+  64, // #1120 Equ Treble Peak/Q if FullParametric
+  0, // #1121 Equ FullParametric Enable
+  0, // #1122 Böhm Module Ext Rotary Volume Left
+  0, // #1123 Böhm Module Ext Rotary Volume Right
+  64, // #1124 Equ Bass Gain Pot Mid Position
+  64, // #1125 Equ Mid Gain Pot Mid Position
+  64, // #1126 Equ Treble Gain Pot Mid Position
+  64, // #1127 Perc/Dry Volume Mid Position
+  0, // #1128 Percussion ON
+  0, // #1129 Percussion SOFT
+  0, // #1130 Percussion FAST
+  0, // #1131 Percussion THIRD
+  0, // #1132 Vibrato Upper ON
+  0, // #1133 Vibrato Lower ON
+  255, // #1134 Leslie RUN
+  0, // #1135 Leslie FAST
+  0, // #1136 Tube Amp Bypass
+  0, // #1137 Rotary Speaker Bypass
+  0, // #1138 Phasing Rotor upper ON
+  0, // #1139 Phasing Rotor lower ON
+  0, // #1140 Reverb 1
+  255, // #1141 Reverb 2
+  0, // #1142 Add Pedal
+  0, // #1143 Keyboard Split ON
+  0, // #1144 Phasing Rotor
+  0, // #1145 Phasing Rotor Ensemble
+  0, // #1146 Phasing Rotor Celeste
+  0, // #1147 Phasing Rotor Fading
+  0, // #1148 Phasing Rotor Weak
+  0, // #1149 Phasing Rotor Deep
+  0, // #1150 Phasing Rotor Fast
+  0, // #1151 Phasing Rotor Delay
+  0, // #1152 TAB #24, H100 Mode
+  0, // #1153 TAB #25, Envelope Generator (EG) Mode
+  0, // #1154 TAB #26, EG Percussion Drawbar Mode
+  0, // #1155 TAB #27, EG TimeBend Drawbar Mode
+  0, // #1156 TAB #28, H100 2ndVoice (Perc Decay Bypass)
+  0, // #1157 TAB #29, H100 Harp Sustain
+  255, // #1158 TAB #30, EG Enables to Dry Channel
+  0, // #1159 TAB #31, Equalizer Bypass
+  0, // #1160 Upper Drawbar 16 to ADSR
+  0, // #1161 Upper Drawbar 5 1/3 to ADSR
+  0, // #1162 Upper Drawbar 8 to ADSR
+  0, // #1163 Upper Drawbar 4 to ADSR
+  0, // #1164 Upper Drawbar 2 2/3 to ADSR
+  0, // #1165 Upper Drawbar 2 to ADSR
+  0, // #1166 Upper Drawbar1 3/5 to ADSR
+  0, // #1167 Upper Drawbar 1 1/3 to ADSR
+  0, // #1168 Upper Drawbar 1 to ADSR
+  0, // #1169 Upper Mixture Drawbar 10 to ADSR
+  0, // #1170 Upper Mixture Drawbar 11 to ADSR
+  0, // #1171 Upper Mixture Drawbar 12 to ADSR
+  0, // #1172 Insert External Efx (HX3.7)
+  0, // #1173 (RFU)
+  0, // #1174 Octave Downshift Upper
+  0, // #1175 Octave Downshift Lower
+  255, // #1176 Lower Drawbar 16 to ADSR
+  255, // #1177 Lower Drawbar 5 1/3 to ADSR
+  255, // #1178 Lower Drawbar 8 to ADSR
+  255, // #1179 Lower Drawbar 4 to ADSR
+  255, // #1180 Lower Drawbar 2 2/3 to ADSR
+  255, // #1181 Lower Drawbar 2 to ADSR
+  255, // #1182 Lower Drawbar1 3/5 to ADSR
+  255, // #1183 Lower Drawbar 1 1/3 to ADSR
+  255, // #1184 Lower Drawbar 1 to ADSR
+  255, // #1185 Lower Mixture Drawbar 10 to ADSR
+  255, // #1186 Lower Mixture Drawbar 11 to ADSR
+  255, // #1187 Lower Mixture Drawbar 12 to ADSR
+  0, // #1188 (RFU)
+  0, // #1189 MIDI Upper Enable
+  0, // #1190 MIDI Lower Enable
+  0, // #1191 MIDI Pedal Enable
+  0, // #1192 Dec Overall/Common Preset (PresetName in edit array)
+  0, // #1193 Inc Overall/Common Preset (PresetName in edit array)
+  0, // #1194 Dec Upper Voice (PresetName in edit array)
+  0, // #1195 Inc Upper Voice (PresetName in edit array)
+  0, // #1196 Dec Lower Voice (PresetName in edit array)
+  0, // #1197 Inc Lower Voice (PresetName in edit array)
+  0, // #1198 Dec Pedal Voice (PresetName in edit array)
+  0, // #1199 Inc Pedal Voice (PresetName in edit array)
+  0, // #1200 Dec OrganModel (PresetName in edit array)
+  0, // #1201 Inc OrganModel (PresetName in edit array)
+  0, // #1202 Dec SpeakerModel (PresetName in edit array)
+  0, // #1203 Inc SpeakerModel (PresetName in edit array)
+  0, // #1204 Dec Transpose (PresetName in edit array)
+  0, // #1205 Inc Transpose (PresetName in edit array)
+  0, // #1206 (RFU) (PresetName in edit array)
+  0, // #1207 (RFU) (PresetName in edit array)
+  0, // #1208 Hammond DB Upper Decode
+  0, // #1209 Hammond DB Lower Decode
+  0, // #1210 Hammond DB Pedal Decode
+  0, // #1211 Hammond VibKnob Decode
+  0, // #1212 4 Btn V1
+  0, // #1213 4 Btn V2
+  255, // #1214 4 Btn V3
+  255, // #1215 4 Btn V/C, 6 Btn C1
+  0, // #1216 6 Btn C2
+  0, // #1217 6 Btn C3
+  0, // #1218 Single DB Destination U/L/P Toggle
+  0, // #1219 Single DB set to Upper
+  0, // #1220 Single DB set to Lower
+  0, // #1221 Single DB set to Pedal
+  0, // #1222 (RFU)
+  0, // #1223 (RFU)
+  0, // #1224 Upper GM Layer 1 Voice
+  0, // #1225 Upper GM Layer 1 Level
+  1, // #1226 Upper GM Layer 1 Harmonic
+  0, // #1227 Upper GM Layer 2 Voice
+  0, // #1228 Upper GM Layer 2 Level
+  1, // #1229 Upper GM Layer 2 Harmonic
+  7, // #1230 Upper GM Layer 2 Detune
+  0, // #1231 (RFU)
+  0, // #1232 Lower GM Layer 1 Voice
+  0, // #1233 Lower GM Layer 1 Level
+  1, // #1234 Lower GM Layer 1 Harmonic
+  0, // #1235 Lower GM Layer 2 Voice
+  0, // #1236 Lower GM Layer 2 Level
+  1, // #1237 Lower GM Layer 2 Harmonic
+  7, // #1238 Lower GM Layer 2 Detune
+  0, // #1239 (RFU)
+  0, // #1240 Pedal GM Layer 1 Voice
+  0, // #1241 Pedal GM Layer 1 Level
+  1, // #1242 Pedal GM Layer 1 Harmonic
+  0, // #1243 Pedal GM Layer 2 Voice
+  0, // #1244 Pedal GM Layer 2 Level
+  1, // #1245 Pedal GM Layer 2 Harmonic
+  7, // #1246 Pedal GM Layer 2 Detune
+  0, // #1247 Save Event Defaults
+  0, // #1248 Save Event Organ
+  0, // #1249 Save Event Speaker/Rotary
+  0, // #1250 (RFU)
+  0, // #1251 (RFU)
+  0, // #1252 Save Event Common
+  0, // #1253 Save Event Upper
+  0, // #1254 Save Event Lower
+  0, // #1255 Save Event Pedal
+  0, // #1256
+  0, // #1257 (RFU)
+  0, // #1258 (RFU)
+  0, // #1259 (RFU)
+  0, // #1260 (RFU)
+  0, // #1261 Gating Mode Knob (MenuPanel)
+  0, // #1262 Percussion Knob (MenuPanel)
+  0, // #1263 Reverb Knob (MenuPanel)
+  5, // #1264 Vibrato Knob
+  0, // #1265 Organ Model
+  0, // #1266 Rotary Speaker Model
+  0, // #1267 Upper Preset Limit
+  0, // #1268 Overall Preset (Temp)
+  0, // #1269 Upper Voice
+  0, // #1270 Lower Voice
+  0, // #1271 Pedal Voice
+  110, // #1272 Level Busbar 16
+  115, // #1273 Level Busbar 5 1/3
+  115, // #1274 Level Busbar 8
+  115, // #1275 Level Busbar 4
+  115, // #1276 Level Busbar 2 2/3
+  110, // #1277 Level Busbar 2
+  110, // #1278 Level Busbar 1 3/5
+  110, // #1279 Level Busbar 1 1/3
+  115, // #1280 Level Busbar 1
+  105, // #1281 Level Busbar 10
+  100, // #1282 Level Busbar 11
+  100, // #1283 Level Busbar 12
+  100, // #1284 Level Busbar 13
+  100, // #1285 Level Busbar 14
+  100, // #1286 Level Busbar 15
+  100, // #1287 (RFU)
+  0, // #1288 Note Offset Busbar 16
+  19, // #1289 Note Offset Busbar 5 1/3
+  12, // #1290 Note Offset Busbar 8
+  24, // #1291 Note Offset Busbar 4
+  31, // #1292 Note Offset Busbar 2 2/3
+  36, // #1293 Note Offset Busbar 2
+  40, // #1294 Note Offset Busbar 1 3/5
+  43, // #1295 Note Offset Busbar 1 1/3
+  48, // #1296 Note Offset Busbar 1
+  46, // #1297 Note Offset Busbar 10
+  50, // #1298 Note Offset Busbar 11
+  51, // #1299 Note Offset Busbar 12
+  54, // #1300 Note Offset Busbar 13
+  55, // #1301 Note Offset Busbar 14
+  44, // #1302 Note Offset Busbar 15
+  0, // #1303 (RFU)
+  0, // #1304 (RFU)
+  0, // #1305 (RFU)
+  0, // #1306 (RFU)
+  0, // #1307 (RFU)
+  0, // #1308 (RFU)
+  0, // #1309 (RFU)
+  0, // #1310 (RFU)
+  0, // #1311 (RFU)
+  0, // #1312 (RFU)
+  0, // #1313 (RFU)
+  0, // #1314 (RFU)
+  0, // #1315 (RFU)
+  0, // #1316 (RFU)
+  0, // #1317 (RFU)
+  0, // #1318 (RFU)
+  0, // #1319 (RFU)
+  90, // #1320 Pre-Emphasis (Treble Gain)
+  92, // #1321 LC Line Age/AM Amplitude Modulation
+  25, // #1322 LC Line Feedback
+  30, // #1323 LC Line Reflection
+  82, // #1324 LC Line Response Cutoff Frequency
+  40, // #1325 LC PhaseLk/Line Cutoff Shelving Level
+  78, // #1326 Scanner Gearing (Vib Frequ)
+  85, // #1327 Chorus Dry (Bypass) Level
+  70, // #1328 Chorus Wet (Scanner) Level
+  30, // #1329 Modulation V1/C1
+  55, // #1330 Modulation V2/C2
+  80, // #1331 Modulation V3/C3
+  30, // #1332 Modulation Chorus Enhance
+  52, // #1333 Scanner Segment Flutter
+  71, // #1334 Preemphasis Highpass Cutoff Frequ
+  103, // #1335 Modulation Slope, Amp Noise
+  14, // #1336 PHR Speed Vari Slow (Temp)
+  136, // #1337 PHR Speed Vari Fast (Temp)
+  10, // #1338 PHR Speed Slow (Temp)
+  100, // #1339 PHR Feedback (Temp)
+  118, // #1340 PHR Level Ph1 (Temp)
+  144, // #1341 PHR Level Ph2 (Temp)
+  90, // #1342 PHR Level Ph3 (Temp)
+  50, // #1343 PHR Level Dry (Temp)
+  11, // #1344 PHR Feedback Invert (Temp)
+  10, // #1345 PHR Ramp Delay (Temp)
+  33, // #1346 PHR Mod Vari Ph1 (Temp)
+  70, // #1347 PHR Mod Vari Ph2 (Temp)
+  44, // #1348 PHR Mod Vari Ph3 (Temp)
+  0, // #1349 PHR Mod Slow Ph1 (Temp)
+  0, // #1350 PHR Mod Slow Ph2 (Temp)
+  0, // #1351 PHR Mod Slow Ph3 (Temp)
+  0, // #1352 (RFU)
+  24, // #1353 Keyboard Split Point if ON
+  0, // #1354 Keyboard Split Mode
+  0, // #1355 Keyboard Transpose
+  0, // #1356 Contact Early Action (Fatar Keybed only)
+  255, // #1357 No 1' Drawbar when Perc ON
+  2, // #1358 Drawbar 16' Foldback Mode
+  255, // #1359 Higher Foldback
+  4, // #1360 Contact Spring Flex
+  7, // #1361 Contact Spring Damping
+  255, // #1362 Percussion Enable On Live DB only
+  20, // #1363 Fatar Velocity Factor
+  0, // #1364 Lubed Contacts (less click amount if ON)
+  0, // #1365 TG Ri (internal impedance) enable
+  0, // #1366 (RFU)
+  0, // #1367 (RFU)
+  0, // #1368 MIDI Channel
+  0, // #1369 MIDI Option
+  8, // #1370 MIDI CC Set
+  11, // #1371 MIDI Swell CC
+  7, // #1372 MIDI Volume CC
+  7, // #1373 MIDI Local Enable
+  32, // #1374 MIDI Preset CC
+  0, // #1375 MIDI Show CC
+  0, // #1376 MIDI Disable Program Change
+  0, // #1377 MIDI Enable VK77 Sysex Rcv
+  0, // #1378 (RFU)
+  0, // #1379 (RFU)
+  0, // #1380 (RFU)
+  0, // #1381 (RFU)
+  0, // #1382 (RFU)
+  0, // #1383 (RFU)
+  0, // #1384 Preamp Swell Type
+  0, // #1385 TG Tuning Set
+  91, // #1386 TG Size
+  32, // #1387 TG Taper Value/Multiplier
+  1, // #1388 TG WaveSet
+  7, // #1389 TG Flutter
+  3, // #1390 TG Leakage
+  7, // #1391 TG Tuning
+  1, // #1392 TG Cap Set/Tapering
+  35, // #1393 TG LC Filter Fac
+  23, // #1394 TG Bottom 16' Octave Taper Val
+  0, // #1395 Generator/MIDI IN Transpose
+  0, // #1396 Generator Model Limit
+  255, // #1397 Organ Upper Manual Enable
+  255, // #1398 Organ Lower Manual Enable
+  255, // #1399 Organ Pedal Enable
+  63, // #1400 Reverb Level 1
+  89, // #1401 Reverb Level 2
+  115, // #1402 Reverb Level 3
+  0, // #1403 (RFU)
+  0, // #1404 (RFU)
+  0, // #1405 (RFU)
+  0, // #1406 (RFU)
+  0, // #1407 (RFU)
+  0, // #1408 (RFU)
+  0, // #1409 (RFU)
+  0, // #1410 (RFU)
+  0, // #1411 (RFU)
+  0, // #1412 (RFU)
+  0, // #1413 (RFU)
+  0, // #1414 (RFU)
+  0, // #1415 (RFU)
+  127, // #1416 Mixt DB 10, Level from Busbar 9
+  127, // #1417 Mixt DB 10, Level from Busbar 10
+  0, // #1418 Mixt DB 10, Level from Busbar 11
+  0, // #1419 Mixt DB 10, Level from Busbar 12
+  0, // #1420 Mixt DB 10, Level from Busbar 13
+  0, // #1421 Mixt DB 10, Level from Busbar 14
+  0, // #1422 (RFU)
+  0, // #1423 (RFU)
+  0, // #1424 Mixt DB 11, Level from Busbar 9
+  0, // #1425 Mixt DB 11, Level from Busbar 10
+  127, // #1426 Mixt DB 11, Level from Busbar 11
+  127, // #1427 Mixt DB 11, Level from Busbar 12
+  0, // #1428 Mixt DB 11, Level from Busbar 13
+  0, // #1429 Mixt DB 11, Level from Busbar 14
+  0, // #1430 (RFU)
+  0, // #1431 (RFU)
+  0, // #1432 Mixt DB 12, Level from Busbar 9
+  0, // #1433 Mixt DB 12, Level from Busbar 10
+  0, // #1434 Mixt DB 12, Level from Busbar 11
+  0, // #1435 Mixt DB 12, Level from Busbar 12
+  0, // #1436 Mixt DB 12, Level from Busbar 13
+  127, // #1437 Mixt DB 12, Level from Busbar 14
+  0, // #1438 (RFU)
+  0, // #1439 (RFU)
+  0, // #1440 (RFU)
+  0, // #1441 (RFU)
+  0, // #1442 (RFU)
+  0, // #1443 (RFU)
+  0, // #1444 (RFU)
+  0, // #1445 (RFU)
+  0, // #1446 (RFU)
+  0, // #1447 (RFU)
+  15, // #1448 Rotary Live Control, Horn Slow Time
+  14, // #1449 Rotary Live Control, Rotor Slow Time
+  91, // #1450 Rotary Live Control, Horn Fast Time
+  87, // #1451 Rotary Live Control, Rotor Fast Time
+  2, // #1452 Rotary Live Control, Horn Ramp Up Time
+  12, // #1453 Rotary Live Control, Rotor Ramp Up Time
+  3, // #1454 Rotary Live Control, Horn Ramp Down Time
+  20, // #1455 Rotary Live Control, Rotor Ramp Down Time
+  58, // #1456 Rotary Live Control, Speaker Throb Amount
+  80, // #1457 Rotary Live Control, Speaker Spread
+  60, // #1458 Rotary Live Control, Speaker Balance
+  255, // #1459 (RFU)
+  3, // #1460 Rotary Amp: Tube A, old 6550 .. new EL34
+  3, // #1461 Rotary Amp: Tube B, old 6550 .. new EL34
+  0, // #1462 (RFU)
+  0, // #1463 (RFU)
+  0, // #1464 ENA_CONT_BITS (LSB), Drawbar 7..0
+  0, // #1465 ENA_CONT_BITS (MSB), Drawbar 11..8
+  0, // #1466 ENA_ENV_DB_BITS (LSB), Drawbar 7..0
+  0, // #1467 ENA_ENV_DB_BITS (MSB), Drawbar 11..8
+  0, // #1468 ENA_ENV_FULL_BITS (LSB), Drawbar 7..0
+  0, // #1469 ENA_ENV_FULL_BITS (MSB), Drawbar 11..8
+  0, // #1470 ENV_TO_DRY_BITS (LSB), Drawbar 7..0
+  0, // #1471 ENV_TO_DRY_BITS (MSB), Drawbar 11..8
+  0, // #1472 ENA_CONT_PERC_BITS (LSB), Drawbar 7..0
+  0, // #1473 ENA_CONT_PERC_BITS (MSB), Drawbar 11..8
+  0, // #1474 ENA_ENV_PERCMODE_BITS (LSB), Drawbar 7..0
+  0, // #1475 ENA_ENV_PERCMODE_BITS (MSB), Drawbar 11..8
+  0, // #1476 ENA_ENV_ADSRMODE_BITS (LSB), Drawbar 7..0
+  0, // #1477 ENA_ENV_ADSRMODE_BITS (MSB), Drawbar 11..8
+  0, // #1478 (RFU)
+  0, // #1479 (RFU)
+  100, // #1480 Perc Norm Level
+  75, // #1481 Perc Soft Level
+  55, // #1482 Perc Long Time
+  36, // #1483 Perc Short Time
+  64, // #1484 Perc Muted Level
+  0, // #1485 (RFU)
+  63, // #1486 Perc Precharge Time
+  255, // #1487 Perc Ena on Live DB only
+  0, // #1488 (RFU)
+  0, // #1489 (RFU)
+  105, // #1490 GM Synth Output Mix Level
+  80, // #1491 Organ Output Mix Level
+  75, // #1492 H100 Harp Sustain Time
+  60, // #1493 H100 2nd Voice Level
+  0, // #1494 (RFU)
+  15, // #1495 LED Dimmer
+  0, // #1496 (RFU)
+  0, // #1497 Vibrato Knob Mode
+  7, // #1498 CommonPreset Save/Restore Mask
+  0, // #1499 (RFU)
+  0, // #1500 (RFU)
+  20, // #1501 Various Configurations 1
+  1, // #1502 Various Configurations 2
+  1, // #1503 ADC Configuration
+  0, // #1504 1st DB Set Voice Number (enabled when 0..15)
+  40, // #1505 2nd DB Set Voice Number (enabled when 1..15)
+  0, // #1506 Pedal Drawbar Configuration
+  100, // #1507 ADC Scaling
+  0, // #1508 ADC Hysteresis
+  0, // #1509 HX3 Device Type
+  c_CurrentPresetStructureVersion, // #1510 Preset/EEPROM Structure Version
+  $A5  // #1511 Magic Flag
+);
+
+  def_PhasingRotorSets: Array[0..7] of Array[0..15] of byte = (
+    (                                    // Preset 0, WersiVoice
+    14,                                  // Speed Vari TDA1022, Slow
+    136,                                 // Speed Vari TDA1022, Fast
+    10,                                  // Speed Slow TDA1022
+    100,                                 // Feedback
+    118, 144, 90,                        // Level Phase 1..3
+    50,                                  // Level Dry
+    %00001011,                           // Feedback Invert (3), Filter (1..0)
+    10,                                  // Ramp Delay
+    33, 70, 44,                          // Mod Vari Phase 1..3
+    0, 0, 0),                            // Mod Slow Phase 1..3
+
+    (                                    // Preset nicht benutzt!     // #2516 ff.
+    14,                                  // Speed Vari TDA1022, Slow
+    144,                                 // Speed Vari TDA1022, Fast
+    10,                                  // Speed Slow TDA1022
+    164,                                 // Feedback
+    118, 144, 117,                       // Level Phase 1..3
+    50,                                  // Level Dry
+    %00001000,                           // Feedback Invert (3), Filter (1..0)
+    10,                                  // Ramp Delay
+    35, 40, 24,                          // Mod Vari Phase 1..3
+    0, 0, 0),                            // Mod Slow Phase 1..3
+
+    (                                    // Preset 2 Böhm Rotor Slow/Fast     // #2532 ff.
+    14,                                  // Speed Vari TDA1022, Slow
+    144,                                 // Speed Vari TDA1022, Fast
+    10,                                  // Speed Slow TDA1022
+    63,                                  // Feedback
+    118, 144, 90,                        // Level Phase 1..3
+    50,                                  // Level Dry
+    %00001011,                           // Feedback Invert (3), Filter (1..0)
+    10,                                  // Ramp Delay
+    18, 64, 44,                          // Mod Vari Phase 1..3
+    0, 0, 0),                            // Mod Slow Phase 1..3
+
+    (                                    // Preset 3 Ensemble       // #2548 ff.
+    136,                                 // Speed Vari TDA1022, Slow
+    136,                                 // Speed Vari TDA1022, Fast
+    5,                                   // Speed Slow TDA1022
+    51,                                  // Feedback
+    122, 122, 122,                       // Level Phase 1..3
+    30,                                  // Level Dry
+    %00001000,                           // Feedback Invert (3), Filter (1..0)
+    15,                                  // Ramp Delay
+    22, 20, 21,                          // Mod Vari Phase 1..3
+    103, 120, 145),                      // Mod Slow Phase 1..3
+
+    (                                    // Preset 4 Celeste       // #2564 ff.
+    136,                                 // Speed Vari TDA1022, Slow
+    136,                                 // Speed Vari TDA1022, Fast
+    5,                                   // Speed Slow TDA1022
+    130,                                 // Feedback
+    122, 122, 122,                       // Level Phase 1..3
+    30,                                  // Level Dry
+    %00001011,                           // Feedback Invert (3), Filter (1..0)
+    15,                                  // Ramp Delay
+    53, 53, 51,                          // Mod Vari Phase 1..3
+    121, 119, 122),                      // Mod Slow Phase 1..3
+
+    (                                    // Preset 5 Fading       // #2580 ff.
+    9,                                   // Speed Vari TDA1022, Fast
+    14,                                  // Speed Vari TDA1022, Slow
+    3,                                   // Speed Slow TDA1022
+    130,                                 // Feedback
+    122, 122, 122,                       // Level Phase 1..3
+    80,                                  // Level Dry
+    %00000011,                           // Feedback Invert (3), Filter (1..0)
+    15,                                  // Ramp Delay
+    85, 85, 85,                          // Mod Vari Phase 1..3
+    97, 0, 0),                           // Mod Slow Phase 1..3
+
+    (                                    // Preset 6 Vibrato 1, dünn// #2596 ff.
+    128,                                 // Speed Vari TDA1022, Slow
+    135,                                 // Speed Vari TDA1022, Fast
+    10,                                  // Speed Slow TDA1022
+    90,                                  // Feedback
+    160, 70,  0,                         // Level Phase 1..3
+    63,                                  // Level Dry
+    %00000000,                           // Feedback Invert (3), Filter (1..0)
+    15,                                  // Ramp Delay
+    40, 25,  0,                          // Mod Vari Phase 1..3
+    0, 0, 0),                            // Mod Slow Phase 1..3
+
+    (                                    // Preset 7 Vibrato 2, X-66// #2612
+    133,                                 // Speed Vari TDA1022, Slow
+    142,                                 // Speed Vari TDA1022, Fast
+    10,                                  // Speed Slow TDA1022
+    20,                                  // Feedback
+    170, 30, 0,                          // Level Phase 1..3
+    60,                                  // Level Dry
+    %00001000,                           // Feedback Invert (3), Filter (1..0)
+    15,                                  // Ramp Delay
+    35, 20,  0,                          // Mod Vari Phase 1..3
+    0, 0, 0)                             // Mod Slow Phase 1..3
+    );
+
+// #############################################################################
+
+
+  def_LeslieInits: Array[0..63] of Byte = (
+    2,    // für TubeAmpCurveA, später überschrieben mit Volume
+    3,    // für TubeAmpCurveB, später überschrieben
+    0,    // später überschrieben mit Speed
+    0,    // später überschrieben
+    200,  // +4 Lvl Input
+    180,  // +5 Lvl Horn
+    235,  // +6 Lvl Rotor
+    200,  // +7 Near Refl level
+    170,  // +8 Room Refl level
+    50,          // +9  Crossover Frequ (51 = 800 Hz)
+    20,          // +10 Throb Highpass Frequency Rotor
+    150,  // +11 Room Initial Delay
+    35,  // +12 Diffuse Allpass Delay Near
+    130,  // +13 Diffuse Allpass Delay Room
+    45,  // +14 Diffuse Rotor Near
+    160,  // +15 Diffuse Rotor Room
+    180,  // +16 LFO Mod Horn Main Left       ###  SPI 192  ###
+    180,  // +17 LFO Mod Horn Main Right
+    170,  // +18 LFO Mod Horn Refl 1 Left  Near + Cab 4x
+    170,  // +19 LFO Mod Horn Refl 1 Right Near - Cab 4x
+    175,  // +20 LFO Mod Horn Refl 2 Left  Far
+    175,  // +21 LFO Mod Horn Refl 2 Right Far
+    200,  // +22 LFO Mod Horn Throb Left  2 kHz
+    200,  // +23 LFO Mod Horn Throb Right 2 kHz
+    125,  // +24 LFO Mod Horn Cab 4x
+    175,  // +25 LFO Mod Rotor Main
+    170,  // +26 LFO Mod Rotor Refl
+    155,  // +27 LFO Mod Rotor Throb 200 Hz
+    0,    // +28 Invert Horn Phase
+    0,    // n.v.
+    0,    // n.v.
+    0,    // n.v.
+    // nächste 12 Werte nicht mehr benutzt ab FPGA 10112015
+    0,    // LFO Add' Delay Offset Horn Main Left ###  SPI 208 $D0 ###
+    0,          // LFO Add' Delay Offset Horn Main Right
+    0,          // LFO Add' Delay Offset Horn Cab 4x
+    0,          // LFO Add' Delay Offset Horn Refl 1 Left  Near  + Cab 4x
+    0,          // LFO Add' Delay Offset Horn Refl 1 Right Near - Cab 4x
+    0,          // LFO Add' Delay Offset Horn Refl 2 Left  Far
+    0,          // LFO Add' Delay Offset Horn Refl 2 Right Far
+    0,          // LFO Add' Value Offset Horn Throb Left  2 kHz ###
+    0,          // LFO Add' Value Offset Horn Throb Right 2 kHz ###
+    0,    // LFO Add' Delay Offset Rotor Main
+    0,    // LFO Add' Delay Offset Rotor Refl
+    0,    // LFO Add' Value Offset Rotor Throb 200 Hz  ###
+    0,    // n.v.
+    0,    // n.v.
+    0,    // n.v.
+    0,    // n.v.
+    0,          // +48 LFO Phase Offset Horn Main Left (+ Spread)
+    80,          // +49 LFO Phase Offset Horn Main Right
+    65,   // +50 LFO Phase Offset Horn Refl 1 Left  Near + Cab 4x (+ Spread)
+    145,  // +51 LFO Phase Offset Horn Refl 1 Right Near - Cab 4x
+    140,  // +52 LFO Phase Offset Horn Refl 2 Left  Far (+ Spread)
+    220,  // +53 LFO Phase Offset Horn Refl 2 Right Far
+    20,   // +54 LFO Level Offset Horn Throb Left  2 kHz (+ Spread)
+    100,  // +55 LFO Level Offset Horn Throb Right 2 kHz ###
+    85,   // +56 LFO Phase Offset Horn Cab 4x
+    0,    // +57 LFO Phase Offset Rotor Main
+    80,   // +58 LFO Phase Offset Rotor Refl
+    175,  // +59 LFO Level Offset Rotor Throb 200 Hz
+    0,    // +60 unused
+    0,    // n.v.
+    0,    // n.v.
+    0     // n.v.
+  );
+  
+  // ggf. andere als vorgegebene Voreinstellungs-Reihenfolge
+  def_OrganModelAssignments: Array[0..15] of Byte = (
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+
+  def_SpeakerModelAssignments: Array[0..15] of Byte = (
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    
+    
+  def_ButtonRemaps: Array[0..95] of byte = (
+    // Panel 0, Input 0..15
+    c_map_voice_upr, c_map_voice_upr, c_map_voice_upr, c_map_voice_upr,
+    c_map_voice_upr, c_map_voice_upr, c_map_voice_upr, c_map_voice_upr,
+    c_map_voice_upr, c_map_voice_upr, c_map_voice_upr, c_map_voice_upr,
+    c_map_voice_upr, c_map_voice_upr, c_map_voice_upr, c_map_voice_upr,
+    // Panel 1, Input 16..31
+    c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr,
+    c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr,
+    c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr,
+    c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr, c_map_voice_lwr,
+    // Panel 2 (onboard), Input 32..47
+    0, 1, 2, 3, 4, 5, 6, 7,                          // Panel 2 obere Reihe
+    84, 85, 86, 87,                                  // Vib/Preset Btns
+    12, 13, 14, 15,                                  // Panel 2 untere Reihe
+    // Panel 3, Input 48..63
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    // Panel 4, Input 64..79
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    // Panel 5, Input 80..96
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end
+  );
+
+  def_ButtonModes: array[0..95] of Boolean = (
+    false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,
+    false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,
+    false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,
+    false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,
+    false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,
+    false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false
+  );
+
+  def_BtnRemaps_XB: Array[0..31] of byte= (
+    15, 89, 88, 14,  // Split auf SOLO
+    31, 9, c_map_none, c_map_none,           // Equ Bypass, Rotary Spkr Bypass
+    84, 85, 86, 87,                          // Vib Btns
+    12, 13, 1, 2,                            // Reverb 1/2, Perc Soft/Fast
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end
+    );
+
+
+  def_AnalogRemaps : Array[0..87] of byte = (
+    0,1,2,3,4,5,6,7,8,                   // #0..#8 Upper DBs
+    80,                                  // #9 Master Volume
+    81,                                  // #10 Leslie Volume
+    c_map_none,                          // #11 nicht belegt (war mk4 Schweller)
+    16,17,18,19,20,21,22,23,24,          // #12..#20 Lower DBs
+    72,74,                               // #21, #22 Pedal DBs
+    64+3,                                // #23 Pedal ADSR Release
+    // Eintrag #24, ab hier SR-MPX-Eingang
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end,
+    c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end, c_map_end
+  );
+
+
+  def_SAM_RevDSPvals: array[0..5] of Array[0..3] of byte = (
+    // eep_SAMreverbPrgms[@eep_SAM_RevDSP_Init]: Array[0..3] of byte =
+    (0, 2, 3, 3),
+    // eep_SAMreverbTimes
+    (0, $40, $30, $40),
+    // SAM55004 _LiveMic_Effect_RevPreHP, $40 = 600 Hz, $7F =1,2kHz
+    (0, $40, $30, $10),
+    // SAM55004 _LiveMic_Effect_RevHDamp, $7F = max.
+    (0, $60, $40, $20),
+    // SAM55004 _LiveMic_Effect_RevToneGain, $40 = 0dB, $7F= +6dB
+    (0, $50, $50, $40),
+    // SAM55004 _LiveMic_Effect_RevToneFreq, $00 = 800 Hz, $7F = 3kHz
+    (0, $40, $30, $30)
+  );
+  
+{$ELSE}
+  def_dummy: Word = 0;
+// #############################################################################
+{$ENDIF} // nicht Bootloader
+// #############################################################################
+
+implementation
+
+end.

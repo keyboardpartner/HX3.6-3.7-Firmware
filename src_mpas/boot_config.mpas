@@ -1,0 +1,194 @@
+{******************************************************************************
+ *                                                                            *
+ *  Unit:         Config.mpas                                                 *
+ *                                                                            *
+ *  Copyright:    (c) Mikroelektronika, 2011.                                 *
+ *                                                                            *
+ *  Description:  Bootloader configuration constants, memory allocation       *
+ *                directives and MCU configuration.                           *
+ *                Double click to open flash memory layout pdf:               *
+ *                ac:ARM_USB_HID_Bootlaoder_Memory_Layout                     *
+ *                                                                            *
+ *  Requirements: ARM specific.                                               *
+ *                                                                            *
+ *  Migration:    This is the only file in this                               *
+ *                project that might need to be adjusted when migrating.      *
+ *                Switching to another MCU within ARM family                  *
+ *                of microcontrollers, may require at most two constants      *
+ *                to be changed:                                              *
+ *                  1. DEVICE_NAME                                            *
+ *                  2. BOOTLOADER_SIZE                                        *
+ *                Target MCU may needs some additional initialization code.   *
+ *                Place it in Config() routine.                               *
+ *                If these are already set properly, we are all done :)       *
+ *                                                                            *
+ ****************************       CHANGE LOG       **************************
+ * Version | ACTION                                           |  DATE  | SIG  *
+ * --------|--------------------------------------------------|--------|----- *
+ *         |                                                  |        |      *
+ *    0.01 | - Initial release                                | 030511 |  ST  *
+ *         |                                                  |        |      *
+ ******************************************************************************}
+unit boot_config;
+
+uses main_starter;
+
+// Supported MCU families/types.
+const 
+      mtARM     = 30;
+      mtSTELLARIS_M3 = 31;
+      mtSTELLARIS_M4 = 32;
+      mtSTELLARIS    = 33;
+      mtSTM32L1XX    = 34;
+      mtSTM32F1XX    = 35;
+      mtSTM32F2XX    = 36;
+      mtSTM32F4XX    = 37;
+      mtTIVA_C       = 38;
+      mtFT90x        = 40;
+      mtSTM32F7XX    = 41;
+      mtMK64F        = 42;
+      mtMK22F        = 43;
+
+(* Bootloader constantats *)
+
+// Target MCU family.
+// Use predefined family constants (TMcuType).
+{$IFDEF STM32F2XX}
+const MCU_TYPE = mtSTM32F2XX;
+{$ENDIF}
+{$IFDEF STM32F4XX}
+const MCU_TYPE = mtSTM32F4XX;
+{$ENDIF}
+{$IFDEF STM32F1XX}
+const MCU_TYPE = mtSTM32F1XX;
+{$ENDIF}
+{$IFDEF STM32L1XX}
+const MCU_TYPE = mtSTM32L1XX;
+{$ENDIF}
+
+// STM32 devices from 2xx and 4xx families have specific (sectored) flash organization.
+// Use this define to instruct UHB driver how to handle it.
+{$IFDEF STM32F2XX}
+  {$DEFINE STM32F_2XX_4XX}
+{$ENDIF}
+
+{$IFDEF STM32F4XX}
+  {$DEFINE STM32F_2XX_4XX}
+{$ENDIF}
+
+{$IFDEF STM32F_2XX_4XX}
+  {$DEFINE FLASH_WORD_MODE}                 // flash write one program word (4 bytes),
+                                            // 2.7V to 3.6V voltage range assumed
+  //{$DEFINE FLASH_HALFWORD_MODE}           // flash write half word (2 bytes),
+                                            // 2.1V to 2.7V voltage range assumed
+  //{$DEFINE FLASH_BYTE_MODE}               // flash write one byte (1 byte),
+                                            // 1.8V to 2.1V voltage range assumed
+
+  const _FLASH_ERASE = 16*1024;             // smallest erase block size (16kB),
+                                            // also a ram buffer size designator
+                                            // (maximum number of bytes that can be received
+                                            //  before write operation is initiated)
+
+  {$IFDEF FLASH_WORD_MODE}
+  const _FLASH_WRITE_LATCH = 4;
+  {$ENDIF}
+  {$IFDEF FLASH_HALFWORD_MODE}
+  const _FLASH_WRITE_LATCH = 2;
+  {$ENDIF}
+  {$IFDEF FLASH_BYTE_MODE}
+  const _FLASH_WRITE_LATCH = 1;
+  {$ENDIF}
+{$ENDIF}
+
+// Flash memory blocks
+const FLASH_ERASE_BLOCK_SIZE = _FLASH_ERASE;
+const FLASH_WRITE_BLOCK = _FLASH_WRITE_LATCH;
+
+// Device name: Name of hardware product bootloader is set for (not MCU name).
+// This name will be displayed in PC application name field once device is detected.
+
+const BOOTLOADER_REVISION: word = 0x1200; // Version of bootlaoder firmware.
+
+// Bootloader start address equasion:
+const BOOTLOADER_SIZE: dword   = 128*1024;  // Bootloader (this) code size.
+                                            // Must be the same as the size of
+                                            // flash sectors occupied by this bootloader!
+                                            // We'll place bootloader in last flash sector.
+const BOOTLOADER_START: dword  = __FLASH_SIZE-BOOTLOADER_SIZE; // Occupy last flash sector.
+
+const RESET_VECTOR_SIZE: byte  = 20;   // MCU reset vector size in bytes.
+
+(* Bootloader memory allocation *)
+
+procedure Config();
+
+procedure Do_FLASH_Erase(Address: dword);
+procedure Do_FLASH_Write(Address: dword; var Data_: array[FLASH_WRITE_BLOCK] of byte);
+
+procedure main(); external;
+
+implementation
+
+procedure Config();
+var boot_code_sector: dword;
+begin
+  SetOrg(StartProgram, $4000);
+
+  { protect bootloader code }
+
+  {$IFDEF STM32F_2XX_4XX}
+  // unlock option bytes
+  FLASH_OPTKEYR := 0x08192A3B;
+  FLASH_OPTKEYR := 0x4C5D6E7F;
+
+  // set write protection for bootloader sector
+  boot_code_sector := FLASH_AddressToSector(BOOTLOADER_START) div 8;
+  FLASH_OPTCR := FLASH_OPTCR and not((dword(1) shl boot_code_sector) shl 16);
+
+  // write option bytes
+  FLASH_OPTCR.OPTSTRT := 1;
+  while (FLASH_SR.BSY) do
+  ;
+
+  FLASH_OPTCR.OPTLOCK := 1;
+  {$ENDIF}
+
+end;
+
+// Flash write and erase block sizes are MCU dependent.
+// To reduce confusion and errors, these routines might not have
+// uniform names between different MCUs/architectures.
+// Consult library manager for target MCU's flash handling routine names.
+// and adjust calls below.
+procedure Do_FLASH_Write(Address: dword; var Data_: array[FLASH_WRITE_BLOCK] of byte);
+type TDWordPtr = ^dword;
+type TWordPtr  = ^word;
+type TBytePtr  = ^byte;
+begin
+  {$IFDEF STM32F_2XX_4XX}
+    {$IFDEF FLASH_WORD_MODE}
+    Flash_Write_Word(Address, TDWordPtr(@Data_)^);
+    {$ELSE}
+    {$IFDEF FLASH_HALFWORD_MODE}
+    Flash_Write_HalfWord(Address, TWordPtr(@Data_)^);
+    {$ELSE}
+    {$IFDEF FLASH_BYTE_MODE}
+    Flash_Write_Byte(Address, TBytePtr(@Data_)^);
+    {$ENDIF}
+    {$ENDIF}
+    {$ENDIF}
+  {$ELSE}
+    FLASH_Write_Word(Address, TDWordPtr(@Data_)^);
+  {$ENDIF}
+end;
+
+procedure Do_FLASH_Erase(Address: dword);
+begin
+  {$IFDEF STM32F_2XX_4XX}
+    FLASH_EraseSector(FLASH_AddressToSector(Address));
+  {$ELSE}
+    FLASH_ErasePage(Address);
+  {$ENDIF}
+end;
+
+end.

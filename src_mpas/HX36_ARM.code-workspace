@@ -1,0 +1,29 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.exclude": {
+        "**/*.ini": true,
+				"**/*.asm": true,
+				"**/*.bmk": true,
+				"**/*.emcl": true,
+				"**/*.pld": true,
+				"**/*.brk": true,
+				"**/*.log": true,
+				"**/*.dlt": true,
+				"**/*.dbg": true,
+				"**/*.cfg": true,
+				"**/*.dct": true,
+				"**/*.dic": true,
+				"**/*.lst": true,
+				"**/*.bin": true,
+				"**/*.hex": true,
+				"**/*.wch": true,
+				"**/*.txt": true,
+				"**/*.mpas.ini": true,
+    },
+	}
+}

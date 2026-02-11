@@ -1,0 +1,57 @@
+unit bl_intflash;
+
+uses dataflash, twi_systimer,
+     const_def, spi_rw, edit_vals, avrco_compat;
+
+procedure IFL_StoreFlashbuf;
+procedure IFL_RestoreFlashbuf;
+function IFL_ReadFlash(param: Word):Word;
+
+implementation
+{$DEFINE DEBUG_IFL}
+
+var idx, tmp : dword;
+var ptr_dword : ^dword;
+var ptr_word : ^word;
+var ptr_byte : ^byte;
+
+procedure IFL_StoreFlashbuf;
+begin
+{$IFDEF DEBUG_IFL}
+  Serial3_sendstring('/ IFL store buf, contents: ');
+  for idx:= 0 to 7 do begin
+    ByteToHex(BlockBuffer8[idx], debug_str);
+    Serial3_sendstring(debug_str + ', ');
+  end;
+  Serial3_sendstringCRLF(' ...');
+{$ENDIF}
+  FLASH_EraseSector(_FLASH_SECTOR_11_ADDR);
+  for idx:= 0 to 1023 do
+    FLASH_Write_Byte(_FLASH_SECTOR_11_ADDR + idx, BlockBuffer8[idx]);     // write buffer with 32 long words
+  FLASH_Lock();
+end;
+
+procedure IFL_RestoreFlashbuf;
+begin
+  ptr_byte := ^dword(_FLASH_SECTOR_11_ADDR);
+  for idx := 0 to 1023 do begin
+    BlockBuffer8[idx] := ptr_byte^;
+    Inc(ptr_byte);
+  end;
+{$IFDEF DEBUG_IFL}
+  Serial3_sendstring('/ IFL restore buf, contents: ');
+  for idx:= 0 to 7 do begin
+    ByteToHex(BlockBuffer8[idx], debug_str);
+    Serial3_sendstring(debug_str + ', ');
+  end;
+  Serial3_sendstringCRLF(' ...');
+{$ENDIF}
+end;
+
+function IFL_ReadFlash(param: Word): Word;
+begin
+  ptr_byte := ^dword(_FLASH_SECTOR_11_ADDR + param);
+  result := ptr_byte^;
+end;
+
+end.

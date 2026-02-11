@@ -1,0 +1,137 @@
+(******************************************************************************
+ *                                                                            *
+ *  Unit:         UHB_Driver.mpas                                             *
+ *                                                                            *
+ *  Copyright:    (c) Mikroelektronika, 2011.                                 *
+ *                                                                            *
+ *  Description:  mikroE USB HID Bootloader (UHB) protocol implementation.    *
+ *                                                                            *
+ *  Requirements: - Minor modifications can make this code can work with any  *
+ *                  MCU which has internal USB module and Flash self write    *
+ *                  capabilities.                                             *
+ *                - Bootloader code does not implement USB and Flash handling *
+ *                  code (drivers). They are properties of mikroPascal        *
+ *                  compiler.                                                 *
+ *                - MikroE 'USB HID Bootloader Tool' PC application.          *
+ *                                                                            *
+ ****************************       CHANGE LOG       **************************
+ * Version | ACTION                                           |  DATE  | SIG  *
+ * --------|--------------------------------------------------|--------|----- *
+ *         |                                                  |        |      *
+ *    0.01 | - Initial release                                | 030511 |  ST  *
+ *         |                                                  |        |      *
+ ******************************************************************************)
+unit main_starter;
+
+var GPCounter: integer;                   // Global Purpose Counter, used for counting anything that needs to be counted :)
+    BytesToWrite: integer  at GPCounter;  // Number of bytes PC application is sending for current write operation.
+    BytesToGet: integer    at GPCounter;  // Number of bytes we need to acquire from PC for current command.
+    BlocksToErase: integer at GPCounter;  // Number of blocks to erase in current erase operation.
+
+    GPAddress: dword;                     // Global Purpose Counter, used for addressing anything that needs to be addressed :)
+    StartAddress: dword at GPAddress;     // Start address for current PC command.
+
+    Buffer: Array[0..4095] of Byte;
+
+procedure StartProgram();              // Start executing already loaded application code.
+procedure StartBootloader();           // Start with bootloader mode.
+
+implementation
+{$IFDEF ARM}
+var arm_boot_sp : dword;  //Bootloader stack pointer.
+{$ENDIF}
+(******************************************************************************
+ *                                                                            *
+ *  Function:     procedure Buffer_SaveToFlash()                              *
+ *                                                                            *
+ *  Description:  Write data buffer to internal MCU flash.                    *
+ *                                                                            *
+ *  Parameters:   None.                                                       *
+ *                                                                            *
+ *  Return Value: None.                                                       *
+ *                                                                            *
+ *  Requirements: StartAddress must contain flash address where this write    *
+ *                should occur.                                               *
+ *                                                                            *
+ *  Notes:        None.                                                       *
+ *                                                                            *
+ ****************************       CHANGE LOG       **************************
+ * Version | ACTION                                           |  DATE  | SIG  *
+ * --------|--------------------------------------------------|--------|----- *
+ *         |                                                  |        |      *
+ *    0.01 | - Initial release                                | 030511 |  ST  *
+ *         |                                                  |        |      *
+ ******************************************************************************)
+procedure Buffer_SaveToFlash();
+begin
+end;
+
+(******************************************************************************
+ *                                                                            *
+ *  Function:     procedure StartBootloader()                                 *
+ *                                                                            *
+ *  Description:  Enter bootloader mode and start bootloader stack execution. *
+ *                                                                            *
+ *  Parameters:   None.                                                       *
+ *                                                                            *
+ *  Return Value: None.                                                       *
+ *                                                                            *
+ *  Requirements: None.                                                       *
+ *                                                                            *
+ *  Notes:        None.                                                       *
+ *                                                                            *
+ ****************************       CHANGE LOG       **************************
+ * Version | ACTION                                           |  DATE  | SIG  *
+ * --------|--------------------------------------------------|--------|----- *
+ *         |                                                  |        |      *
+ *    0.01 | - Initial release                                | 030511 |  ST  *
+ *         |                                                  |        |      *
+ ******************************************************************************)
+procedure StartBootloader();
+var dataRx: byte;    // Packet reception flag.
+    writeData: byte; // Write command execution flag.
+var tPtr : ^dword;
+
+begin
+  writeData := 0;
+  tPtr := 0;
+  arm_boot_sp := tPtr^;  // Save bootloader stack pointer.
+
+  // Bootloader loop.
+  while TRUE do begin
+  end;
+
+end;
+
+(******************************************************************************
+ *                                                                            *
+ *  Function:     procedure StartProgram()                                    *
+ *                                                                            *
+ *  Requirements: - Size of this routine must be equal to MCU reset           *
+ *                  vector size.                                              *
+ *                - Must be placed at                                         *
+ *                  BOOTLOADER_START-RESET_VECTOR_SIZE address.               *
+ *                                                                            *
+ *  Notes:        None.                                                       *
+ *                                                                            *
+ ****************************       CHANGE LOG       **************************
+ * Version | ACTION                                           |  DATE  | SIG  *
+ * --------|--------------------------------------------------|--------|----- *
+ *         |                                                  |        |      *
+ *    0.01 | - Initial release                                | 030511 |  ST  *
+ *         |                                                  |        |      *
+ ******************************************************************************)
+procedure StartProgram();
+  begin
+    // nops to accomodate MCU reset vector size.
+    asm nop end;
+    asm nop end;
+    asm nop end;
+    asm nop end;
+    asm nop end;
+    asm nop end;
+    asm nop end;
+    asm nop end;
+    asm nop end;
+  end;
+end.

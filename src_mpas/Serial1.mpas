@@ -1,0 +1,202 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// Serielle Schnitstelle
+unit serial1;
+
+uses twi_systimer, avrco_compat;
+
+procedure Serial1_Init;
+procedure Serial1_DeInit;
+
+procedure Serial1_sendchar(send_char: Char);
+
+procedure Serial1_sendstring(var send_string: String);
+procedure Serial1_sendstringCRLF(var send_string: String);
+procedure Serial1_sendIntValCRLF(pval: Integer);
+procedure Serial1_sendIntVal(pval: Integer);
+procedure Serial1_CRLF;
+
+function Serial1_rcvchar: Char;
+function Serial1_rcvbyte_to(var rcv_byte: Byte; timeout: Word): Boolean;
+
+function Serial1_rxstat: Boolean;
+function Serial1_txstat: Boolean;
+
+implementation
+var
+  IRQ_Count: Word;
+
+  IRQ_rxbuf: Array[0..255] of Byte;
+  IRQ_txbuf: Array[0..255] of Byte;
+  IRQ_rxbuf_ptr, IRQ_txbuf_ptr,      // Index für IRQ-Serviceroutine
+  IRQ_put_ptr, IRQ_get_ptr: Word;    // Index für Sende/Receive-Funktion
+  
+  TC_USART1_SR_bit : sbit at USART1_SR.B6;   // alc TC_bit in MikroE-Lib
+
+// #############################################################################
+// ###                         Serial COM                                    ###
+// #############################################################################
+
+procedure Serial1_Init;
+begin
+  // Initialize UART module at 57600 bps PD8 = Tx, PD9 = Rx, UART3_Init(57600);
+  // wenn alternative Pins verwendet werden (nicht an erster Stelle):
+  UART1_Init_Advanced(57600, _UART_8_BIT_DATA, _UART_NOPARITY,
+                             _UART_ONE_STOPBIT, @_GPIO_MODULE_USART1_PA9_10);
+  IRQ_rxbuf_ptr:= 0;
+  IRQ_txbuf_ptr:= 0;
+  IRQ_put_ptr:= 0;
+  IRQ_get_ptr:= 0;
+  IRQ_SysTimer:= 0;
+
+  // Nicht in der Form USART1_CR1.RXNE benutzen,
+  // da einige Konstanten doppelt belegt sind
+  RXNE_USART1_SR_bit:= 0;    // clear uart tx DR empty pending bit
+  TC_USART1_SR_bit:= 0;      // clear uart tx transmit complete pending bit
+  TC_bit:= 0;      // clear uart tx transmit complete pending bit
+  TCIE_USART1_CR1_bit:= 1;   // USART1_CR1.B6 enable uart rx DR not empty interrupt
+  RXNEIE_USART1_CR1_bit:= 1; // USART1_CR1.B5 enable uart TX complete interrupt
+  NVIC_IntEnable(IVT_INT_USART1); // Enable UART3 interrupt
+end;
+
+procedure Serial1_DeInit;
+begin
+  mDelay(50);  // warten bis letzte Zeichen gesendet sind
+  // Nicht in der Form USART1_CR1.RXNE benutzen,
+  // da einige Konstanten doppelt belegt sind
+  TCIE_USART1_CR1_bit:= 0;   // USART1_CR1.B6 disable uart rx DR not empty interrupt
+  RXNEIE_USART1_CR1_bit:= 0; // USART1_CR1.B5 disable uart TX complete interrupt
+  RXNE_USART1_SR_bit:= 0;    // clear uart tx DR empty pending bit
+  TC_USART1_SR_bit:= 0;      // clear uart tx transmit complete pending bit
+  TC_bit:= 0;      // clear uart tx transmit complete pending bit
+  NVIC_IntDisable(IVT_INT_USART1); // Disable UART1 interrupt
+end;
+
+// -----------------------------------------------------------------------------
+
+function Serial1_rxstat: Boolean;
+// Daten im Empfangspuffer?
+begin
+  result:= IRQ_rxbuf_ptr <> IRQ_get_ptr;
+end;
+
+function Serial1_rcvchar: Char;
+// Ersetzt SerInp von AVRCo
+begin
+  repeat
+  until  IRQ_get_ptr <> IRQ_rxbuf_ptr;
+  inc(IRQ_get_ptr);
+  IRQ_get_ptr:= IRQ_get_ptr and $FF;  // Ringpuffer 256 Bytes
+  result:= char(IRQ_rxbuf[IRQ_get_ptr]);
+end;
+
+function Serial1_rcvbyte_to(var rcv_byte: Byte; timeout: Word): Boolean;
+// Ersetzt SerInp_to von AVRCo, liefert TRUE wenn Zeichen vorlag
+var target_time: DWord;
+begin
+  target_time:= IRQ_SysTimer + timeout;
+  repeat
+  until (IRQ_rxbuf_ptr <> IRQ_get_ptr) or (IRQ_SysTimer = target_time);
+
+  if IRQ_get_ptr <> IRQ_rxbuf_ptr then begin  // Zeichen empfangen
+    inc(IRQ_get_ptr);
+    IRQ_get_ptr:= IRQ_get_ptr and $FF;        // Ringpuffer 256 Bytes
+    rcv_byte:= IRQ_rxbuf[IRQ_get_ptr];
+    result:= true;
+  end else
+    result:= false;
+end;
+
+// -----------------------------------------------------------------------------
+
+function Serial1_txstat: Boolean;
+// Daten im Sendepuffer?
+begin
+  result:= IRQ_txbuf_ptr <> IRQ_put_ptr;
+end;
+
+procedure Serial1_sendchar(const send_char: Char);
+var buffer_empty: Boolean;
+begin
+  buffer_empty:= IRQ_put_ptr = IRQ_txbuf_ptr; // Buffer leer?
+  if not buffer_empty then  // Leerung des Tx-Buffers abwarten
+    while ((IRQ_put_ptr + 1) and $FF) = IRQ_txbuf_ptr do
+      mDelay(1);                            // ganz voll? Kurz warten
+  IRQ_txbuf[IRQ_put_ptr]:= Byte(send_char);   // Zeichen in den Ringpuffer
+  inc(IRQ_put_ptr);                           // Ringpuffer-Zeiger erhöhen
+  IRQ_put_ptr:= IRQ_put_ptr and $FF;          // Ringpuffer 256 Bytes
+  if buffer_empty then
+    USART1_DR:= Byte(send_char); // erstes Zeichen direkt, um IRQ anzustoßen
+end;
+
+procedure Serial1_sendString(var send_string: String);
+var s_ptr: Word;
+begin
+  if length(send_string) > 0 then
+    for s_ptr:= 0 to length(send_string) - 1 do
+      Serial1_sendchar(send_string[s_ptr]);
+end;
+
+procedure Serial1_sendStringCRLF(var send_string: String);
+begin
+  Serial1_sendstring(send_string);
+  Serial1_sendchar(#13);
+  Serial1_sendchar(#10);
+end;
+
+procedure Serial1_CRLF;
+begin
+  Serial1_sendchar(#13);
+  Serial1_sendchar(#10);
+end;
+
+procedure Serial1_sendIntVal(pval: Integer);
+var send_str: String[5];
+begin
+  IntToStr(pval, send_str);
+  ltrim(send_str);
+  Serial1_sendstring(send_str);
+end;
+
+procedure Serial1_sendIntValCRLF(pval: Integer);
+var send_str: String[5];
+begin
+  IntToStr(pval, send_str);
+  ltrim(send_str);
+  Serial1_sendstringCRLF(send_str);
+end;
+
+
+// -----------------------------------------------------------------------------
+
+procedure uart1_interrupt(); iv IVT_INT_USART1; ics ICS_AUTO;
+// Interrupt von UART1: Zeichen empfangen oder fertig gesendet
+begin
+  if TC_bit then begin // transmission complete
+    TC_bit:= 0; // clear uart tx transmit complete pending bit
+    // weitere Zeichen zu senden?
+    inc(IRQ_txbuf_ptr);                     // Zeichen gesendet, nächstes
+    IRQ_txbuf_ptr:= IRQ_txbuf_ptr and $FF;  // Ringpuffer 256 Bytes
+    if IRQ_txbuf_ptr <> IRQ_put_ptr then    // Ende noch nicht erreicht?
+      USART1_DR:= IRQ_txbuf[IRQ_txbuf_ptr];
+  end;
+
+  if RXNE_USART1_SR_bit then begin // if uart rx DR not empty
+    RXNE_USART1_SR_bit:= 0; // clear uart tx DR empty pending bit
+    inc(IRQ_rxbuf_ptr);
+    IRQ_rxbuf_ptr:= IRQ_rxbuf_ptr and $FF;  // Ringpuffer 256 Bytes
+    IRQ_rxbuf[IRQ_rxbuf_ptr]:= USART1_DR and 0xFF; // read 8 bits from the data register
+  end;
+end;
+
+
+end.

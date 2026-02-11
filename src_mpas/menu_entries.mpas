@@ -1,0 +1,955 @@
+unit menu_entries;
+
+const
+  tm_none = 0;
+  tm_limit_goto = 1;
+  tm_items_gatingmode = 2;
+  tm_items_organmodel = 3;
+  tm_drawbar = 4;
+  tm_gm_prg0 = 5;
+  tm_gm_prg1 = 6;
+  tm_gm_prg2 = 7;
+  tm_gm_prg3 = 8;
+  tm_gm_prg4 = 9;
+  tm_gm_prg5 = 10;
+  tm_gm_prg6 = 11;
+  tm_preset_common = 12;
+  tm_preset_upper = 13;
+  tm_preset_lower = 14;
+  tm_preset_pedal = 15;
+  tm_perc = 16;
+  tm_reverb = 17;
+  tm_vibknob = 18;
+  tm_vib_on_upr = 19;
+  tm_vib_on_lwr = 20;
+  tm_numeric = 21;
+  tm_boolean = 22;
+  tm_midichannel = 23;
+  tm_tuning = 24;
+  tm_transpose = 25;
+  tm_modphasebits = 26;
+  tm_items_splitm = 27;
+  tm_items_midiopt = 28;
+  tm_items_localena = 29;
+  tm_items_waveset = 30;
+  tm_items_ccset = 31;
+  tm_items_capset = 32;
+  tm_items_spread = 33;
+  tm_items_fb16 = 34;
+  tm_items_swelltype = 35;
+  tm_items_phrmode = 36;
+  tm_adsrena_upr = 37;
+  tm_adsrena_lwr = 38;
+  tm_button = 39;
+  tm_bassfreq = 40;
+  tm_midfreq = 41;
+  tm_treblefreq = 42;
+  
+  // ab hier beim Speichern im Menü Sonderbehandlung
+  tm_savedefault = 43;
+  tm_setupfile = 44;
+  tm_setup_hint = 45;
+  tm_Bootloader = 46;
+  tm_initwifi = 47;
+  tm_initpreset = 48;
+  tm_items_rotarymodel = 49;
+  tm_editname = 50;
+  tm_savemask = 51;
+  
+// #############################################################################
+// ###                          M E N U  OFFSETS                             ###
+// #############################################################################
+
+  c_MenuGotoArr: array[0..22] of byte = (
+    23, // #0 HX3 Preset
+    31, // #1 Voice Upper
+    54, // #2 Voice Lower
+    74, // #3 Voice Pedal
+    90, // #4 Master Volume
+    90, // #5 TubeAmp Gain
+    90, // #6 TubeAmpBypass
+    90, // #7 Ext FX Insert
+    86, // #8 Reverb Prgm
+    114, // #9 Rotary Motor
+    114, // #10 Rotary Fast
+    114, // #11 Rotary Bypass
+    114, // #12 Rotary Model
+    110, // #13 Percussion
+    139, // #14 UPR LWR Vibr
+    139, // #15 UPR LWR Vibr
+    139, // #16 UPR LWR Vibr
+    89, // #17 Phasing Fast
+    89, // #18 Phasing Upper
+    89, // #19 Phasing Lower
+    145, // #20 Organ Model
+    145, // #21 TG Tuning
+    127  // #22 MIDI Transpos
+  ); aligned 4;
+
+  c_MenuGroups: Byte = 12;
+
+  c_MenuStartArr: array[0..  c_MenuGroups] of Byte = (
+    0, //  #0 Main Menu
+    23, //  #1 SubMenu EditName
+    31, //  #2 Upper Menu
+    54, //  #3 Lower Menu
+    74, //  #4 Pedal Menu
+    86, //  #5 Reverb Menu
+    89, //  #6 PHR Mode Menu
+    90, //  #7 Audio Menu
+    110, //  #8 Percussion Menu
+    114, //  #9 Rotary Menu
+    127, //  #10 MIDI/Split Menu
+    139, //  #11 Vib/Chorus Menu
+    145  //  #12 Organ Setup Menu
+  ); aligned 4;
+
+  c_MenuEndArr: array[0..  c_MenuGroups] of Byte = (
+    22, //  #0 Ende Main Menu
+    30, //  #1 Ende SubMenu EditName
+    53, //  #2 Ende Upper Menu
+    73, //  #3 Ende Lower Menu
+    85, //  #4 Ende Pedal Menu
+    88, //  #5 Ende Reverb Menu
+    89, //  #6 Ende PHR Mode Menu
+    109, //  #7 Ende Audio Menu
+    113, //  #8 Ende Percussion Menu
+    126, //  #9 Ende Rotary Menu
+    138, //  #10 Ende MIDI/Split Menu
+    144, //  #11 Ende Vib/Chorus Menu
+    153  //  #12 Ende Organ Setup Menu
+  ); aligned 4;
+
+  // Spezielle Menüs
+  c_MenuLen: byte = 153;
+  // Startmenu
+  c_MenuCommonPreset: Byte = 0;
+  c_MainMenuStart: Byte = 0;
+  c_MainMenuEnd: Byte = 22;
+  c_VibKnobMenu: Byte = 14;
+  // für Freigabe mit Scanboard
+  c_KeybEarlySubmenu: Byte = 152;
+  c_EquMenuStart: Byte = 91;
+  c_EquMenuEnd: Byte = 99;
+  c_TransposeMenu: Byte = 22;
+  c_EnvEnaUpperMenu: Byte = 46;
+  c_ReverbMenu: Byte = 7;
+  c_PercMenu: Byte = 12;
+  c_VibUprMenu: Byte = 13;
+  c_VibLwrMenu: Byte = 14;
+  c_ViKnobMenu: Byte = 15;
+  c_RotaryRunMenu: Byte = 8;
+  c_RotaryFastMenu: Byte = 9;
+
+
+// #############################################################################
+
+  c_MenuTypeArr: array[0..  c_MenuLen] of Byte = (
+  tm_preset_common, // #1268 HX3 Preset
+  tm_preset_upper, // #1269 Voice Upper
+  tm_preset_lower, // #1270 Voice Lower
+  tm_preset_pedal, // #1271 Voice Pedal
+  tm_drawbar, // #1080 Master Volume
+  tm_drawbar, // #1081 TubeAmp Gain
+  tm_boolean, // #1136 TubeAmpBypass
+  tm_boolean, // #1172 Ext FX Insert
+  tm_reverb, // #1263 Reverb Prgm
+  tm_boolean, // #1134 Rotary Motor
+  tm_boolean, // #1135 Rotary Fast
+  tm_boolean, // #1137 Rotary Bypass
+  tm_items_rotarymodel, // #1266 Rotary Model
+  tm_perc, // #1262 Percussion
+  tm_vib_on_upr, // #1132 UPR LWR Vibr
+  tm_vib_on_lwr, // #1133 UPR LWR Vibr
+  tm_vibknob, // #1264 UPR LWR Vibr
+  tm_boolean, // #1150 Phasing Fast
+  tm_boolean, // #1138 Phasing Upper
+  tm_boolean, // #1139 Phasing Lower
+  tm_items_organmodel, // #1265 Organ Model
+  tm_tuning, // #1391 TG Tuning
+  tm_transpose, // #1395 MIDI Transpos
+  tm_editname, // #1192 Edit Name
+  tm_numeric, // #1495 LED Dimmer
+  tm_savedefault, // #1247 Save Defaults
+  tm_savemask, // #1696 PresetSaveMask
+  tm_setupfile, // #1509 SD File Exec
+  tm_bootloader, // #1697 Bootld Update
+  tm_initwifi, // #1698 WiFi Init Def
+  tm_initpreset, // #1699 Preset Init
+  tm_drawbar, // #1000 UpperDB 16
+  tm_drawbar, // #1001 UpperDB 5 1/3
+  tm_drawbar, // #1002 UpperDB 8
+  tm_drawbar, // #1003 UpperDB 4
+  tm_drawbar, // #1004 UpperDB 2 2/3
+  tm_drawbar, // #1005 UpperDB 2
+  tm_drawbar, // #1006 UpperDB 1 3/5
+  tm_drawbar, // #1007 UpperDB 1 1/3
+  tm_drawbar, // #1008 UpperDB 1
+  tm_drawbar, // #1009 UpperDB Mix 1
+  tm_drawbar, // #1010 UpperDB Mix 2
+  tm_drawbar, // #1011 UpperDB Mix 3
+  tm_boolean, // #1157 H100 HarpSust
+  tm_boolean, // #1156 H100 2ndVoice
+  tm_boolean, // #1158 EG DB To Dry
+  tm_adsrena_upr, // #1160 H100 Perc
+  tm_gm_prg0, // #1224 UpperGM Prg 1
+  tm_drawbar, // #1225 UpperGM Lvl 1
+  tm_numeric, // #1226 UpperGM Hrm 1
+  tm_gm_prg4, // #1227 UpperGM Prg 2
+  tm_drawbar, // #1228 UpperGM Lvl 2
+  tm_numeric, // #1229 UpperGM Harm2
+  tm_tuning, // #1230 UpperGM Detn2
+  tm_drawbar, // #1016 LowerDB 16
+  tm_drawbar, // #1017 LowerDB 5 1/3
+  tm_drawbar, // #1018 LowerDB 8
+  tm_drawbar, // #1019 LowerDB 4
+  tm_drawbar, // #1020 LowerDB 2 2/3
+  tm_drawbar, // #1021 LowerDB 2
+  tm_drawbar, // #1022 LowerDB 1 3/5
+  tm_drawbar, // #1023 LowerDB 1 1/3
+  tm_drawbar, // #1024 LowerDB 1
+  tm_drawbar, // #1025 LowerDB Mix 1
+  tm_drawbar, // #1026 LowerDB Mix 2
+  tm_drawbar, // #1027 LowerDB Mix 3
+  tm_adsrena_lwr, // #1176 ADSR Ena Lwr
+  tm_gm_prg1, // #1232 LowerGM Prg 1
+  tm_drawbar, // #1233 LowerGM Lvl 1
+  tm_numeric, // #1234 LowerGM Harm1
+  tm_gm_prg5, // #1235 LowerGM Prg 2
+  tm_drawbar, // #1236 LowerGM Lvl 2
+  tm_numeric, // #1237 LowerGM Harm2
+  tm_tuning, // #1238 LowerGM Detn2
+  tm_drawbar, // #1072 PedalDB 16
+  tm_drawbar, // #1073 PedalDB 16H
+  tm_drawbar, // #1074 PedalDB 8
+  tm_drawbar, // #1075 PedalDB 8H
+  tm_drawbar, // #1067 Pedal Release
+  tm_gm_prg2, // #1240 PedalGM Prg 1
+  tm_drawbar, // #1241 PedalGM Lvl 1
+  tm_numeric, // #1242 PedalGM Harm1
+  tm_gm_prg6, // #1243 PedalGM Prg 2
+  tm_drawbar, // #1244 PedalGM Lvl 2
+  tm_numeric, // #1245 PedalGM Harm2
+  tm_tuning, // #1246 PedalGM Detn2
+  tm_drawbar, // #1400 Reverb 1 Lvl
+  tm_drawbar, // #1401 Reverb 2 Lvl
+  tm_drawbar, // #1402 Reverb 3 Lvl
+  tm_items_phrmode, // #1144 PHR <Mode>
+  tm_boolean, // #1159 Equ Bypass
+  tm_drawbar, // #1112 Bass Equal
+  tm_drawbar, // #1113 Bass Equ Frq
+  tm_drawbar, // #1114 Bass Equ Q
+  tm_drawbar, // #1115 Mid Equal
+  tm_drawbar, // #1116 Mid Equ Frq
+  tm_drawbar, // #1117 Mid Equ Q
+  tm_drawbar, // #1118 Treble Equal
+  tm_drawbar, // #1119 Treb Equ Frq
+  tm_drawbar, // #1120 Treb Equ Q
+  tm_boolean, // #1121 Parametr B/T
+  tm_drawbar, // #1082 Upper Lvl Adj
+  tm_drawbar, // #1083 Lower Lvl Adj
+  tm_drawbar, // #1084 Pedal Lvl Adj
+  tm_drawbar, // #1085 Perc Lvl Adj
+  tm_boolean, // #1142 PedalRotBypas
+  tm_drawbar, // #1087 AO28 Tone Pot
+  tm_drawbar, // #1088 AO28 Gain Cap
+  tm_drawbar, // #1089 AO28 MinSwell
+  tm_numeric, // #1090 AO28 Tube Age
+  tm_numeric, // #1480 PercNormLvl
+  tm_numeric, // #1481 PercSoftLvl
+  tm_numeric, // #1482 PercLongTm
+  tm_numeric, // #1483 PercShortTm
+  tm_numeric, // #1448 HornSlowSpeed
+  tm_numeric, // #1449 RotrSlowSpeed
+  tm_numeric, // #1450 HornFastSpeed
+  tm_numeric, // #1451 RotrFastSpeed
+  tm_numeric, // #1452 HornRampUp
+  tm_numeric, // #1453 RotorRampUp
+  tm_numeric, // #1454 HornRampDown
+  tm_numeric, // #1455 RotorRampDown
+  tm_numeric, // #1456 Rotary Throb
+  tm_numeric, // #1457 Rotary Spread
+  tm_numeric, // #1458 Rotary Balnce
+  tm_numeric, // #1460 Tube Select A
+  tm_numeric, // #1461 Tube Select B
+  tm_midichannel, // #1368 MIDI Channel
+  tm_items_midiopt, // #1369 MIDI Option
+  tm_items_ccset, // #1370 MIDI CC Set
+  tm_numeric, // #1371 MIDI Swell CC
+  tm_numeric, // #1372 MIDI VolumeCC
+  tm_numeric, // #1374 MIDI PresetCC
+  tm_transpose, // #1355 TransposeOffs
+  tm_items_localena, // #1373 MIDI Send
+  tm_boolean, // #1143 Split Keyb
+  tm_numeric, // #1353 Split Point
+  tm_items_splitm, // #1354 Split Mode
+  tm_boolean, // #1376 No ProgChgRcv
+  tm_numeric, // #1326 Scanner Gear
+  tm_numeric, // #1328 Ch ScannerLvl
+  tm_numeric, // #1327 Ch Bypass Lvl
+  tm_numeric, // #1329 V1/C1 FM Mod
+  tm_numeric, // #1330 V2/C2 FM Mod
+  tm_numeric, // #1331 V3/C3 FM Mod
+  tm_items_gatingmode, // #1261 Gating Mode
+  tm_items_waveset, // #1388 TG WaveSet
+  tm_items_capset, // #1392 TG Tapering
+  tm_numeric, // #1389 TG Flutter
+  tm_numeric, // #1390 TG Leakage
+  tm_numeric, // #1360 ContSpringFlx
+  tm_numeric, // #1361 ContSpringDmp
+  tm_boolean, // #1356 ContEarlyActn
+  tm_boolean  // #1357 No DB1 @Perc
+);
+
+  c_Index2ParamArr: array[0..  c_MenuLen] of Integer = (
+  1268, // #1268 HX3 Preset
+  1269, // #1269 Voice Upper
+  1270, // #1270 Voice Lower
+  1271, // #1271 Voice Pedal
+  1080, // #1080 Master Volume
+  1081, // #1081 TubeAmp Gain
+  1136, // #1136 TubeAmpBypass
+  1172, // #1172 Ext FX Insert
+  1263, // #1263 Reverb Prgm
+  1134, // #1134 Rotary Motor
+  1135, // #1135 Rotary Fast
+  1137, // #1137 Rotary Bypass
+  1266, // #1266 Rotary Model
+  1262, // #1262 Percussion
+  1132, // #1132 UPR LWR Vibr
+  1133, // #1133 UPR LWR Vibr
+  1264, // #1264 UPR LWR Vibr
+  1150, // #1150 Phasing Fast
+  1138, // #1138 Phasing Upper
+  1139, // #1139 Phasing Lower
+  1265, // #1265 Organ Model
+  1391, // #1391 TG Tuning
+  1395, // #1395 MIDI Transpos
+  1192, // #1192 Edit Name
+  1495, // #1495 LED Dimmer
+  1247, // #1247 Save Defaults
+  1696, // #1696 PresetSaveMask
+  1509, // #1509 SD File Exec
+  1697, // #1697 Bootld Update
+  1698, // #1698 WiFi Init Def
+  1699, // #1699 Preset Init
+  1000, // #1000 UpperDB 16
+  1001, // #1001 UpperDB 5 1/3
+  1002, // #1002 UpperDB 8
+  1003, // #1003 UpperDB 4
+  1004, // #1004 UpperDB 2 2/3
+  1005, // #1005 UpperDB 2
+  1006, // #1006 UpperDB 1 3/5
+  1007, // #1007 UpperDB 1 1/3
+  1008, // #1008 UpperDB 1
+  1009, // #1009 UpperDB Mix 1
+  1010, // #1010 UpperDB Mix 2
+  1011, // #1011 UpperDB Mix 3
+  1157, // #1157 H100 HarpSust
+  1156, // #1156 H100 2ndVoice
+  1158, // #1158 EG DB To Dry
+  1160, // #1160 H100 Perc
+  1224, // #1224 UpperGM Prg 1
+  1225, // #1225 UpperGM Lvl 1
+  1226, // #1226 UpperGM Hrm 1
+  1227, // #1227 UpperGM Prg 2
+  1228, // #1228 UpperGM Lvl 2
+  1229, // #1229 UpperGM Harm2
+  1230, // #1230 UpperGM Detn2
+  1016, // #1016 LowerDB 16
+  1017, // #1017 LowerDB 5 1/3
+  1018, // #1018 LowerDB 8
+  1019, // #1019 LowerDB 4
+  1020, // #1020 LowerDB 2 2/3
+  1021, // #1021 LowerDB 2
+  1022, // #1022 LowerDB 1 3/5
+  1023, // #1023 LowerDB 1 1/3
+  1024, // #1024 LowerDB 1
+  1025, // #1025 LowerDB Mix 1
+  1026, // #1026 LowerDB Mix 2
+  1027, // #1027 LowerDB Mix 3
+  1176, // #1176 ADSR Ena Lwr
+  1232, // #1232 LowerGM Prg 1
+  1233, // #1233 LowerGM Lvl 1
+  1234, // #1234 LowerGM Harm1
+  1235, // #1235 LowerGM Prg 2
+  1236, // #1236 LowerGM Lvl 2
+  1237, // #1237 LowerGM Harm2
+  1238, // #1238 LowerGM Detn2
+  1072, // #1072 PedalDB 16
+  1073, // #1073 PedalDB 16H
+  1074, // #1074 PedalDB 8
+  1075, // #1075 PedalDB 8H
+  1067, // #1067 Pedal Release
+  1240, // #1240 PedalGM Prg 1
+  1241, // #1241 PedalGM Lvl 1
+  1242, // #1242 PedalGM Harm1
+  1243, // #1243 PedalGM Prg 2
+  1244, // #1244 PedalGM Lvl 2
+  1245, // #1245 PedalGM Harm2
+  1246, // #1246 PedalGM Detn2
+  1400, // #1400 Reverb 1 Lvl
+  1401, // #1401 Reverb 2 Lvl
+  1402, // #1402 Reverb 3 Lvl
+  1144, // #1144 PHR <Mode>
+  1159, // #1159 Equ Bypass
+  1112, // #1112 Bass Equal
+  1113, // #1113 Bass Equ Frq
+  1114, // #1114 Bass Equ Q
+  1115, // #1115 Mid Equal
+  1116, // #1116 Mid Equ Frq
+  1117, // #1117 Mid Equ Q
+  1118, // #1118 Treble Equal
+  1119, // #1119 Treb Equ Frq
+  1120, // #1120 Treb Equ Q
+  1121, // #1121 Parametr B/T
+  1082, // #1082 Upper Lvl Adj
+  1083, // #1083 Lower Lvl Adj
+  1084, // #1084 Pedal Lvl Adj
+  1085, // #1085 Perc Lvl Adj
+  1142, // #1142 PedalRotBypas
+  1087, // #1087 AO28 Tone Pot
+  1088, // #1088 AO28 Gain Cap
+  1089, // #1089 AO28 MinSwell
+  1090, // #1090 AO28 Tube Age
+  1480, // #1480 PercNormLvl
+  1481, // #1481 PercSoftLvl
+  1482, // #1482 PercLongTm
+  1483, // #1483 PercShortTm
+  1448, // #1448 HornSlowSpeed
+  1449, // #1449 RotrSlowSpeed
+  1450, // #1450 HornFastSpeed
+  1451, // #1451 RotrFastSpeed
+  1452, // #1452 HornRampUp
+  1453, // #1453 RotorRampUp
+  1454, // #1454 HornRampDown
+  1455, // #1455 RotorRampDown
+  1456, // #1456 Rotary Throb
+  1457, // #1457 Rotary Spread
+  1458, // #1458 Rotary Balnce
+  1460, // #1460 Tube Select A
+  1461, // #1461 Tube Select B
+  1368, // #1368 MIDI Channel
+  1369, // #1369 MIDI Option
+  1370, // #1370 MIDI CC Set
+  1371, // #1371 MIDI Swell CC
+  1372, // #1372 MIDI VolumeCC
+  1374, // #1374 MIDI PresetCC
+  1355, // #1355 TransposeOffs
+  1373, // #1373 MIDI Send
+  1143, // #1143 Split Keyb
+  1353, // #1353 Split Point
+  1354, // #1354 Split Mode
+  1376, // #1376 No ProgChgRcv
+  1326, // #1326 Scanner Gear
+  1328, // #1328 Ch ScannerLvl
+  1327, // #1327 Ch Bypass Lvl
+  1329, // #1329 V1/C1 FM Mod
+  1330, // #1330 V2/C2 FM Mod
+  1331, // #1331 V3/C3 FM Mod
+  1261, // #1261 Gating Mode
+  1388, // #1388 TG WaveSet
+  1392, // #1392 TG Tapering
+  1389, // #1389 TG Flutter
+  1390, // #1390 TG Leakage
+  1360, // #1360 ContSpringFlx
+  1361, // #1361 ContSpringDmp
+  1356, // #1356 ContEarlyActn
+  1357  // #1357 No DB1 @Perc
+);
+
+s_MenuHeaderArr: array[0..  c_MenuLen] of String[13] = (
+  'HX3 Preset   ',  // #1268
+  'Voice Upper  ',  // #1269
+  'Voice Lower  ',  // #1270
+  'Voice Pedal  ',  // #1271
+  'Master Volume',  // #1080
+  'TubeAmp Gain ',  // #1081
+  'TubeAmpBypass',  // #1136
+  'Ext FX Insert',  // #1172
+  'Reverb Prgm  ',  // #1263
+  'Rotary Motor ',  // #1134
+  'Rotary Fast  ',  // #1135
+  'Rotary Bypass',  // #1137
+  'Rotary Model ',  // #1266
+  'Percussion   ',  // #1262
+  'UPR LWR Vibr ',  // #1132
+  'UPR LWR Vibr ',  // #1133
+  'UPR LWR Vibr ',  // #1264
+  'Phasing Fast ',  // #1150
+  'Phasing Upper',  // #1138
+  'Phasing Lower',  // #1139
+  'Organ Model  ',  // #1265
+  'TG Tuning    ',  // #1391
+  'MIDI Transpos',  // #1395
+  'Edit Name    ',  // #1192
+  'LED Dimmer   ',  // #1495
+  'Save Defaults',  // #1247
+  'PresetSaveMsk',  // #1696
+  'SD File Exec ',  // #1509
+  'Bootld Update',  // #1697
+  'WiFi Init Def',  // #1698
+  'Preset Init  ',  // #1699
+  'UpperDB 16   ',  // #1000
+  'UpperDB 5 1/3',  // #1001
+  'UpperDB 8    ',  // #1002
+  'UpperDB 4    ',  // #1003
+  'UpperDB 2 2/3',  // #1004
+  'UpperDB 2    ',  // #1005
+  'UpperDB 1 3/5',  // #1006
+  'UpperDB 1 1/3',  // #1007
+  'UpperDB 1    ',  // #1008
+  'UpperDB Mix 1',  // #1009
+  'UpperDB Mix 2',  // #1010
+  'UpperDB Mix 3',  // #1011
+  'H100 HarpSust',  // #1157
+  'H100 2ndVoice',  // #1156
+  'EG DB To Dry ',  // #1158
+  'H100 Perc    ',  // #1160
+  'UpperGM Prg 1',  // #1224
+  'UpperGM Lvl 1',  // #1225
+  'UpperGM Hrm 1',  // #1226
+  'UpperGM Prg 2',  // #1227
+  'UpperGM Lvl 2',  // #1228
+  'UpperGM Harm2',  // #1229
+  'UpperGM Detn2',  // #1230
+  'LowerDB 16   ',  // #1016
+  'LowerDB 5 1/3',  // #1017
+  'LowerDB 8    ',  // #1018
+  'LowerDB 4    ',  // #1019
+  'LowerDB 2 2/3',  // #1020
+  'LowerDB 2    ',  // #1021
+  'LowerDB 1 3/5',  // #1022
+  'LowerDB 1 1/3',  // #1023
+  'LowerDB 1    ',  // #1024
+  'LowerDB Mix 1',  // #1025
+  'LowerDB Mix 2',  // #1026
+  'LowerDB Mix 3',  // #1027
+  'ADSR Ena Lwr ',  // #1176
+  'LowerGM Prg 1',  // #1232
+  'LowerGM Lvl 1',  // #1233
+  'LowerGM Harm1',  // #1234
+  'LowerGM Prg 2',  // #1235
+  'LowerGM Lvl 2',  // #1236
+  'LowerGM Harm2',  // #1237
+  'LowerGM Detn2',  // #1238
+  'PedalDB 16   ',  // #1072
+  'PedalDB 16H  ',  // #1073
+  'PedalDB 8    ',  // #1074
+  'PedalDB 8H   ',  // #1075
+  'Pedal Release',  // #1067
+  'PedalGM Prg 1',  // #1240
+  'PedalGM Lvl 1',  // #1241
+  'PedalGM Harm1',  // #1242
+  'PedalGM Prg 2',  // #1243
+  'PedalGM Lvl 2',  // #1244
+  'PedalGM Harm2',  // #1245
+  'PedalGM Detn2',  // #1246
+  'Reverb 1 Lvl ',  // #1400
+  'Reverb 2 Lvl ',  // #1401
+  'Reverb 3 Lvl ',  // #1402
+  'PHR <Mode>   ',  // #1144
+  'Equ Bypass   ',  // #1159
+  'Bass Equal   ',  // #1112
+  'Bass Equ Frq ',  // #1113
+  'Bass Equ Q   ',  // #1114
+  'Mid Equal    ',  // #1115
+  'Mid Equ Frq  ',  // #1116
+  'Mid Equ Q    ',  // #1117
+  'Treble Equal ',  // #1118
+  'Treb Equ Frq ',  // #1119
+  'Treb Equ Q   ',  // #1120
+  'Parametr B/T ',  // #1121
+  'Upper Lvl Adj',  // #1082
+  'Lower Lvl Adj',  // #1083
+  'Pedal Lvl Adj',  // #1084
+  'Perc Lvl Adj ',  // #1085
+  'PedalRotBypas',  // #1142
+  'AO28 Tone Pot',  // #1087
+  'AO28 Gain Cap',  // #1088
+  'AO28 MinSwell',  // #1089
+  'AO28 Tube Age',  // #1090
+  'PercNormLvl  ',  // #1480
+  'PercSoftLvl  ',  // #1481
+  'PercLongTm   ',  // #1482
+  'PercShortTm  ',  // #1483
+  'HornSlowSpeed',  // #1448
+  'RotrSlowSpeed',  // #1449
+  'HornFastSpeed',  // #1450
+  'RotrFastSpeed',  // #1451
+  'HornRampUp   ',  // #1452
+  'RotorRampUp  ',  // #1453
+  'HornRampDown ',  // #1454
+  'RotorRampDown',  // #1455
+  'Rotary Throb ',  // #1456
+  'Rotary Spread',  // #1457
+  'Rotary Balnce',  // #1458
+  'Tube Select A',  // #1460
+  'Tube Select B',  // #1461
+  'MIDI Channel ',  // #1368
+  'MIDI Option  ',  // #1369
+  'MIDI CC Set  ',  // #1370
+  'MIDI Swell CC',  // #1371
+  'MIDI VolumeCC',  // #1372
+  'MIDI PresetCC',  // #1374
+  'TransposeOffs',  // #1355
+  'MIDI Send    ',  // #1373
+  'Split Keyb   ',  // #1143
+  'Split Point  ',  // #1353
+  'Split Mode   ',  // #1354
+  'No ProgChgRcv',  // #1376
+  'Scanner Gear ',  // #1326
+  'Ch ScannerLvl',  // #1328
+  'Ch Bypass Lvl',  // #1327
+  'V1/C1 FM Mod ',  // #1329
+  'V2/C2 FM Mod ',  // #1330
+  'V3/C3 FM Mod ',  // #1331
+  'Gating Mode  ',  // #1261
+  'TG WaveSet   ',  // #1388
+  'TG Tapering  ',  // #1392
+  'TG Flutter   ',  // #1389
+  'TG Leakage   ',  // #1390
+  'ContSpringFlx',  // #1360
+  'ContSpringDmp',  // #1361
+  'ContEarlyActn',  // #1356
+  'No DB1 @Perc '   // #1357
+);
+
+c_MenuMaskArr: array[0..  c_MenuLen] of Byte = (
+  199, // #1268 HX3 Preset
+  199, // #1269 Voice Upper
+  199, // #1270 Voice Lower
+  199, // #1271 Voice Pedal
+  199, // #1080 Master Volume
+  199, // #1081 TubeAmp Gain
+  199, // #1136 TubeAmpBypass
+  199, // #1172 Ext FX Insert
+  199, // #1263 Reverb Prgm
+  199, // #1134 Rotary Motor
+  199, // #1135 Rotary Fast
+  199, // #1137 Rotary Bypass
+  199, // #1266 Rotary Model
+  199, // #1262 Percussion
+  199, // #1132 UPR LWR Vibr
+  199, // #1133 UPR LWR Vibr
+  199, // #1264 UPR LWR Vibr
+  134, // #1150 Phasing Fast
+  134, // #1138 Phasing Upper
+  134, // #1139 Phasing Lower
+  199, // #1265 Organ Model
+  199, // #1391 TG Tuning
+  199, // #1395 MIDI Transpos
+  199, // #1192 Edit Name
+  199, // #1495 LED Dimmer
+  199, // #1247 Save Defaults
+  199, // #1696 PresetSaveMask
+  199, // #1509 SD File Exec
+  199, // #1697 Bootld Update
+  199, // #1698 WiFi Init Def
+  199, // #1699 Preset Init
+  199, // #1000 UpperDB 16
+  199, // #1001 UpperDB 5 1/3
+  199, // #1002 UpperDB 8
+  199, // #1003 UpperDB 4
+  199, // #1004 UpperDB 2 2/3
+  199, // #1005 UpperDB 2
+  199, // #1006 UpperDB 1 3/5
+  199, // #1007 UpperDB 1 1/3
+  199, // #1008 UpperDB 1
+  134, // #1009 UpperDB Mix 1
+  134, // #1010 UpperDB Mix 2
+  134, // #1011 UpperDB Mix 3
+  130, // #1157 H100 HarpSust
+  130, // #1156 H100 2ndVoice
+  132, // #1158 EG DB To Dry
+  134, // #1160 H100 Perc
+  199, // #1224 UpperGM Prg 1
+  199, // #1225 UpperGM Lvl 1
+  199, // #1226 UpperGM Hrm 1
+  135, // #1227 UpperGM Prg 2
+  135, // #1228 UpperGM Lvl 2
+  135, // #1229 UpperGM Harm2
+  135, // #1230 UpperGM Detn2
+  199, // #1016 LowerDB 16
+  199, // #1017 LowerDB 5 1/3
+  199, // #1018 LowerDB 8
+  199, // #1019 LowerDB 4
+  199, // #1020 LowerDB 2 2/3
+  199, // #1021 LowerDB 2
+  199, // #1022 LowerDB 1 3/5
+  199, // #1023 LowerDB 1 1/3
+  199, // #1024 LowerDB 1
+  134, // #1025 LowerDB Mix 1
+  134, // #1026 LowerDB Mix 2
+  134, // #1027 LowerDB Mix 3
+  132, // #1176 ADSR Ena Lwr
+  199, // #1232 LowerGM Prg 1
+  199, // #1233 LowerGM Lvl 1
+  199, // #1234 LowerGM Harm1
+  135, // #1235 LowerGM Prg 2
+  135, // #1236 LowerGM Lvl 2
+  135, // #1237 LowerGM Harm2
+  135, // #1238 LowerGM Detn2
+  199, // #1072 PedalDB 16
+  199, // #1073 PedalDB 16H
+  199, // #1074 PedalDB 8
+  199, // #1075 PedalDB 8H
+  199, // #1067 Pedal Release
+  199, // #1240 PedalGM Prg 1
+  199, // #1241 PedalGM Lvl 1
+  199, // #1242 PedalGM Harm1
+  135, // #1243 PedalGM Prg 2
+  135, // #1244 PedalGM Lvl 2
+  135, // #1245 PedalGM Harm2
+  135, // #1246 PedalGM Detn2
+  199, // #1400 Reverb 1 Lvl
+  199, // #1401 Reverb 2 Lvl
+  199, // #1402 Reverb 3 Lvl
+  134, // #1144 PHR <Mode>
+  199, // #1159 Equ Bypass
+  199, // #1112 Bass Equal
+  71, // #1113 Bass Equ Frq
+  71, // #1114 Bass Equ Q
+  199, // #1115 Mid Equal
+  199, // #1116 Mid Equ Frq
+  199, // #1117 Mid Equ Q
+  199, // #1118 Treble Equal
+  71, // #1119 Treb Equ Frq
+  71, // #1120 Treb Equ Q
+  71, // #1121 Parametr B/T
+  199, // #1082 Upper Lvl Adj
+  199, // #1083 Lower Lvl Adj
+  199, // #1084 Pedal Lvl Adj
+  199, // #1085 Perc Lvl Adj
+  199, // #1142 PedalRotBypas
+  199, // #1087 AO28 Tone Pot
+  199, // #1088 AO28 Gain Cap
+  199, // #1089 AO28 MinSwell
+  199, // #1090 AO28 Tube Age
+  199, // #1480 PercNormLvl
+  199, // #1481 PercSoftLvl
+  199, // #1482 PercLongTm
+  199, // #1483 PercShortTm
+  199, // #1448 HornSlowSpeed
+  199, // #1449 RotrSlowSpeed
+  199, // #1450 HornFastSpeed
+  199, // #1451 RotrFastSpeed
+  199, // #1452 HornRampUp
+  199, // #1453 RotorRampUp
+  199, // #1454 HornRampDown
+  199, // #1455 RotorRampDown
+  199, // #1456 Rotary Throb
+  199, // #1457 Rotary Spread
+  199, // #1458 Rotary Balnce
+  199, // #1460 Tube Select A
+  199, // #1461 Tube Select B
+  199, // #1368 MIDI Channel
+  199, // #1369 MIDI Option
+  199, // #1370 MIDI CC Set
+  199, // #1371 MIDI Swell CC
+  199, // #1372 MIDI VolumeCC
+  199, // #1374 MIDI PresetCC
+  199, // #1355 TransposeOffs
+  199, // #1373 MIDI Send
+  199, // #1143 Split Keyb
+  199, // #1353 Split Point
+  199, // #1354 Split Mode
+  199, // #1376 No ProgChgRcv
+  199, // #1326 Scanner Gear
+  199, // #1328 Ch ScannerLvl
+  199, // #1327 Ch Bypass Lvl
+  199, // #1329 V1/C1 FM Mod
+  199, // #1330 V2/C2 FM Mod
+  199, // #1331 V3/C3 FM Mod
+  199, // #1261 Gating Mode
+  199, // #1388 TG WaveSet
+  199, // #1392 TG Tapering
+  199, // #1389 TG Flutter
+  199, // #1390 TG Leakage
+  195, // #1360 ContSpringFlx
+  195, // #1361 ContSpringDmp
+  199, // #1356 ContEarlyActn
+  199  // #1357 No DB1 @Perc
+);
+
+
+// #############################################################################
+// ###                       Display untere Zeile                            ###
+// #############################################################################
+
+s_MenuSplitmodeArr: array[0..5] of String[11] = (
+  'PedalToLwr '        ,
+  'LowerToUpr '        ,
+  'PedalToUpr ' ,
+  'Lower+1 ToU'        ,
+  'Lower+2 ToU' ,
+  'LwrAddPedal' );
+
+// MIDI_OUT_SEL: 0 = MIDI_TX_1, 1 = MIDI_IN_1, 2 = MIDI_IN_2, 3 = MIDI_FROM_SAM (USB)
+s_MenuMidiOptArr: array[0..3] of String[11] = (
+  'Local Tx  '        ,        // 23 Opt 0
+  'Inp 1 Thru'        ,        // 24 Opt 1
+  'Inp 2 Thru'        ,        // 25 Opt 2
+  'USB InThru'        );        // 26 Opt 3
+{
+s_MenuSwellTypeArr: array[0..2] of String[7] = (
+  'Hammond'        ,        //
+  'Audio  '        ,        //
+  'Linear ' );        //
+
+// t_items4
+s_MenuFoldbackArr: array[0..3] of String[11] = (
+  'Foldback   '        ,        //
+  'Full       '        ,        //
+  'Foldb muted'        ,        //
+  'Full  muted'        );        //
+}
+
+s_OrganModelArr: array[0..15] of String[11] = (
+  'B3 Standard',  // 0
+  'B3 Old     ',  // 1
+  'B3 Recapped',  // 2
+  'M100/M3    ',  // 3
+  'H100/12 Drb',  // 4
+  'Boehm 2000 ',  // 5
+  'Boehm CnT/L',  // 6
+  'Wersi Space',  // 7
+  'Wersi Sacrl',  // 8
+  'FarfisCombo',  // 9
+  'Vox Conti  ',  // 10
+  'Conn/Church',  // 11
+  'Custom 1   ',  // 12
+  'Custom 2   ',  // 13
+  'Custom 3   ',  // 14
+  'Custom 4   '   // 15
+  );
+
+s_SpeakerModelArr: array[0..15] of String[11] = (
+  '122 Std SmR',  // 0
+  '122 Std LgR',  // 1
+  '122 Old SmR',  // 2
+  '122 Old LgR',  // 3
+  '147 New SmR',  // 4
+  '147 New LgR',  // 5
+  '760 Std SmR',  // 6
+  '760 Std LgR',  // 7
+  'SpaceSound ',  // 8
+  'Sharma2001 ',  // 9
+  'Vibratone  ',  // 10
+  'Dynacord100',  // 11
+  'CLS-222    ',  // 12
+  'Custom 1   ',  // 13
+  'Custom 2   ',  // 14
+  'Custom 3   '   // 15
+  );
+
+s_PHRbitfieldArr: array[0..7] of String[9] = (
+  'We/Boe  ',  // 0, Bitfield Descr
+  'Ensemble',  // 1
+  'Celeste ',  // 2
+  'Fading  ',  // 3
+  'Weak    ',  // 4
+  'Deep    ',  // 5
+  'RotFast ',  // 6
+  'Ramp up '); // 7
+  
+s_SaveMaskArr: array[0..7] of String[9] = (
+  'UpperDB ',  // 0, Bitfield Descr
+  'LowerDB ',  // 1
+  'PedalDB ',  // 2
+  'EG,ADSR ',  // 3
+  'Tabs,Knb',  // 4
+  'S/F,Amp ',  // 5
+  'Volumes ',  // 6
+  'GMSynth '); // 7
+
+s_GatingArr: array[0..4] of String[11] = (
+  'B3/9 DrB   ',  // 0
+  'H100/12 Drb',  // 1
+  'EnvelopeGen',  // 2
+  'EG +PercDrb',  // 3
+  'EG +TimeDrb'); // 4
+
+s_VibBitfieldArr: array[0..7] of String[11] = (
+  'PreEmphLoPk',  // 0, Bitfield Descr
+  'PreEmphHiPk',  // 1
+  'PrePhaseInv',  // 2
+  '(not used) ',  // 3
+  'ModSlope 1 ',  // 4
+  'ModSlope 2 ',  // 5
+  'ModSlopeInv',  // 6
+  '(not used) '); // 7
+
+s_EGbitfieldArr: array[0..11] of String[7] = (
+  '16''   ',
+  '5 1/3''',
+  '8''    ',
+  '4''    ',
+  '2 2/3''',
+  '2''    ',
+  '1 3/5''',
+  '1 1/3''',
+  '1''    ',
+  'Mix 1 ',
+  'Mix 2 ',
+  'Mix 3 ');
+
+s_LocalEnableArr: array[0..7] of String[11] = (
+  'All Kbd OFF',  // 0
+  'Upper ON   ',  // 1
+  'Lower ON   ',  // 2
+  'Upr+Lwr ON ',  // 3
+  'Pedal ON   ',  // 4
+  'Upr+Ped ON ',  // 5
+  'Lwr+Ped ON ',  // 6
+  'All Kbd ON '); // 7
+
+
+// wird auch über SysEx gesendet
+// s_MenuMidiCCArr: array[0..3] of String[11] = (
+//  'NI B4 d3c  ',  // 0
+//  'Hammond XK ',  // 1
+//  'Hammond SK ',  // 2
+//  'Versatile  ');  // 3
+//  'Nord C1/C2 ',  // aus DF Core Block c_midicc_base +4, 'nordc_cc.dat'
+//  'VoceDrawbar' , // aus DF Core Block c_midicc_base +5, 'voced_cc.dat'
+//  'KeyB/Duo   ' , // aus DF Core Block c_midicc_base +6, 'keybd_cc.dat'
+//  'Hamichord  ' , // aus DF Core Block c_midicc_base +7, 'hamic_cc.dat'
+//  'KBP/Touchp ' , // aus DF Core Block c_midicc_base +8, 'hx35k_cc.dat'
+//  'Custom 1   ' , // aus DF Core Block c_midicc_base +9, 'cust1_cc.dat'
+//  'Custom 2   ' );// aus DF Core Block c_midicc_base +10,'cust2_cc.dat'
+
+s_MenuTaperingArr: array[0..5] of String[11] = (
+  'Year 1955  ',    // 0 Cap Sets, Tapering B3
+  'Year 1961  ',    // 1
+  'Year 1972  ',    // 2
+  'Recapped   ',    // 3 B3 aggressiv
+  'StraightLin',    // 4 linear, kein Tapering
+  'Twangy     ' );  // 5 hohe Noten betont
+
+s_MenuSpreadArr: array[0..3] of String[11] = (
+  'B3/M/H100  ',    // Hammond Spread
+  'TOS/Div2   ',    // TOS/ Div2
+  'SingleNote ',    // SingleNote Conn
+  'SingleNtDet' );  // SingleNote Detuned
+
+{
+Waveset: 0..3 Hammond 25-38% k2,
+4: Sinus 2% THD
+5: Sägezahn gefiltert für Strings oder Cheesy
+6: Sinus 12% k3 für Conn
+7: Sinus Square 8% k3, 5% k5
+}
+s_MenuWaveArr: array[0..7] of String[11] = (
+  'B3  25% k2 ',  // 0 neue B3
+  'B3  28% k2 ',  // 1
+  'B3  32% k2 ',  // 2
+  'B3  38% k2 ',  // 3 alte B3
+  'Sine 2% k2 ',  // 4 Reiner Sinus, Böhm mit Sinus-Zusatz
+  'Sawt Fltrd ',  // 5 Sägezahn gefiltert
+  'Sine LC Gen',  // 6 Sinus LC-Generator
+  'Sine TOSGen'); // 7 Sinus aus Rechteck-Filterung
+
+implementation
+
+end.

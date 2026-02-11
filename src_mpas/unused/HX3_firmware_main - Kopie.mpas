@@ -1,0 +1,448 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+//    MCU:             STM32F103RET6 oder GD32F303RET6
+//    Oscillator:      72000000 Hz
+//    SW:              mikroPascal PRO for ARM v6.20
+
+// TFT Calibration Constants, 6 Messungen
+// A:00008055, B:00000000, C:FFF35790, D:FFFFFF9F, E:00004CD2, F:FFF21104
+// A:00008190, B:0000003D, C:FFF11DC5, D:FFFFFD04, E:00004DC0, F:FFF40D5A
+// A:00008035, B:00000096, C:FFF29983, D:FFFFFEB4, E:00004C0B, F:FFF4B477
+// A:00008106, B:FFFFFF4A, C:FFF1DC32, D:FFFFFE36, E:00004CD5, F:FFF57398
+// A:0000801A, B:000000D9, C:FFF07056, D:FFFFFF67, E:00004EC8, F:FFEBE6C0
+// A:0000815B, B:FFFFFFA4, C:FFF0059D, D:FFFFFE77, E:00004D53, F:FFF2143D
+
+// #############################################################################
+// Nach Kompilierung darauf achten, dass StackPointer in NVIC-Tabelle
+// auf $2000EFFC steht (gleicher Wert wie Bootloader)!
+// edit_array belegt $2000 F000 bis $2000 FFFF,
+// Stack beginnt 4 Bytes darunter
+// #############################################################################
+
+// |-----------------------------User Activity---------------------------------|
+// |--MenuSystem--|--SwitchIF--|--AnalogInputs--|--MIDI Dispatch--|---Parser---|
+// |---------------------------Event/Edit Array--------------------------------|
+// |----------------------------Apply Changes----------------------------------|
+// |---FPGA Hilevel---|---MIDI Send---|--Binary Send (WIFI)--|--Store/Recall---|
+// |-----------------------------Hardware-----------------------|----Events-^--|
+
+// Bootloader überprüft, ob in den ersten Bytes des Backup-Bereiches ein
+// magic flag = $55AA (BKUP-Word 0) und optional eine
+// Update-Maske (BKUP-Word 1, BootFlag-Bits) gesetzt sind.
+// welche Bestandteile er von wo updaten soll
+// BKUP-Word 0 = $55AA wenn Bootloader-Menu von Firmware angefordert wurde
+// siehe Bootloader-Commands in Unit const_def
+
+// Bootloader liefert an Firmware erfolgte Aktionen zurück:
+// BKUP-Word 0 = $55FF (Updated), $5500 (nichts passiert) oder $5501 (Fehler)
+// BKUP-Word 1 = Error-Flags: $0s0p mit
+// s=1 SDcard, s=2 DFU, s=8 Failsafe und
+// p=1 FPGA, p=2 FW, p=4 DF
+// BKUP-Word 2 = Update-BitFlags LSW, siehe Excel-Tabelle DFU_FileList.xlsx
+// BKUP-Word 3 = Update-BitFlags MSW
+// BKUP-Word 4 = Unix-Timestamp LSW, Sendezeit/-Datum der Tabelle)
+// BKUP-Word 5 = Unix-Timestamp MSW
+
+program HX3_TFT_main;
+
+uses lcd_twi, spi_rw, twi_systimer, const_def, sd_card, fpga_hilevel,
+     apply_changes, dataflash, switch_if, menu_system,
+     nuts_bolts, save_restore, midi_dispatch, parser;
+const
+
+{$IFDEF GD303_MCU}
+  dev_str = '/ GD32F303RET6 MCU ';
+{$ELSE}
+  dev_str = '/ STM32F103RET6 MCU ';
+{$ENDIF}
+
+var
+  temp_w, idx: word;
+  sometimes_counter : word;
+
+procedure LCDinfoAndCheckForUpdates;
+const
+  lcd_upd_str = 'Updated parts';
+  msg_lcdok_str = '/ LCD found';
+  parts_str = '/ Update err&part flags: $';
+  lcd_fpga_fail_str = 'FPGA FAILED!';
+  lcd_param_str = 'Updating Params';
+var updated_parts: DWord;
+   bootloader_msg, error_msg,
+   param, value, pcount2: Word;
+   hex_str: String[15];
+begin
+  // Bootloader-Info auswerten
+  bkp_init;
+  bootloader_msg:= bkp_read(0);     // ErrorFlags
+  error_msg:= bkp_read(1);     // ErrorFlags
+  WordToHex(error_msg, hex_str);
+  Serial1_sendstring(parts_str + hex_str);
+  updated_parts:= (bkp_read(3) shl 16) or bkp_read(2);
+  LongWordToHex(updated_parts, hex_str);
+  Serial1_sendstringCRLF(' ' + hex_str);
+  if LCD_TWI_present then begin
+    LCD_TWI_Clr;
+    LCD_TWI_WriteStr(s_LCD1Str);
+    LCD_TWI_XY(0, 1);
+    LongWordToStr(eep_BoardInfo.FPGAsernum, hex_str);
+    ltrim(hex_str);
+    LCD_TWI_WriteStr('SerN #' + hex_str);
+    LCD_TWI_ClrEol;
+    mDelay(1500);
+    if (bootloader_msg = c_blcmd_done) then begin
+      LCD_TWI_Clr;
+      LCD_TWI_WriteStr(lcd_upd_str);
+      LCD_TWI_XY(0, 1);
+      LCD_TWI_WriteStr('Flags: ');
+      LCD_TWI_WriteStr(hex_str);
+      mDelay(1500);
+    end;
+    Serial1_sendstringCRLF(msg_lcdok_str);
+  end;
+
+  if LCD_TWI_present and not eep_BoardInfo.FPGAloaded then begin
+    LCD_TWI_XY(0, 1);
+    LCD_TWI_WriteStr(lcd_fpga_fail_str);
+    LCD_TWI_ClrEol;
+    mDelay(1500);
+  end;
+
+  // Update-Liste vorhanden?
+  DF_ReadBlock(c_param_update_list_DF, 4096);
+  if (BlockBuffer32[c_validflag_DW] = c_updatelist_magicflag)
+  and (BlockBuffer32[c_param_count_DW] > 0) then begin
+    if LCD_TWI_present then begin
+      LCD_TWI_Clr;
+      LCD_TWI_WriteStr(lcd_param_str);
+    end;
+    idx:= 0;
+    pcount2:= BlockBuffer32[c_param_count_DW] * 2;
+    repeat
+      param:= BlockBuffer16[idx];
+      inc(idx);
+      value:= BlockBuffer16[idx];
+      inc(idx);
+      NewParamEvent(param, value, c_to_fpga_event_source);
+      if LCD_TWI_present then begin
+        LCD_TWI_XY(0, 1);
+        LCD_TWI_WriteVal(param, 4);
+        LCD_TWI_WriteChar('=');
+        LCD_TWI_WriteVal(value, 3);
+        LCD_TWI_ClrEol;
+        mDelay(100);
+      end;
+    until (idx > pcount2) or (param = 0) or (param = $FFFF);
+    if LCD_TWI_present then begin
+      LCD_TWI_XY(0, 1);
+      LCD_TWI_WriteStr(s_script_ended);
+      LCD_TWI_ClrEol;
+      mDelay(1500);
+    end;
+    SR_StoreDefaults;  // geänderte Werte gleich abspeichern
+    SR_Init; // Defaults erneut laden
+    DF_Unprotect;
+    DF_EraseBlock(c_param_update_list_DF); // Liste löschen, nicht nochmal
+    DF_protect;
+  end;
+  for idx:= 0 to 5 do
+    bkp_write(idx, 0);
+  bkp_shutdown;
+end;
+
+// #############################################################################
+
+procedure MainTasks;
+// benutzte LCs
+// (6)  HP-Filter,
+// (8)  DB Upper,
+// (9)  DB Lower,
+// (10) DB Pedal,
+// (11) ADSR Upper,
+// (12) ADSR Lower,
+// (13) ADSR Pedal
+const
+  dsp_ok_str = '/ SAM5504 DSP OK, version #';
+  dsp_failed_str = '/ ERR: DSP failed!';
+begin
+  if ReloadRequest then begin
+    ReloadRequest:= false;
+    DF_LoadScanDriver;
+    FH_SendFIRToFPGA(edit_RotaryModel);
+
+    // Voices und Defaults laden, ggf. initialisieren,
+    // Default-Werte initialisieren und senden:
+    SR_Init;
+
+    SWI_Init;  // eep muss geladen sein!
+    PA_Init;
+    ADC_Init;  // nach SWI_init!
+    MenuInit;
+
+    // Lizenzen und Username checken, ScanDriver/FIFO initialisieren
+    FH_BoardInfo;
+    LCDinfoAndCheckForUpdates;   // Update-Liste vorhanden?
+    eep_BoardInfo.DSPversion:= 0;  // wird später von SysEx gesetzt
+    MIDI_ResetGMprogs;
+    mDelay(50);
+    MIDI_getDSPinfo;
+    if eep_BoardInfo.DSPversion > 0 then begin
+      ByteToHex(hi(eep_BoardInfo.DSPversion), val_str);
+      Serial1_sendstring(dsp_ok_str + val_str + '.');
+      ByteToHex(lo(eep_BoardInfo.DSPversion), val_str);
+      Serial1_sendstringCRLF(val_str);
+    end else
+      Serial1_sendstringCRLF(dsp_failed_str);
+
+    SD_Init;   // SD-SPI, SD vorhanden?
+    SD_DirSerial;
+    AC_Init;
+    SR_LoadCommonPreset(0);
+    ADC_ReadAndChangesToEdit;
+    FillBlock(@PresetInvalids, sizeof(PresetInvalids), 0);
+
+{$IFDEF USE_EVETFT}
+    TFT_PWRDN:= true;  // EVT TFT Reset aufheben
+    Serial1_sendstringCRLF('/ TFT Init');
+    InitVTFTStack();
+{$ENDIF}
+    InitMsgEnable:= false;
+    Serial2_CRLF;
+    Serial2_sendChar('>');
+  end;
+
+  if SaveDefaultsRequest and IsSysTimerZero(c_SaveDefaultsTimer) then begin
+    SaveDefaultsRequest:= false;
+    if ParamChanged then
+      SR_StoreDefaults;
+    if SystemInitChanged then
+      SR_StoreSystemInits;
+    ParamChanged:= false;
+    SystemInitChanged:= false;
+  end;
+
+  case IRQ_roundrobin of
+  0:
+    begin
+      SWI_HandlePanel(0, false);
+      SWI_HandlePanel(1, false);
+    end;
+  1:
+    begin
+      SWI_HandlePanel(2, false);
+      SWI_HandlePanel(3, false);
+    end;
+  2:
+    begin
+      SWI_HandlePanel(4, false);
+      SWI_HandlePanel(5, false);
+      SWI_HandleXB2panel;
+    end;
+  6:
+    begin
+      SWI_HandleVibratoKnob;
+      MenuPanelHandling;   // Aufruf sollte vor AC_ExecEditChanges erfolgen!
+    end;
+  7:
+    begin
+      inc(ToggleLEDcount);
+      if ToggleLEDcount > 15 then begin
+        ToggleLEDcount:= 0;
+        ToggleLEDstate:= not ToggleLEDstate;
+        if ConnectMode = c_connect_osc_midi then // OSCconnectedByMIDI
+          MIDI_SendBoolean(3, 91, ToggleLEDstate);
+        if PresetStoreRequest then begin
+          if ConnectMode = c_connect_osc_wifi then  // OSCconnectedBySerial
+            NB_SendBinaryVal(1640, 64)
+          else if ConnectMode = c_connect_osc_midi then // OSCconnectedByMIDI
+            MIDI_SendBoolean(3, 90, ToggleLEDstate);
+        end;
+      end;
+
+      if edit_ADCconfig > 0 then begin
+        FootSwFast:= FSW_FAST = 0;
+        FootSwRun:= FSW_RUN = 0;
+        if edit_ConfBits2.B0 then begin  // Klinkenbuchsen sind Schalter-Eingänge
+          // FootSwSlow:= FootSwRun and (not FootSwFast);
+          if FootSwFast_old <> FootSwFast then begin
+            NewEditIdxEvent(c_LogicalTab_LeslieFast, FootSwFast, c_control_event_source);
+            FootSwFast_old:= FootSwFast;
+            if edit_ConfBits2.B1 then begin // Slow/Stop/Fast-Schalter
+              if FootSwFast then
+                NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_control_event_source)
+              else if (not FootSwRun) then
+                NewEditIdxEvent(c_LogicalTab_LeslieRun, 0, c_control_event_source);
+            end;
+          end;
+
+          if FootSwRun_old <> FootSwRun then begin
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, FootSwRun, c_control_event_source);
+            FootSwRun_old:= FootSwRun;
+            if edit_ConfBits2.B1 then  // Slow/Stop/Fast-Schalter
+              if (not FootSwFast) and (not FootSwRun) then begin
+                NewEditIdxEvent(c_LogicalTab_LeslieRun, 0, c_control_event_source);
+                NewEditIdxEvent(c_LogicalTab_LeslieFast, 0, c_control_event_source);
+              end;
+          end;
+        end else begin   // Klinkenbuchsen sind Taster-Eingänge
+          if FootSwFast then
+            inctolimW(FootSwFast_debounce, 5)
+          else
+            dectolimW(FootSwFast_debounce, 0);
+          FootSwFast:= FootSwFast_debounce >= 5;
+          if FootSwFast and (not FootSwFast_old) then
+            NewEditIdxEvent(c_LogicalTab_LeslieFast, not edit_LogicalTab_LeslieFast, c_control_event_source);
+          FootSwFast_old:= FootSwFast;
+
+          if FootSwRun then
+            inctolimW(FootSwRun_debounce, 5)
+          else
+            dectolimW(FootSwRun_debounce, 0);
+          FootSwRun:= FootSwRun_debounce >= 5;
+          if FootSwRun and (not FootSwRun_old) then
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, not edit_LogicalTab_LeslieRun, c_control_event_source);
+          FootSwRun_old:= FootSwRun;
+        end;
+      end;
+      
+      if HalfmoonPresent then begin
+        HalfmoonSw:= SWI_GetSwitchHalfmoon;
+        if HalfmoonSw <> HalfmoonSw_old then begin
+          Serial1_sendstringCRLF('/ Halfmoon set to' + char(HalfmoonSw + 48));
+          HalfmoonSw_old:= HalfmoonSw;
+          if HalfmoonSw = 0 then // STOP
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, 0, c_board_event_source);
+          if HalfmoonSw = 1 then begin // SLOW
+            NewEditIdxEvent(c_LogicalTab_LeslieFast, 0, c_board_event_source);
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_board_event_source);
+          end;
+          if HalfmoonSw = 2 then begin // FAST
+            NewEditIdxEvent(c_LogicalTab_LeslieFast, 255, c_board_event_source);
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_board_event_source);
+          end;
+        end;
+      end;
+      
+      ADC_ReadAndChangesToEdit;
+      AC_ExecEditChanges;
+      FH_UpdatePHRspeed;
+      if SendPromptRequest_1 then
+        Serial1_sendChar(#62);  // '>' Prompt nach jedem Befehl
+      if SendPromptRequest_2 then
+        Serial2_sendChar(#62);  // '>' Prompt nach jedem Befehl
+      SendPromptRequest_1:= false;
+      SendPromptRequest_2:= false;
+    end;
+  end;
+  inc(sometimes_counter);
+  if sometimes_counter = 333 then begin
+    sometimes_counter:= 0;
+    // irgendwas machen, was nur selten benötigt wird
+  end;
+  AC_SendSwell;  // spontate Reaktion auf Schweller erforderlich, alle 2ms
+  //FSW_FAST
+
+  FH_UpdateLeslieSpeed; // Sendet auch MIDI Channel
+end;
+
+// #############################################################################
+
+procedure InitMain();
+const
+  mhz_str = ' MHz';
+begin
+  PortInit(); // in var_def.mpas
+  BT_RST:=  false;     // WIFI Reset
+  EventsInit;
+  LEDcard:= true;
+  LEDactivity:= false;
+  SysTimerInit;
+  // Initialize USART modules at 57600 bps
+  Serial1_Init();   // FTDI-Kabel
+  Serial2_Init();   // WIFI-Modul
+  EnableInterrupts;  // bevor irgendetwas ausgegeben wird!
+
+  WordToStr(Clock_MHz(), val_str);
+  ltrim(val_str);
+  Serial1_sendstringCRLF('');
+  Serial1_sendstringCRLF(s_divline);
+  Serial1_sendstringCRLF('/ ' + s_SysExDeviceStr);
+  Serial1_sendstringCRLF(dev_str + val_str + mhz_str);
+  Serial1_sendstringCRLF(s_divline);
+
+  TWI_Init;
+  // Warte auf FPGA-Konfiguration
+  SPI_InitFPGA(false);  // nur warten, kein F_PROG
+  eep_BoardInfo.FPGAloaded:= SPI_CheckFPGA(false); // sperrt ggf. FPGA wenn fail
+
+  InitMsgEnable:= true;        // Ausgabe von Init-Meldungen beim Start
+  LCD_TWI_Init;
+
+  F_AUX_SEL:= false;   // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  mDelay(1);
+  SPI_fpga_send_byte(246, 0); // Set DSP ROW01 bits = 0, DSP-Firmware
+  QFL_NRST:= true;    // SAM-Flash Reset aufheben
+  SAM_NRST:= true;    // SAM-MCU Reset aufheben
+  mDelay(250);  // DSP bootet
+  BT_RST:=  true;     // WIFI Reset aufheben
+
+  ReloadRequest:= true;
+  if (edit_ADCconfig > 0) and edit_ConfBits2.B0 then begin // Schalter-Eingänge
+    FootSwFast:= FSW_FAST = 0;
+    FootSwRun:= FSW_RUN = 0;
+    if FootSwRun then begin
+      NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_board_event_source);
+      FootSwRun_old:= true;
+    end;
+    if FootSwFast then begin
+      NewEditIdxEvent(c_LogicalTab_LeslieFast, 255, c_board_event_source);
+      FootSwFast_old:= true;
+      if edit_ConfBits2.B1 then  // Slow/Stop/Fast-Schalter
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_board_event_source);
+    end;
+  end;
+
+  MainTasks;
+  // Änderungen ausführen
+end;
+
+// #############################################################################
+
+begin
+  // Nach Kompilierung der Firmware befindet sich die Vektortabelle
+  // im Binary immer auf $00000000, egal was bei ORG[all] vermerkt ist.
+  // Gelesener Firmware-Block 0 aus DF wird daher im Bootloader
+  // auf Adresse VEC_TABLE_START geschrieben, Bootloader setzt
+  // Vektortabellen-Adresse vor dem Einsprung in Firmware auf diesen Wert.
+
+ // Sorgt dafür, dass nichts vor Adresse FIRMWARE_START platziert wird:
+  org(FIRMWARE_START); // 64K für Bootloader
+  orgall(FIRMWARE_START); // 64K für Bootloader
+  // Einsprungpunkt des Bootloaders, Reset-Vektor in NVIC-Tabelle $00000004
+
+  FillBlock(@edit_array, 4096, 0);
+  InitMain();
+  SendPromptRequest_1:= true; // Bereitschafts-Prompt
+
+  while true do begin
+{$IFDEF USE_EVETFT}
+    ProcessVTFTStack();
+{$ENDIF}
+    PA_CheckSer;
+    MIDI_Dispatch;            // MIDI-Input immer auswerten
+    if IRQ_sema then begin
+      MainTasks;
+      IRQ_sema:= false;
+    end;
+  end;
+
+end.

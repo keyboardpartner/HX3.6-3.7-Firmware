@@ -1,0 +1,6 @@
+[PROJECTS]
+Count=2
+Project0=bootloader.mppar
+Project1=PWM.mppar
+[ActiveProject]
+Index=0

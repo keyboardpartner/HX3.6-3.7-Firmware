@@ -1,0 +1,1542 @@
+// #############################################################################
+//
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+//             STM32F103 ARM Version
+//    (c) KeyboardPartner UG & C. Meyer 05/2020
+//
+// #############################################################################
+
+// AutoInc-Register FPGA-SPI
+// LC#    Breite   Länge Bytes  LC Core
+// 0        24        8192      PicoBlaze       (Datei/DF-Blocks)
+// 1         8        1024      Taper-RAM (Datei/DF in 32 Bit, nur unterste 8 übertragen)
+// 2        16        2048      FIR-Coeff       (Datei/DF-Blocks)
+// 3         8        1024      Keymap-RAM      (berechnet)
+// 4        16       16384      Wave-RAM        (Datei/DF-Blocks)
+// 5        16          96      Frequenz/Tuning (berechnet)
+// 6        16        1024      Highpass-Filter (berechnet)
+// 7                                            (unused)
+// 8         8          16      Upper DBs       (berechnet)
+// 9         8          16      Lower DB        (berechnet)
+// 10        8          16      Pedal DB        (berechnet)
+// 11       16          64      ADSR Upper      (berechnet)
+// 12       16          64      ADSR Lower      (berechnet)
+// 13       16          64      ADSR Pedal      (berechnet)
+
+// Block-Offsets zu Block c_scan_base
+// 0..1: Scan Core,
+// 9: EEPROM Backup,
+// 10: DSP Core,
+// 11..14: Tapering
+// 15: FIR filter
+// 16 ff.: Wavesets
+
+unit fpga_hilevel;
+
+uses spi_rw, const_def, twi_systimer, edit_vals, nuts_bolts, 
+     avrco_compat, events, edit_vals, edit_offsets, edit_defaults, 
+     midi_com, var_def, dataflash, intflash, serial1;
+
+
+// AutoInc-Prozeduren
+procedure FH_TaperingToFPGA(taper_set: Word);
+
+// Berechnete Werte
+procedure FH_KeymapToFPGA(tg_size: Word; do_high_foldback: Boolean);
+procedure FH_NoteHighpassFilterToFPGA(tg_size, filter_fac: Word);
+procedure FH_TuningValsToFPGA(tuning_set: Word);  // Index [41]
+
+// Komplexe Prozeduren
+procedure FH_BoardInfo;  // Hole Boardinfo und Lizenzen
+procedure FH_LicenceToFPGA; // Lizenzen an FPGA und Check
+
+procedure FH_UpperRoutingToFPGA(var routing_words: Array[0..7] of Word);
+procedure FH_RouteOrgan;
+
+procedure FH_PercussionParamsToFPGA;
+
+procedure FH_SendReverb(rev_prg: Word);
+procedure FH_SwitchMainEQreverb;
+
+procedure FH_UpperDrawbarsToFPGA;
+procedure FH_LowerDrawbarsToFPGA;
+procedure FH_PedalDrawbarsToFPGA;
+procedure FH_InsertsToFPGA;
+procedure FH_SendLeslieInitsToFPGA;
+procedure FH_SendFIRToFPGA(rotary_model: Word);
+
+procedure FH_VibratoToFPGA;  // Index [36]
+procedure FH_OrganParamsToFPGA;  // Index [37]
+procedure FH_PhasingRotorToFPGA;  // Index [38]
+procedure FH_UpdatePHRspeed;
+procedure FH_UpdateLeslieSpeed;
+
+procedure FH_SplitConfigToFPGA;  // Index [40]
+procedure FH_WaveBlocksToFPGA;  // Index [42]
+
+procedure FH_TubeCurveToFPGA(tube_set_a, tube_set_b: byte);
+
+procedure FH_SendAuxLEDs; // PERC/VIB/ROTARY Zustand an MIDI-Scancore für HX3.7 Expander
+
+implementation
+
+type
+  t_regbuf = Array[0..15] of Word;
+
+const
+  // Offsets in routing_words-Array
+  c_offs_cont_bits =         0; // FPGA SPI #40
+  c_offs_env_db_bits =       1; // FPGA SPI #41
+  c_offs_env_full_bits =     2; // FPGA SPI #42
+  c_offs_env_to_dry_bits =   3; // FPGA SPI #43
+
+  c_offs_cont_perc_bits =    4; // FPGA SPI #32
+  c_offs_env_percmode_bits = 5; // FW use
+  c_offs_env_adsrmode_bits = 6; // ADSR ena
+  c_offs_env_timemode_bits = 7; // TimeMod ADSRena
+
+var
+  RegBufTemp: t_regbuf;   // für Drawbar-LCs
+  
+  idx, temp_w: Word;
+  temp_di: LongInt;
+  temp_b: Byte;
+  temp_db_levels: array[0..15] of Word;  // Mixturen umgerechnet zum Senden an FPGA
+  temp_dbe_levels: array[0..15] of Word; // Mixturen umgerechnet zum Senden an FPGA
+
+  bb_ena_cont_bits,         // FPGA SPI #40
+  bb_ena_env_db_bits,       // FPGA SPI #41
+  bb_ena_env_full_bits,     // FPGA SPI #42
+  bb_env_to_dry_bits: Word;       // FPGA SPI #43
+  // nur in FW benutzt:
+  bb_ena_cont_perc_bits,         // FPGA SPI #32
+  bb_ena_env_percmode_bits,     // FW use, enable Perc DB
+  bb_ena_env_adsrmode_bits,     // FW use, enable ADSR
+  bb_ena_env_timemode_bits: word;     // FW use, full ADSR
+
+  bb_attack_arr: array[0..15] of Word;   // Zeitkorrekturen für EG Decay Mode
+  bb_decay_arr : array[0..15] of Word;   // Zeitkorrekturen für EG Decay Mode
+  bb_sustain_arr: array[0..15] of Word;  // Zeitkorrekturen für EG Decay Mode
+  bb_release_arr: array[0..15] of Word;  // Zeitkorrekturen für EG Decay Mode
+
+  Inserts: Word; // Bit-Folge in FPGA-SPI
+  InsertPhasingUpper: sbit at Inserts.0;
+  InsertPhasingLower: sbit at Inserts.1;
+  InsertVibratoUpper: sbit at Inserts.2; // wird ständig mit VibOnUpper überschrieben
+  InsertVibratoLower: sbit at Inserts.3; // wird ständig mit VibOnLower überschrieben
+  InsertTubeAmp:     sbit at Inserts.4;
+  InsertRotarySpkr:  sbit at Inserts.5;
+  InsertPedalPostMix: sbit at Inserts.6;
+  InsertExternalEfx:  sbit at Inserts.7;
+
+  StepArray:  array[0..255] of Integer;   // Für Tube-Kennlinie
+  SlopeArray: array[0..255] of Integer;
+
+
+type
+  Tphrgroup = record
+    SpeedVariSlow: Byte;
+    SpeedVariFast: Byte;
+    SpeedSlow: Byte;
+    Feedback: Byte;
+    LevelPh1: Byte;
+    LevelPh2: Byte;
+    LevelPh3: Byte;
+    LevelDry: Byte;
+    FeedBackInvert: Byte;
+    RampDelay: Byte;
+    ModVariPh1: Byte;
+    ModVariPh2: Byte;
+    ModVariPh3: Byte;
+    ModSlowPh1: Byte;
+    ModSlowPh2: Byte;
+    ModSlowPh3: Byte;
+  end;
+  
+var
+  fpga_PHRarr: array[0..15] of byte;
+  fpga_PHR: Tphrgroup at fpga_PHRarr;   // Overlay
+
+const
+  // Impulsantwort (fast) linear
+  c_fir_linear_arr: Array[0..7] of Word = (
+    10000, 20000, 28000, 32767, 28000, 20000, 10000, 0);   // muss mit 0 enden
+
+// #############################################################################
+
+
+procedure FH_SendAuxLEDs; // PERC/VIB/ROTARY Zustand an MIDI-Scancore für HX3.7 Expander
+begin
+  temp_b:= 0;
+  temp_b.B0:= edit_LogicalTab_PercOn <> 0;
+  temp_b.B1:= edit_LogicalTab_PercSoft <> 0;
+  temp_b.B2:= edit_LogicalTab_PercFast <> 0;
+  temp_b.B3:= edit_LogicalTab_Perc3rd <> 0;
+  temp_b.B4:= edit_LogicalTab_VibOnUpper <> 0;
+  temp_b.B5:= edit_LogicalTab_VibOnLower <> 0;
+  temp_b.B6:= (edit_LogicalTab_LeslieRun <> 0) and (edit_LogicalTab_RotarySpkrBypass = 0);
+  SPI_fpga_send_byte($0F, temp_b); // AUX Bits für MIDI-ScanCore
+end;
+
+
+procedure FH_SendFIRToFPGA(rotary_model: Word);
+var lc_word: DWord;
+begin
+  if rotary_model < 8 then
+    DF_LoadFIRcoeff
+  else begin
+    SPI_AutoIncSetup(2);
+    for idx:= 0 to 511 do begin
+      if idx < 8 then
+        lc_word:= c_fir_linear_arr[idx];
+      SPI_fpga_rw_32(lc_word);   // Lese-Ergebnis nicht benutzt
+    end;
+    SPI_AutoIncReset(2);
+  end;
+end;
+
+procedure FH_SendLeslieInitsToFPGA;
+begin
+// Leslie Equalizer, Offsets und Delays an FPGA
+  eep_LeslieInits[17]:= eep_LeslieInits[16];
+  eep_LeslieInits[19]:= eep_LeslieInits[18];
+  eep_LeslieInits[21]:= eep_LeslieInits[20];
+  eep_LeslieInits[23]:= eep_LeslieInits[22]; // Horn Throb L/R
+
+  // Grundeinstellungen direkt an FPGA
+  // edit_LeslieInpLvl .. edit_LeslieRotorLevel werden in AC_SendVolumes korrigiert und gesendet!
+  for idx:= 7 to 63 do
+    SPI_fpga_send_byte(idx + 176, eep_LeslieInits[idx]);
+  SPI_fpga_send_byte(179, eep_LeslieInits[28]); // Invert Horn
+  event_array[c_MasterVolume]:= c_to_fpga_event_source;
+  FH_InsertsToFPGA;
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH LeslieInits');
+{$ENDIF}
+end;
+
+// #############################################################################
+
+procedure FH_SwitchMainEQreverb;
+// Auf Organ Main nur dann EQ und Reverb mischen, wenn KEIN Effekt-Insert
+begin
+  // Sendet DSP-intern Organ Main EQ enable und Reverb (ab DSP-FW x1.26)
+  MIDI_SendNRPN($350D, byte(edit_LogicalTab_InsertExternalEfx));
+  // Reverb auf Organ Main Out wenn in DSP freigeschaltet
+  MIDI_SendNRPN($350F, 100);
+end;
+
+procedure FH_SendReverb(rev_prg: Word);
+// Reverb-Parameter berechnen und an DSP senden
+{
+  SAM _LiveMic Reverb programs:
+  0: Off                1: Short Room      2: Room A         3: Room B
+  4: Small Hall A       5: Small Hall B    6: Large Hall A   7: Large Hall B
+  8: Short Plate        9: Vocal Plate
+  10: Mono Echo         11: Stereo Echo
+  12: MonoEcho+Reverb   13: StereoEcho+Reverb
+}
+var 
+  rev_time : Word;
+  rev_lvl: Byte;
+begin
+  if ReverbKnob_old <> rev_prg then begin
+    // eigener Event für Reverb Level wäre sicher eleganter...
+    temp_w:= eep_SAM_RevDSPvals[0][rev_prg]; // Idx=0
+    MIDI_SendNRPN($3500, temp_w); // SAM55004 _LiveMic_Effect_LoadProgram
+  end;
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH Reverb #' + ByteToStrTrim(rev_prg));
+{$ENDIF}
+  if rev_prg > 0 then begin
+    rev_lvl:= mulDivByte(edit_ReverbLevels[rev_prg - 1], 2, 3) + (edit_OverallReverb div 4);   // RevInputLevel
+    // RevTime, Idx=1
+    rev_time:= Word(eep_SAM_RevDSPvals[1][rev_prg]) + Word(edit_OverallReverb div 4);
+
+    MIDI_SendNRPN($3502, rev_lvl);     // SAM55004 RevInputLevel
+    MIDI_SendNRPN($3505, lo(rev_time));   // SAM55004 RevTime
+    if ReverbKnob_old <> rev_prg then begin
+      // eigener Event für Reverb Level wäre sicher eleganter...
+      MIDI_SendNRPN($3503, eep_SAM_RevDSPvals[2][rev_prg]); // SAM55004 RevPreHP, $40 = 600 Hz, $7F =1,2kHz   Idx=2
+      MIDI_SendNRPN($3504, eep_SAM_RevDSPvals[3][rev_prg]); // SAM55004 RevHDamp, $7F = max.                  Idx=3
+      MIDI_SendNRPN($3506, eep_SAM_RevDSPvals[4][rev_prg]); // SAM55004 RevToneGain, $40 = 0dB, $7F= +6dB     Idx=4
+      MIDI_SendNRPN($3507, eep_SAM_RevDSPvals[5][rev_prg]); // SAM55004 RevToneFreq, $00 = 800 Hz, $7F = 3kHz Idx=5
+    end;
+  end;
+  
+  // Reverb auf Organ Main Out wenn in DSP freigeschaltet (siehe FH_InsertsToFPGA)
+  FH_SwitchMainEQreverb;
+
+//  PREAMP_REV1:= edit_LogicalTab_Reverb1;  // TODO!
+//  PREAMP_REV2:= edit_LogicalTab_Reverb2;
+  ReverbKnob_old:= rev_prg;
+end;
+
+procedure FH_OrganParamsToFPGA;
+// Edit-Tabelle Orgel an FPGA, Kanal und Freigabe an SAM5504
+// nur übertragen, wenn im Menü geändert
+begin
+// Achtung: Throb Position wird auf 4 gelesen, edit_MIDI_Channel auf SPI 4 muss
+// deshalb in AC_SendSwell ebenfalls gesendet werden!
+  SPI_fpga_send_byte(4, edit_MIDI_Channel);
+// MIDI_OUT_SEL: 0 = MIDI_TX_1, 1 = MIDI_IN_1, 2 = MIDI_IN_2, 3 = MIDI_FROM_SAM (USB)
+
+  MIDI_SendSustainSostEnable;
+  SPI_fpga_send_byte(67, edit_MIDI_Channel);
+
+  temp_w:= (edit_ContSpringFlx shl 4) or (edit_ContSpringDmp and 15);
+  SPI_fpga_send_byte(9, lo(temp_w));  // Klick-Länge und Noise-Frequenz
+  SPI_fpga_send_byte(10, edit_GenTranspose);  // Generator Transpose
+  SPI_fpga_send_byte(13, edit_KeyTranspose);  // positive Werte verschieben Töne nach UNTEN!
+  
+  // Fatar Key Velocity Faktor (1/t-Steilheit), 
+  // Early Contact (Bit 0) und LubedContacts (Bit 1)
+  temp_w:= (edit_EarlyKeyCont and 1) or (edit_LubedContacts and 2); // für FATAR Scancore
+  temp_w:= temp_w or (edit_FatarVelocityFac shl 2);
+  SPI_fpga_send_byte(11, lo(temp_w));
+  temp_w:= c_TuningTable[edit_TG_tuning];
+  SPI_fpga_send_byte(68, lo(temp_w)); // CycleSteal-Wert -125 .. +125
+
+  if edit_GatingKnob <= 1 then
+    temp_w:= (edit_TG_Flutter and %00001111) 
+             or ((edit_TG_Leakage and %00000111) shl 4)
+             or (edit_EnaGenLoadMap and %10000000)
+  else  // Leakage abschalten bei EG-Modes - keine Plopp-Filter!
+    temp_w:= (edit_TG_Flutter and %00001111);
+  SPI_fpga_send_byte(67, lo(temp_w));
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH OrganParams');
+{$ENDIF}
+end;
+
+// #############################################################################
+
+procedure FH_InsertsToFPGA;
+var ena_dac_swap: Byte;
+begin
+  Inserts:= 0; // default alle Bits auf 0
+  InsertVibratoUpper:= edit_LogicalTab_VibOnUpper;
+  InsertVibratoLower:= edit_LogicalTab_VibOnLower;
+  if eep_BoardInfo.LicenceExtValid then begin
+    InsertPhasingUpper:= edit_LogicalTab_PHRupperOn;
+    InsertPhasingLower:= edit_LogicalTab_PHRlowerOn;
+  end;
+  InsertTubeAmp:= not edit_LogicalTab_TubeAmpBypass;
+  InsertRotarySpkr:= not edit_LogicalTab_RotarySpkrBypass;
+  InsertExternalEfx:= edit_LogicalTab_InsertExternalEfx;
+
+  ena_dac_swap:= edit_ConfBits2.B6 and edit_LogicalTab_RotarySpkrBypass;
+  InsertPedalPostMix:= (edit_LogicalTab_PedalPostMix and (not edit_ConfBits1.B3)) or ena_dac_swap;
+  // entspricht jetzt Bit-Folge im FPGA Register 66
+  SPI_fpga_send_byte(66, Inserts);  // Insert Change
+  SPI_fpga_send_byte(64, ena_dac_swap);  // Swap DACs, Bit 0
+
+  MIDI_SendNRPN($350E, byte(edit_LogicalTab_EqualizerBypass)); // Equalizer freischalten
+  FH_SwitchMainEQreverb;
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH Inserts');
+{$ENDIF}
+  FH_SendAuxLEDs;
+end;
+
+// #############################################################################
+
+procedure FH_ArrayToFPGA(var reg_array: t_regbuf; count, target: Word);
+// 16 Register-Werte an FPGA übertragen
+begin
+  SPI_AutoIncSetup(target); // for Write Core 3
+  for idx:= 0 to count - 1 do
+    SPI_fpga_rw_byte(Byte(reg_array[idx]));
+  SPI_AutoIncReset(target);
+{$IFDEF DEBUG_FH}
+  IntToStr(target, debug_str);
+  ltrim(debug_str);
+  Serial1_sendstring('/ FH DBarray #' + debug_str + ', vals: ');
+  for idx:= 0 to count - 1 do begin
+    IntToStr(reg_array[idx], debug_str);
+    ltrim(debug_str);
+    Serial1_sendstring(debug_str + ', ');
+  end;
+  Serial1_CRLF;
+{$ENDIF}
+end;
+
+procedure drawbars_to_lc(edit_idx: Word; manual: Word; target: Word);
+// AutoInc-Register muss gesetzt sein
+// In "bb_ena_env_adsrmode_bits" sind jene Bits auf '1',
+// bei denen ein BUSBAR auf ADSR geschaltet ist.
+// In "bb_ena_env_percmode_bits" sind jene Bits auf '1',
+// bei denen zusätzlich der Sustain-Pegel vom normalen
+// Fußlagen-Drawbar statt von ADSR-Sustain-Poti übernommen werden soll.
+var
+  my_fac_10, my_fac_11, my_fac_12, dbe_val, db_val, mixt_idx  : Word;
+  is_eg_adsr, mute_db: boolean;
+begin
+  is_eg_adsr:= (manual = 0) and (bb_ena_env_adsrmode_bits <> 0)
+               and (bb_ena_env_db_bits <> 0)
+               and (edit_GatingKnob >= 2);
+
+  if (manual = 0) and edit_LogicalTab_PercOn and (edit_GatingKnob = 0) then
+    mute_db:= (edit_LogicalTab_PercSoft or DisablePercussion) = 0
+  else
+    mute_db:= false;
+
+  FillBlock(@temp_db_levels, sizeof(temp_db_levels), 0);
+  FillBlock(@temp_db_levels, sizeof(temp_dbe_levels), 0);
+
+  // normale Zugriegel in Temp-Tabelle
+  if manual = 2 then begin   // Pedal?
+    for idx:= 0 to 8 do begin
+      temp_w:= edit_array[edit_idx + idx];
+      temp_db_levels[idx]:= (temp_w * edit_BusbarLevels[idx]) div 127; // mal Busbar-Pegel
+    end;
+    temp_db_levels[15]:= temp_db_levels[0];  // Busbar ohne Foldback
+    temp_db_levels[0]:= 0;  // Foldback-Busbar nicht benutzt
+  end else
+    for idx:= 0 to 8 do begin
+      temp_w:= edit_array[edit_idx + idx];
+      temp_db_levels[idx]:= (temp_w * edit_BusbarLevels[idx]) div 127; // mal Busbar-Pegel
+      if is_eg_adsr then
+        temp_dbe_levels[idx]:= edit_UpperEnvelopeDBs[idx];
+    end;
+
+  // 3 Pegelwerte in temp_db_levels zusammenstellen
+  // Zugehörige Fußlagen ermitteln
+  // Es kann ein Busbar jeweils nur EINEM Zugriegel zugeordnet werden,
+  // ein Zugriegel kann aber Signale von mehreren Busbars erhalten
+  if eep_BoardInfo.LicenceExtValid and (edit_GatingKnob >= 1) then
+    for idx:= 0 to 5 do begin
+      my_fac_10:= edit_DB10_MixtureLevels[idx];
+      my_fac_11:= edit_DB11_MixtureLevels[idx];
+      my_fac_12:= edit_DB12_MixtureLevels[idx];
+      temp_w:= 0;
+      dbe_val:= 0;
+      mixt_idx:= idx + 9;
+      if my_fac_12 > 0 then begin
+        temp_w:= (my_fac_12 * edit_UpperDBs[edit_idx + 11]) div 127;
+        temp_w:= (temp_w * edit_BusbarLevels[mixt_idx]) div 140;
+        if is_eg_adsr then
+          dbe_val:=(my_fac_12 * edit_UpperEnvelopeDBs[11]) div 127;
+      end;
+
+      if my_fac_11 > 0 then begin
+        temp_w:= (my_fac_11 * edit_UpperDBs[edit_idx + 10]) div 127;
+        temp_w:= (temp_w * edit_BusbarLevels[mixt_idx]) div 140;
+        if is_eg_adsr then
+          dbe_val:= (my_fac_11 * edit_UpperEnvelopeDBs[10]) div 127;
+      end;
+
+      if my_fac_10 > 0 then begin
+        temp_w:= (my_fac_10 * edit_UpperDBs[edit_idx + 9]) div 127;
+        temp_w:= (temp_w * edit_BusbarLevels[mixt_idx]) div 140;
+        if is_eg_adsr then
+          dbe_val:= (my_fac_10 * edit_UpperEnvelopeDBs[9]) div 127;
+      end;
+
+      temp_db_levels[idx + 9]:= temp_w;
+      temp_dbe_levels[idx + 9]:= dbe_val;
+    end;
+
+  SPI_AutoIncSetup(target); // for Write Core 3
+  for idx:= 0 to 15 do begin      // 16 Werte log. umrechnen
+    temp_w:= temp_db_levels[idx];
+    if is_eg_adsr and bb_ena_env_percmode_bits.idx then begin // soll auf Drawbar-Level?
+      // nach Formel Sustain = DB / (P + 1) und V = DB * fac + P
+      temp_w:= c_DrawbarLogTable[temp_w];
+      // halbieren, weil doppelter Pegel durch gesetztes FULL_BIT
+      db_val:= temp_w shr 1;
+      temp_w:= temp_dbe_levels[idx];
+      db_val:= db_val + c_DrawbarLogTable[temp_w];
+    end else begin
+      db_val:= c_DrawbarLogTable[temp_w];
+      if mute_db then
+        // Drawbar-Pegelabsenkung bei Percussion gewünscht, nur Hammond
+        db_val:= (db_val * edit_PercMutedLvl) div 127;
+    end;
+    SPI_fpga_rw_byte(db_val);
+  end;
+  SPI_AutoIncReset(target);
+end;
+
+procedure bb_adsr_to_fpga;
+// ADSR-Arrays UPPER an FPGA senden
+// sendet nacheinander 16 Attack-, 16 Decay-, 16 Sustain- und 16 Release-Werte
+begin
+  // Attack- und Decay-Values senden
+  SPI_AutoIncSetup(11);
+  for idx:= 0 to 15 do
+    SPI_fpga_rw_word(c_TimeLogTable[bb_attack_arr[idx]]);
+
+  for idx:= 0 to 15 do
+    SPI_fpga_rw_word(c_TimeLogTable[bb_decay_arr[idx]]);
+
+  // Sustain-Values *2 senden, 0..255
+  for idx:= 0 to 15 do
+    SPI_fpga_rw_word(Word(bb_sustain_arr[idx]) shl 1);
+
+  // Release-Wert senden
+  for idx:= 0 to 15 do
+    SPI_fpga_rw_word(c_TimeLogTable[bb_release_arr[idx]]);
+  SPI_AutoIncReset(11);
+end;
+
+procedure adsr_to_bb_adsr;
+// produziert 15 abfallende/ansteigende ADSR-Werte für Saiten-Simulation
+// In "bb_ena_env_adsrmode_bits" sind jene Bits auf '1',
+// bei denen ein BUSBAR auf ADSR geschaltet ist.
+// In "bb_ena_env_percmode_bits" sind jene Bits auf '1',
+// bei denen zusätzlich der Sustain-Pegel vom normalen
+// Fußlagen-Drawbar statt von ADSR-Sustain-Poti übernommen werden soll.
+// drawbars_to_lc muss ausgeführt sein!
+var
+  my_timefac, decay_harm, release_harm, sustain_harm,
+  my_db_val, my_dbe_val: Word;
+  attack, decay, sustain, release: Word;
+  env_db_int, attack_int, decay_int, release_int: Word;
+begin
+  // EG Mode, einige EG-Enables gesetzt
+  my_timefac:= (edit_UpperADSRharmonics div 4) + 112; // Mitte 128
+
+  decay_harm:= edit_UpperDecay;  // 0..127
+  sustain_harm:= edit_UpperSustain;  // 0..127
+  release_harm:= edit_UpperRelease;
+
+  for idx:= 0 to 15 do begin
+    attack:= 0; // Default: sehr kurz
+    decay:= 0;
+    sustain:= 127;
+    release:= 0;
+
+    // EG ADSR aktiviert?
+    if bb_ena_env_adsrmode_bits.idx then begin
+      attack:= edit_UpperAttack; // kein HARMONIC DECAY!
+      decay:= decay_harm;
+      sustain:= edit_UpperSustain;
+      release:= release_harm;
+    end;
+
+    // EG Percussion Mode aktiviert? Sustain-Wert ändern
+    if bb_ena_env_percmode_bits.idx then begin // soll auf Drawbar-Level?
+      attack:= 0;
+      decay:= decay_harm;
+      release:= release_harm;
+
+      my_db_val:= temp_db_levels[idx]; // umsortierte lineare Werte
+      my_dbe_val:= temp_dbe_levels[idx];
+
+      // nach Formel S = DB / (P + 1) und V = DB + P
+      sustain:= (my_db_val * 127) div (my_dbe_val + 127);  // S = DB / (P + 1)
+    end;
+
+    // EG TimeMod aktiviert?
+    if bb_ena_env_timemode_bits.idx then begin
+      env_db_int:= (edit_UpperEnvelopeDBs[idx] * 75) div 100;
+
+      attack_int:= edit_UpperAttack + env_db_int; // kein HARMONIC DECAY!
+      attack:= ValueTrimLimit(attack_int, 0, 127);
+
+      decay_int:= decay_harm + env_db_int;
+      decay:= ValueTrimLimit(decay_int, 0, 127);
+
+      sustain:= edit_UpperSustain;
+
+      release_int:= release_harm + env_db_int;
+      release:= ValueTrimLimit(release_int, 0, 127);
+    end;
+
+    // aktuell ermittelte Werte in Tabelle
+    bb_attack_arr[idx]:= attack;
+    bb_decay_arr[idx]:= decay;
+    bb_sustain_arr[idx]:= sustain;
+    bb_release_arr[idx]:= release;
+
+    // HARMONIC DECAY, modifizierte Zeiten für obere Teiltöne
+    decay_harm:= (decay_harm * my_timefac) div 127;
+    decay_harm:= ValueTrimLimit(decay_harm, 0, 127);
+    release_harm:= (release_harm * my_timefac) div 127;
+    release_harm:= ValueTrimLimit(release_harm, 0, 127);
+  end;
+end;
+
+procedure harp_sustain_to_bb_adsr;
+begin
+  // Decay-Value für Harp-Sustain-Fußlage 4' = BB 2
+  bb_attack_arr[3]:= 0;
+  bb_decay_arr[3]:= edit_H100harpSust;
+  bb_sustain_arr[3]:= 40;  // Sustain-Value
+  bb_release_arr[3]:= edit_H100harpSust;
+end;
+
+function mixtures_to_ena_byte(to_adsr_bits: Byte): word;
+// liefert zugehörige Fußlagen-Bits nach Drawbar-Zählweise, oberes Byte
+var
+  my_fac_10, my_fac_11, my_fac_12, temp, bit_idx  : Word;
+begin
+  temp:= 0;
+  for idx:= 0 to 5 do begin       // 6 Werte ermitteln und Bits setzen
+    if eep_BoardInfo.LicenceExtValid then begin
+      my_fac_10:= edit_DB10_MixtureLevels[idx];
+      my_fac_11:= edit_DB11_MixtureLevels[idx];
+      my_fac_12:= edit_DB12_MixtureLevels[idx];
+    end else begin
+      my_fac_10:= 0;
+      my_fac_11:= 0;
+      my_fac_12:= 0;
+    end;
+    // Es kann ein Busbar nur EINEM Zugriegel zugeordnet werden!
+    bit_idx:= idx + 1;
+    if (my_fac_12 > 0) and to_adsr_bits.3 then
+      temp.bit_idx:= true;
+    if (my_fac_11 > 0) and to_adsr_bits.2 then
+      temp.bit_idx:= true;
+    if (my_fac_10 > 0) and to_adsr_bits.1 then
+      temp.bit_idx:= true;
+  end;
+  result:= temp;
+end;
+
+function drawbar_ena_to_busbar_ena(drawbar_ena: word): word;
+var
+  temp_word  : word;
+  temp_ena: Byte;
+begin
+  Lo(temp_word):= Lo(drawbar_ena);
+  temp_ena:= Hi(drawbar_ena);
+  Hi(temp_word):= (temp_ena and 1) or mixtures_to_ena_byte(temp_ena);
+  result:= temp_word;
+end;
+
+// #############################################################################
+
+procedure FH_UpperDrawbarsToFPGA;
+// Vorbereitete Parameter-Tabelle UPPER und Tabs an FPGA
+// ADSR-Drawbars und bb_ena_words an FPGA
+// In "bb_ena_env_adsrmode_bits" sind jene Bits auf '1',
+// bei denen ein BUSBAR auf ADSR geschaltet ist.
+// In "bb_ena_env_percmode_bits" sind jene Bits auf '1',
+// bei denen zusätzlich der Sustain-Pegel vom normalen
+// Fußlagen-Drawbar statt von ADSR-Sustain-Poti übernommen werden soll.
+// benutzte LCs
+// (6)=HP-Filter, (8)=DB Upper, (10)=DB Pedal, (11)= ADSR Upper, (12)=ADSR Lower, (13)=ADSR Pedal
+begin
+// Percussion ans FPGA, sofern nicht zweiter Zugriegelsatz
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH UpperDB');
+{$ENDIF}
+  drawbars_to_lc(c_UpperDBs, 0, 8); // edit_idx, manual, LC
+  // Sustainpegel neu senden, ggf. H100 Harp Sustain
+  if (edit_GatingKnob = 1) and edit_LogicalTab_H100_HarpSustain then begin
+    harp_sustain_to_bb_adsr;  // nur BB 3 freigeschaltet
+    bb_adsr_to_fpga;
+  end;
+  if edit_GatingKnob > 1 then begin // alle EG Modes
+    adsr_to_bb_adsr;
+    bb_adsr_to_fpga;
+  end;
+end;
+
+// #############################################################################
+// ###                     LOWER ADSR und DRAWBARS                           ###
+// #############################################################################
+
+// benutzte LCs (6)=HP-Filter, (8)=DB Upper, (9)=DB Lower, (10)=DB Pedal,
+//              (11)= ADSR Upper, (12)=ADSR Lower, (13)=ADSR Pedal
+
+procedure scaled_lwrped_adsr_to_lc(adsr_param_idx: Word; const full_adsr: word);
+// produziert 15 abfallende/ansteigende ADSR-Werte für Saiten-Simulation
+// sendet nacheinander 16 Attack-, 16 Decay-, 16 Sustain- und 16 Release-Werte
+const
+  c_short_time: Word = c_TimeLogTable[0];
+var
+  my_timefac, attack_val, 
+  decay_val, decay_val_start, 
+  sustain_val, 
+  release_val, release_val_start: Word;
+begin
+  my_timefac:= (edit_array[adsr_param_idx + 4] div 4) + 112; // Mitte 128
+  // Attack-Values errechnen und senden
+  attack_val:= edit_array[adsr_param_idx + 0];   // 0..127
+  for idx:= 0 to 15 do begin
+    if full_adsr.idx then
+      SPI_fpga_rw_word(c_TimeLogTable[attack_val])
+    else
+      SPI_fpga_rw_word(c_short_time);
+  end;
+  // Decay-Values errechnen und senden
+  decay_val:= edit_array[adsr_param_idx + 1];  // 0..127
+  decay_val_start:= decay_val;
+  for idx:= 0 to 15 do begin
+    if idx = 15 then
+      decay_val:= decay_val_start;  // Anfangswert
+    if full_adsr.idx then
+      SPI_fpga_rw_word(c_TimeLogTable[decay_val])
+    else
+      SPI_fpga_rw_word(c_short_time);
+    // modifizierte Zeiten für obere Teiltöne
+    decay_val:= (decay_val * my_timefac) div 127;
+    decay_val:= ValueTrimLimit(decay_val, 0, 127);
+  end;
+  // Sustain-Values senden
+  sustain_val:= edit_array[adsr_param_idx + 2] shl 1;
+  for idx:= 0 to 15 do begin
+    if full_adsr.idx then
+      SPI_fpga_rw_word(sustain_val)
+    else
+      SPI_fpga_rw_word(255);
+  end;
+  // Release-Values errechnen und senden
+  release_val:= edit_array[adsr_param_idx + 3];  // 0..127
+  release_val_start:= release_val;  // 0..127
+  for idx:= 0 to 15 do begin
+    if idx = 15 then
+      release_val:= release_val_start;  // Anfangswert
+    if full_adsr.idx  then
+      SPI_fpga_rw_word(c_TimeLogTable[release_val])
+    else
+      SPI_fpga_rw_word(c_short_time);
+    // modifizierte Zeiten für obere Teiltöne
+    release_val:= (release_val * my_timefac) div 127;
+    release_val:= ValueTrimLimit(release_val, 0, 127);
+  end;
+end;
+
+procedure FH_LowerDrawbarsToFPGA;
+// 9 + 6 skalierte Drawbar-Werte Lower an FPGA
+var
+  my_word  : word;
+begin
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH LowerDB');
+{$ENDIF}
+  drawbars_to_lc(c_LowerDBs, 1, 9);  // edit_idx, manual, LC
+  if eep_BoardInfo.LicenceExtValid and (edit_GatingKnob > 1) then begin
+    // alle EG Modes
+    my_word:= drawbar_ena_to_busbar_ena(NB_LogicalTabsToWord12(48));
+    SPI_fpga_send_word(44, $0FFF); // ADSR enables, all ON
+    SPI_AutoIncSetup(12);    // for Write Core 12
+    scaled_lwrped_adsr_to_lc(c_LowerADSR, my_word); // Busbars auf ADSR statt A--D
+    SPI_AutoIncReset(12);
+  end else
+    SPI_fpga_send_word(44, 0); // ADSR enables, all OFF
+end;
+
+// #############################################################################
+// ###                     PEDAL ADSR und DRAWBARS                           ###
+// #############################################################################
+
+
+// #############################################################################
+
+procedure FH_PedalDrawbarsToFPGA;
+// Vorbereitete Parameter-Tabelle BASS für HX3-Engine an FPGA
+// benutzte LCs (6)=HP-Filter, (8)=DB Upper, (10)=DB Pedal, (11)= ADSR Upper, (12)=ADSR Lower, (13)=ADSR Pedal
+begin
+// Pedal-Bass-Drawbar ans FPGA
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH PedalDB');
+{$ENDIF}
+  drawbars_to_lc(c_PedalDBs, 2, 10);  // edit_idx, manual, LC
+  // ADSR-Params bei Pedal immer
+  SPI_AutoIncSetup(13);       // for Write Core 13
+  scaled_lwrped_adsr_to_lc(c_PedalADSR, $FFFF);
+  SPI_AutoIncReset(13);
+end;
+
+// #############################################################################
+
+procedure FH_VibratoToFPGA;  // Index [36]
+var
+  my_fm, my_am, vibknob: Word;
+  is_chorus: Boolean;
+begin
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH Vibr');
+{$ENDIF}
+  // Interpolierte Vibrato-Linebox, andere FPGA-Register
+  // 160 bis 174: Delay-Taps
+  vibknob:= edit_VibKnob;
+  is_chorus:= vibknob and 1 = 1;
+  temp_w:= vibknob shr 1;   // 3 Modulationen
+  my_fm:= edit_VibMods[temp_w];
+  my_am:= muldivByte(edit_VibChLineAgeAM, temp_w + 3, 5); // 3/5, 4/5 und 5/5
+
+  if is_chorus then begin // Chorus-Stellungen
+    my_fm:= muldivByte(my_fm, (edit_ChorusEnhance shr 2) + 50, 50);
+    temp_w:= muldivByte(edit_VibChPreEmphasis, 65, 100) + 15;
+  end else
+    temp_w:= muldivByte(edit_VibChPreEmphasis, 97, 127) + 30;
+
+  SPI_fpga_send_doubled_byte(144, temp_w);   // #1320 Preemphasis Level
+
+  my_fm:= valueTrimLimit(my_fm, 0, 115);
+  my_am:= valueTrimLimit(my_am, 0, 127);
+
+  SPI_fpga_send_doubled_byte(145, my_am);                 // #1321 Level AM
+
+  // 15 ansteigende Verzögerungszeiten berechnen
+  for idx:= 0 to 14 do begin
+    temp_w:= muldivByte(my_fm, idx, 28) + 1;   //  49 = 1 ms = V3
+    SPI_fpga_send_byte(160 + idx, lo(temp_w));
+  end;
+
+  temp_w:= muldivByte(edit_SegmentFlutter, temp_w, 127);
+  SPI_fpga_send_doubled_byte(153, temp_w);   // #1333 Vib Segment Flutter, Anteil Emphasis
+  SPI_fpga_send_doubled_byte(154, edit_PreemphCutoff);
+
+  temp_w:= edit_PreemphPhase;
+  if temp_w.5 then
+    temp_w.4:= false;
+  SPI_fpga_send_byte(155, lo(temp_w));
+
+  SPI_fpga_send_doubled_byte(146, edit_VibChFeedback);    // #1322 Feedback
+  SPI_fpga_send_doubled_byte(147, edit_VibChReflection);  // #1323
+  SPI_fpga_send_doubled_byte(148, edit_VibChRespCutoff);  // #1324 Filter Offset
+  SPI_fpga_send_doubled_byte(149, edit_PhaseLk_Shelving); // #1325 Phase Lk
+  SPI_fpga_send_byte(150, 150 - edit_ScannerGearing);    // #1326 Vibrato-Frequenz umdrehen
+
+  if is_chorus then begin
+    // Chorus-Werte, param * scale div 100
+    // Korrektur für FPGA vom 19112025 mit Biquad-Simple-Bugfix
+    SPI_fpga_send_doubled_byte(151, MulDivByte(edit_ChorusBypassLevel, 80, 100));  // #1327 Dry
+    SPI_fpga_send_doubled_byte(152, MulDivByte(edit_ChorusScannerLevel, 80, 100)); // #1328 Wet
+  end else begin
+    // Vibrato-Werte
+    SPI_fpga_send_byte(151, 0);     // Dry auf 0
+    SPI_fpga_send_byte(152, 200);   // Wet auf Max
+  end;
+  FH_InsertsToFPGA;
+end;
+
+// #############################################################################
+// ###                        ROTARY SIMULATION                              ###
+// #############################################################################
+
+procedure FH_UpdateLeslieSpeed;
+begin
+// Achtung: Throb Position wird auf SPI 4 gelesen, edit_MIDI_Channel auf SPI 4 muss
+// deshalb gleichzeitig gesendet werden!
+  SPI_fpga_send_byte(4, edit_MIDI_Channel);
+  SPI_dword:= SPI_fpga_xfer_32(4, DWord(edit_MIDI_Channel), false); // ohne Write Enable
+// LLLL RRRR BBBB, je obere vier Bits Throb-Signale Horn L/R und Bass
+// aufgeteilt auf drei einzelne Bytes
+  SpeedBlinkToggle:= (SPI_bytes[2] and %00001100) = 0;
+
+  if edit_LogicalTab_LeslieRun then begin
+    // Motoren laufen, gewünschte Geschwindigkeiten annähern
+    if edit_LogicalTab_LeslieFast then begin
+      LeslieDestHornSpeed:= edit_HornFastTm + 50;
+      LeslieDestRotorSpeed:= edit_RotorFastTm + 50;
+    end else begin
+      LeslieDestHornSpeed:= edit_HornSlowTm;
+      LeslieDestRotorSpeed:= edit_RotorSlowTm;
+    end;
+    // Rampen für Anlauf/Bremsen
+    if isSystimerzero(c_HornTimer) then begin
+      if LeslieHornSpeed < LeslieDestHornSpeed then begin
+        Inc(LeslieHornSpeed);
+        setSysTimer(c_HornTimer, edit_HornRampUp); // Anlauf
+      end;
+      if LeslieHornSpeed > LeslieDestHornSpeed then begin
+        Dec(LeslieHornSpeed);
+        setSysTimer(c_HornTimer, edit_HornRampDown); // Auslauf
+      end;
+    end;
+    if isSystimerzero(c_RotorTimer) then begin
+      if LeslieRotorSpeed < LeslieDestRotorSpeed then begin
+        Inc(LeslieRotorSpeed);
+        setSysTimer(c_RotorTimer, edit_RotorRampUp); // Anlauf
+      end;
+      if LeslieRotorSpeed > LeslieDestRotorSpeed then begin
+        Dec(LeslieRotorSpeed);
+        setSysTimer(c_RotorTimer, edit_RotorRampDown); // Auslauf
+      end;
+    end;
+  end else begin
+    // Rampe für Auslauf, stoppt auf bestimmter Position
+    // Horn maximalen mittleren Throb-Wert von L/R anfahren
+    if LeslieHornSpeed > 5 then begin
+      if isSystimerzero(c_HornTimer) then begin
+        setSysTimer(c_HornTimer, 15); // langsamer Auslauf
+        dectolimB(LeslieHornSpeed, 5);
+      end;
+    end else begin
+      if (SPI_bytes[2] + SPI_bytes[1] > 15) then begin
+        SPI_bytes[2]:= SPI_bytes[2] and %00001110;
+        SPI_bytes[1]:= SPI_bytes[1] and %00001110;
+        if (SPI_bytes[2] = SPI_bytes[1]) then
+          LeslieHornSpeed:= 0;      // Stopp
+      end;
+    end;
+    // Rotor maximalen Throb-Wert anfahren
+    if LeslieRotorSpeed > 5 then begin
+      if isSystimerzero(c_HornTimer) then begin
+        setSysTimer(c_HornTimer, 8); // langsamer Auslauf
+        dectolimB(LeslieRotorSpeed, 5);
+      end;
+    end else begin
+      if ((SPI_bytes[0] and %00001110) > 10) then
+        LeslieRotorSpeed:= 0;      // Stopp
+    end;
+  end;
+  SPI_fpga_send_Byte(177, LeslieHornSpeed);
+  SPI_fpga_send_Byte(178, LeslieRotorSpeed);
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure FH_TubeCurveToFPGA(tube_set_a, tube_set_b: byte);
+// 256 Step- und 256 Slope-Werte für interpolierenden TubeAmp HX4.0
+var
+  stepval, slopeval: Integer;
+begin
+  // Werte für LC vorbereiten aus Slope-Tabelle
+  stepval:= 0;
+  for idx:= 0 to 31 do begin
+    slopeval:= c_tubeampslopes[tube_set_a][idx];
+    SlopeArray[idx]:= slopeval;
+    StepArray[idx]:= stepval;
+    stepval:= stepval + slopeval;  // nächste Stufe um slope höher
+  end;
+  stepval:= StepArray[31];
+  for idx:= 32 to 127 do begin
+    SlopeArray[idx]:= 0; // letzter Wert immer 0
+    StepArray[idx]:= stepval;
+  end;
+
+  // negative Werte, rückwärts
+  stepval:= 0;
+  for idx:= 255 downto 224 do begin
+    slopeval:= c_tubeampslopes[tube_set_b][255-idx];
+    SlopeArray[idx]:= slopeval;
+    StepArray[idx]:= stepval;
+    stepval:= stepval - slopeval;  // nächste Stufe um slope kleiner
+  end;
+  stepval:= StepArray[224];
+  for idx:= 223 downto 128 do begin
+    SlopeArray[idx]:= 0; // letzter Wert immer 0
+    StepArray[idx]:= stepval;
+  end;
+
+  SPI_AutoIncSetup(7); // for Write Core 7 = Tube Amp StepVals/Slopes, 512 Werte
+  for idx:= 0 to 255 do
+    SPI_fpga_rw_word(Word(StepArray[idx]));
+  for idx:= 0 to 255 do
+    SPI_fpga_rw_word(Word(SlopeArray[idx]));
+  SPI_AutoIncReset(7);
+end;
+
+// #############################################################################
+// ###                        PHASING ROTOR                                  ###
+// #############################################################################
+
+procedure FH_UpdatePHRspeed;
+var ramp_delay: Byte;
+begin
+  if edit_LogicalTab_PHR_Fast then
+    PhasingDestSpeed:= edit_PHR_SpeedVariFast
+  else
+    PhasingDestSpeed:= edit_PHR_SpeedVariSlow;
+  if isSystimerzero(c_PhasingTimer) then begin
+    ramp_delay:= 1;
+    if PhasingSpeed < PhasingDestSpeed then begin
+      Inc(PhasingSpeed);
+      if edit_LogicalTab_PHR_Delay then
+        ramp_delay:= edit_PHR_RampDelay;
+    end;
+    if PhasingSpeed > PhasingDestSpeed then begin
+      Dec(PhasingSpeed);
+      if edit_LogicalTab_PHR_Delay then
+        ramp_delay:= edit_PHR_RampDelay shr 1;
+    end;
+    setSysTimer(c_PhasingTimer, ramp_delay);
+    SPI_fpga_send_byte(113, PhasingSpeed);
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure FH_PhasingRotorToFPGA;  // Index [38]
+var
+  temp_level_w  : word;
+  temp_level    : byte;
+begin
+  CopyBlock(@edit_PhasingGroup, @fpga_PHR, 16);
+  // Register 0 und 9 nicht nenutzt
+  // Register 1 wird mit FH_UpdatePHRspeed aktualisiert
+  // Gesamtpegel berechnen
+  temp_level_w:= 0;
+  for idx:= 4 to 7 do
+    temp_level_w:= temp_level_w + word(edit_PhasingGroup[idx]);
+    
+  temp_level_w:= temp_level_w div 4;
+  temp_level:= Lo(temp_level_w);  
+  // Defaultwerte für FPGA ggf. modifizieren
+
+  // Nur DEEP
+  if edit_LogicalTab_PHR_Deep and (not edit_LogicalTab_PHR_Weak) then begin
+    fpga_PHR.Feedback:= muldivByte(edit_PHR_Feedback, 130, 100);
+    // je zwei Modulationsfaktoren anheben
+    fpga_PHR.ModVariPh1:= muldivByte(edit_PHR_ModVariPh1, 125, 100);
+    fpga_PHR.ModVariPh2:= muldivByte(edit_PHR_ModVariPh2, 120, 100);
+    fpga_PHR.ModSlowPh1:= muldivByte(edit_PHR_ModSlowPh1, 120, 100);
+    fpga_PHR.ModSlowPh2:= muldivByte(edit_PHR_ModSlowPh2, 120, 100);
+    fpga_PHR.FeedBackInvert:= edit_PHR_FeedBackInvert or $00000010; // Filter
+    // Wet-Level vergrößern
+    for idx:= 4 to 6 do
+      fpga_PHRarr[idx]:= muldivByte(edit_PhasingGroup[idx], 105, 100);
+    fpga_PHR.LevelDry:= muldivByte(edit_PHR_LevelDry, 40, 100);  // weniger Dry
+
+  // Nur WEAK
+  end else if (not edit_LogicalTab_PHR_Deep) and edit_LogicalTab_PHR_Weak then begin
+    fpga_PHR.Feedback:= muldivByte(edit_PHR_Feedback, 75, 100);
+    // je zwei Modulationsfaktoren verkleinern
+    fpga_PHR.ModVariPh1:= muldivByte(edit_PHR_ModVariPh1, 80, 100);
+    fpga_PHR.ModVariPh2:= muldivByte(edit_PHR_ModVariPh2, 75, 100);
+    fpga_PHR.ModSlowPh1:= muldivByte(edit_PHR_ModSlowPh1, 75, 100);
+    fpga_PHR.ModSlowPh2:= muldivByte(edit_PHR_ModSlowPh2, 75, 100);
+    // fpga_PHR.FeedBackInvert:= edit_PHR_FeedBackInvert or $00000010; // Filter
+    // Wet- und DryLevel neu berechnen
+    for idx:= 4 to 6 do
+      fpga_PHRarr[idx]:= muldivByte(edit_PhasingGroup[idx], temp_level, 120);
+    fpga_PHR.LevelDry:= muldivByte(temp_level, 160, 100);  // weniger Dry
+
+  // DEEP und WEAK
+  end else if edit_LogicalTab_PHR_Deep and edit_LogicalTab_PHR_Weak then begin
+    fpga_PHR.Feedback:= muldivByte(edit_PHR_Feedback, 130, 100);
+    // je zwei Modulationsfaktoren anheben
+    fpga_PHR.ModVariPh1:= muldivByte(edit_PHR_ModVariPh1, 125, 100);
+    fpga_PHR.ModVariPh2:= muldivByte(edit_PHR_ModVariPh2, 120, 100);
+    fpga_PHR.ModSlowPh1:= muldivByte(edit_PHR_ModSlowPh1, 120, 100);
+    fpga_PHR.ModSlowPh2:= muldivByte(edit_PHR_ModSlowPh2, 120, 100);
+    // fpga_PHR.FeedBackInvert:= edit_PHR_FeedBackInvert or $00000010; // Filter
+    // Wet- und DryLevel neu berechnen
+    for idx:= 4 to 6 do
+      fpga_PHRarr[idx]:= muldivByte(edit_PhasingGroup[idx], 80, 100);
+    fpga_PHR.LevelDry:= 130;   // Dry-Level verkleinern
+  end;
+
+  // Wenn kein FB Invert-Bit, FB Level zurücknehmen
+  if (fpga_PHR.FeedBackInvert and 8) = 0 then
+    fpga_PHR.Feedback:= fpga_PHR.Feedback shr 1;
+
+  for idx:= 2 to 15 do
+    SPI_fpga_send_byte(112 + idx, fpga_PHRarr[idx]);
+end;
+
+// #############################################################################
+
+procedure FH_SplitConfigToFPGA;  // Index [40]
+// Splitmode setzen:
+// 0 = PedalToLower, 1 = LowerToUpper
+// 2 = PedalToUpper, 3 = LowerToUpper + 1 Oktave
+// 4 = LowerToUpper +2 Oktaven
+var split_reg: Byte;
+begin
+{$IFDEF DEBUG_FH}
+  Serial1_sendstring('/ FH Split mode to FPGA: ' + ByteToStr(edit_SplitMode));
+  Serial1_sendstring('/ FH Split Point to FPGA: ' + ByteToStr(edit_SplitPoint));
+{$ENDIF}
+  // Werte an Scan Driver
+  SPI_fpga_send_byte($0A, edit_GenTranspose);  // Generator Transpose, +1 = 1 Halbton nach oben
+  SPI_fpga_send_byte($0D, edit_KeyTranspose);  // positive Werte verschieben Töne nach UNTEN!
+  // LED-PWM für MIDI-Scancore, AUX-Bits als LED-Treiber
+  SPI_fpga_send_byte($0E, (edit_LED_PWM shl 4) or (edit_LocalEnable xor 7));   // ScanCore SPI Local MIDI Send Disables
+  SPI_fpga_send_byte(6, edit_SplitMode);      // Splitmode
+  SPI_fpga_send_byte(8, edit_SplitPoint);     // Splitpunkt
+  FH_SendAuxLEDs;
+
+  if ForceSplitRequest and edit_LogicalTab_SplitOn then begin
+    // Scan/Split erstmal OFF, damit Änderungen beim Wiedereinschalten übernommen werden
+{$IFDEF DEBUG_FH}
+    Serial1_sendstring('/ FH New Split Request');
+{$ENDIF}
+    SPI_fpga_send_byte(7, 0);
+    mDelay(3);
+    SPI_fpga_send_byte(7, 2);    // Tastatur-Split-Request-Flag, Tastatur auswerten
+    mDelay(3);
+    ForceSplitRequest:= false;
+  end;
+  split_reg:= (byte(edit_LogicalTab_SplitOn) and 1)   // Bit 0
+      or (byte(edit_LogicalTab_Shift_upper) and 16)   // Bit 4
+      or (byte(edit_LogicalTab_Shift_lower) and 32);  // Bit 5
+  SPI_fpga_send_byte(7, split_reg);  // Split ON Register
+end;
+
+// #############################################################################
+
+procedure FH_TaperingToFPGA(taper_set: Word);
+var count: Word; taper_val: Byte;
+begin
+  if taper_set <= 3 then
+    DF_LoadTapering(taper_set)
+  else begin
+    // Errechnete oder konstante Taper-Werte für Nicht-Hammonds
+    SPI_AutoIncSetup(1);  // for Write Core 1 = Tapering
+    for idx:= 0 to 15 do
+      case taper_set of
+      4: // linear
+        for count:= 0 to 63 do
+           SPI_fpga_rw_32(DWord(edit_TG_FixedTaperVal));
+      5: // higher DB enhanced
+        for count:= 0 to 63 do begin
+          taper_val:= mulDivByte(edit_TG_FixedTaperVal, 85, 100) + (idx * 3);
+          SPI_fpga_rw_32(DWord(taper_val));
+        end;
+      6: // Brilliant
+        for count:= 0 to 63 do begin
+          taper_val:= mulDivByte(edit_TG_FixedTaperVal, 66, 100) + (count shr 2) + (idx * 4);
+          SPI_fpga_rw_32(DWord(taper_val));
+        end;
+      7: // Sharp
+        for count:= 0 to 63 do begin
+          taper_val:= mulDivByte(edit_TG_FixedTaperVal, 70, 100) + muldivByte(idx + 1, count + 1, 16) + (idx * 4);
+          SPI_fpga_rw_32(DWord(taper_val));
+        end;
+      end;
+    SPI_AutoIncReset(1);
+  end;
+
+  // erste 12 Tapering-Werte 8 Bit breit nochmal an FPGA übertragen
+  if taper_set <= 3 then
+    taper_val:= edit_TG_First16TaperVal  // fester Pegel
+  else
+    taper_val:= edit_TG_FixedTaperVal;
+  if (edit_DB16_FoldbMode and 2) = 2 then  // muted, früher TWG Config0
+    // Full muted oder Foldback muted, früher TWG Config0
+    taper_val:= muldivByte(taper_val, 50, 100);
+  SPI_AutoIncSetup(1); // for Write Core 1 = Tapering BRAM, 12 Werte neu
+  for idx:= 0 to 11 do
+    SPI_fpga_rw_32(DWord(taper_val));
+  SPI_AutoIncReset(1);
+
+
+{$IFDEF DEBUG_FH}
+  Serial1_sendstring('/ FH Taper #');
+  Serial1_sendIntValCRLF(Integer(taper_set));
+{$ENDIF}
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure FH_WaveBlocksToFPGA;  // Index [42]
+begin
+  DF_LoadWaveset(edit_TG_WaveSet);
+{$IFDEF DEBUG_FH}
+  Serial1_sendstring('/ FH Wave #');
+  Serial1_sendIntValCRLF(Integer(edit_TG_WaveSet));
+{$ENDIF}
+end;
+
+// #############################################################################
+
+procedure FH_UpperRoutingToFPGA(var routing_words: Array[0..7] of Word);
+const
+  c_offs_cont_bits =     0; // FPGA SPI #40
+  c_offs_env_db_bits =   1; // FPGA SPI #41
+  c_offs_env_full_bits = 2; // FPGA SPI #42
+  c_env_to_dry_bits =   3; // FPGA SPI #43
+
+  c_offs_cont_perc_bits =    4; // FPGA SPI #32
+  c_offs_env_percmode_bits = 5; // FW use
+  c_offs_env_adsrmode_bits = 6; // ADSR ena
+  c_offs_env_timemode_bits = 7; // TimeMod ADSRena
+begin
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH UpperRouting');
+{$ENDIF}
+  // nur in FW benutzt:
+  bb_ena_env_percmode_bits:= drawbar_ena_to_busbar_ena(routing_words[c_offs_env_percmode_bits]);
+  bb_ena_env_adsrmode_bits:= drawbar_ena_to_busbar_ena(routing_words[c_offs_env_adsrmode_bits]);
+  bb_ena_env_timemode_bits:= drawbar_ena_to_busbar_ena(routing_words[c_offs_env_timemode_bits]);
+  bb_ena_cont_perc_bits:= drawbar_ena_to_busbar_ena(routing_words[c_offs_cont_perc_bits]);
+
+
+  bb_ena_cont_bits:= drawbar_ena_to_busbar_ena(routing_words[c_offs_cont_bits]);      // FPGA SPI #40
+  bb_ena_env_db_bits:= drawbar_ena_to_busbar_ena(routing_words[c_offs_env_db_bits])   // FPGA SPI #41
+                       and (not bb_ena_cont_bits);
+
+ // 1" ausmaskieren wenn DisableDB1 gesetzt (wenn B3-Mode und Percussion ON)
+  if DisableDB1 and edit_LogicalTab_PercOn then
+    bb_ena_cont_bits:= bb_ena_cont_bits and $FEFF;
+
+  bb_ena_env_full_bits:= drawbar_ena_to_busbar_ena(routing_words[c_offs_env_full_bits]);
+  bb_env_to_dry_bits:= drawbar_ena_to_busbar_ena(routing_words[c_env_to_dry_bits]);  // FPGA SPI #43
+
+  // Ena-Word-Reihenfolge wie im FPGA
+  SPI_fpga_send_word(40, bb_ena_cont_bits);
+  SPI_fpga_send_word(41, bb_ena_env_db_bits);
+  SPI_fpga_send_word(42, bb_ena_env_full_bits);
+  SPI_fpga_send_word(43, bb_env_to_dry_bits);
+
+  SPI_fpga_send_word(32, bb_ena_cont_perc_bits);
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure FH_RouteOrgan;
+// Routing-Grundeinstellung anhand Tabs setzen
+var
+  routing_words: Array[0..7] of Word;
+  idx_b: Word;
+begin
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH RouteOrgan');
+{$ENDIF}
+  // Default B3/H100-Percussion, EG-Bits OFF
+  for idx:= c_offs_cont_bits to c_offs_env_timemode_bits do
+    routing_words[idx]:= 0; // Init auf 0
+    
+  if edit_LogicalTab_PercOn and (not DisablePercussion) then
+    // Standard-B3-Percussion
+    if edit_LogicalTab_Perc3rd then
+      routing_words[c_offs_cont_perc_bits]:= $010  // Perc Select 3rd-Bit
+    else
+      routing_words[c_offs_cont_perc_bits]:= $008; // Perc Select 2nd-Bit
+
+  if (edit_GatingKnob = 0) then begin
+    // B3/M100 Mode
+    routing_words[c_offs_cont_bits]:= $01FF;    // nur 9 Drawbars
+    CurrentADSRmask:= 0;
+  end else
+    CurrentADSRmask:= NB_LogicalTabsToWord12(32) and $0FFF; // 12 ADSR Mask Bits
+
+  if eep_BoardInfo.LicenceExtValid then begin
+    if (edit_GatingKnob = 1) then begin
+      // H100 Mode
+      // ADSR Enables als Hammond-Percussion-Freigabe-Bits
+      // keine Auswertung der 12 Perkussion-DBs
+      routing_words[c_offs_cont_bits]:= $0FFF;
+      routing_words[c_offs_cont_bits + 1]:= $0FFF;
+      if edit_LogicalTab_H100_HarpSustain then begin
+        // H100 HarpSustain: 4' zusätzlich auf ADSR, voller Pegel, Dry Channel
+        routing_words[c_offs_env_full_bits]:= $008;
+        routing_words[c_offs_env_to_dry_bits]:= $008;
+      end;
+    end;
+
+    if edit_LogicalTab_PercOn and (edit_GatingKnob <> 3) and (CurrentADSRmask <> 0) then
+      // H100-Percussion bei H100 und EG mode
+      routing_words[c_offs_cont_perc_bits]:= CurrentADSRmask;
+
+    if (edit_GatingKnob >= 2) then begin
+      // EG Mode:
+      // ADSR Enables als EG-Freigabe-Bits
+      // mit Auswertung der 12 Perkussion-DBs, Umrechnung auf Sustain
+      routing_words[c_offs_cont_bits]:= $000;    // mechanische Kontakte alle OFF
+      routing_words[c_offs_env_db_bits]:= $0FFF; // alle auf EG
+      routing_words[c_offs_env_adsrmode_bits]:= $0FFF;      // alle auf ADSR
+      if edit_GatingKnob = 3 then begin
+        routing_words[c_offs_env_percmode_bits]:= $0FFF;
+        routing_words[c_offs_env_full_bits]:= $0FFF;
+      end;
+      if edit_GatingKnob = 4 then
+        routing_words[c_offs_env_timemode_bits]:= $0FFF;
+      if edit_LogicalTab_EG_mask2dry then
+        routing_words[c_offs_env_to_dry_bits]:= CurrentADSRmask;
+    end;
+  end else
+    // B3/M100 Mode
+    routing_words[c_offs_cont_bits]:= $01FF;    // nur 9 Drawbars
+
+  // Werte zurück ins Byte-orientierte ParamArray
+  idx_b:= c_UpperRoutingWords;
+{$IFDEF DEBUG_FH}
+  Serial1_sendstring('/ FH ContEnaWords: ');
+{$ENDIF}
+  for idx:= 0 to 7 do begin
+{$IFDEF DEBUG_FH}
+    WordToHex(routing_words[idx], debug_str);
+    ltrim(debug_str);
+    Serial1_sendstring('$' + debug_str + ', ');
+{$ENDIF}
+    edit_array[idx_b]:= lo(routing_words[idx]);
+    inc(idx_b);
+    edit_array[idx_b]:= hi(routing_words[idx]);
+    inc(idx_b);
+  end;
+{$IFDEF DEBUG_FH}
+  Serial1_CRLF;
+{$ENDIF}
+
+  FH_UpperRoutingToFPGA(routing_words); // auf BB umsetzen, ans FPGA schicken
+  FH_InsertsToFPGA;
+end;
+
+// #############################################################################
+// ###                            B3 PERCUSSION                              ###
+// #############################################################################
+
+procedure FH_PercussionParamsToFPGA;
+// für Advanced Routing und Hammond-Percussion
+// Hammond-Percussion: Timing-Werte und Pegel an FPGA
+var
+  my_lvl, my_timerval, my_med_lvl  : word;
+begin
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH PercParams');
+{$ENDIF}
+
+  temp_w:= word(edit_PercPrecharge) shl 6;
+  SPI_fpga_send_word(38, temp_w); // perc_precharge (Time)
+
+  my_lvl:= 0;
+  if edit_LogicalTab_PercSoft then
+    my_lvl:= Word(edit_PercSoftLvl)
+  else
+    my_lvl:= Word(edit_PercNormLvl);
+
+  if edit_LogicalTab_PercFast then
+    my_timerval:= c_TimeLogTable[edit_PercShortTm] div 8
+  else
+    my_timerval:= c_TimeLogTable[edit_PercLongTm] div 8;
+
+  // Bei H100 und EG Mode ist zusätzliche trockene Percussion möglich
+  if eep_BoardInfo.LicenceExtValid and (edit_GatingKnob >= 1) then begin
+    // H100, Perc-Level verringern
+    if edit_LogicalTab_H100_2ndVoice then begin
+      my_timerval:= 0; // Perc-Bypass durch extrem lange Decay-Zeit
+      if edit_LogicalTab_PercSoft then
+        my_lvl:= (Word(edit_H100_2ndVlvl) * 60) div 100
+      else
+        my_lvl:= Word(edit_H100_2ndVlvl);
+    end else begin
+      // Gesetzte Bits in bb_ena_cont_perc_bits zählen und
+      // Percussion Volume um so mehr verringern, sonst Übersteuerung
+      temp_w:= 0;
+      my_med_lvl:= 0;
+      for idx:= 0 to 15 do
+        if bb_ena_cont_perc_bits.idx then begin
+          Inc(temp_w);
+          my_med_lvl:= my_med_lvl + word(c_perc_bbfacs[idx]);  // max. 1120
+        end;
+
+      if temp_w > 0 then begin
+        my_med_lvl:= my_med_lvl div temp_w;
+        my_lvl:= (my_lvl * c_perc_mute[temp_w]) div 100;
+        my_lvl:= (my_lvl * my_med_lvl) div 70;
+      end;
+    end;
+  end else
+    my_lvl:= (my_lvl * 160) div 100;
+
+  if my_lvl > 200 then
+    my_lvl:= 200; // begrenzen, sonst Verzerrungen bei mehreren Noten
+
+  SPI_fpga_send_word(39, my_timerval); // perc_decay
+  SPI_fpga_send_word(33, my_lvl);      // perc_level
+  // Routing-Bits werden durch erfolgte Änderungen an FPGA gesendet
+end;
+
+// #############################################################################
+
+procedure FH_TuningValsToFPGA(tuning_set: Word);  // Index [41]
+// 95 Tuning-Werte 16 Bit breit an FPGA DDS96 übertragen
+// Generator dds96 arbeitet mit Vorteilern 1..128 pro Oktave, deshalb gleiche Werte
+// für jede Oktave. Lediglich oberste Hammond-Oktave ist etws gespreizt, deshalb extra.
+var
+  random_div: LongInt;
+  m_idx, fpga_word: Word;
+begin
+  SPI_AutoIncSetup(5); // for Write Core 5
+  if tuning_set = 0 then begin
+    for m_idx:= 0 to 6 do
+      for idx:= 0 to 11 do
+        SPI_fpga_rw_word(c_TuningArrayHammond[idx]);
+    for idx:= 0 to 11 do
+        SPI_fpga_rw_word(c_TuningArrayHammondSpread[idx]);
+  end else begin
+    if tuning_set = 2 then
+      random_div:= 2500000;
+    if tuning_set = 3 then
+      random_div:= 1500000;
+    srand($1658);
+    for m_idx:= 0 to 7 do
+      for idx:= 0 to 11 do begin
+        fpga_word:= c_TuningArrayEven[idx];
+        if tuning_set > 1 then begin
+          temp_di:= ((rand() - 16383) * fpga_word) div random_div;
+          fpga_word:= fpga_word + temp_di;
+        end;
+        SPI_fpga_rw_word(fpga_word);
+      end;
+  end;
+  SPI_AutoIncReset(5);
+  // CycleSteal-Wert -125 .. +125
+  SPI_fpga_send_Byte(68, c_TuningTable[edit_TG_tuning]);
+{$IFDEF DEBUG_FH}
+  WordToStr(tuning_set, debug_str);
+  ltrim(debug_str);
+  Serial1_sendstringCRLF('/ FH TuningVals ' + debug_str);
+{$ENDIF}
+end;
+
+procedure FH_NoteHighpassFilterToFPGA(tg_size, filter_fac: Word);
+// 1024 Highpass-Filter-Werte an FPGA übertragen
+var
+  busbar, startnote: Word;
+  filter_data: DWord;
+begin
+  SPI_AutoIncSetup(6);
+  // for Write Core 6 = RC Filter Facs in FPGA, tg_manuals_ng
+  for busbar:= 0 to 15 do begin
+// 64 Highpass-Filter-Werte 16 Bit breit an FPGA übertragen
+    startnote:= edit_BusBarNoteOffsets[busbar];
+    for idx:= 0 to 63 do begin
+      filter_data:= (DWord(c_HighpassFilterArray[startnote]) * filter_fac) div 64;
+      SPI_fpga_rw_Word(filter_data);
+      Inc(startnote);
+      if startnote >= tg_size then
+        startnote:= startnote - 12;
+    end;
+  end;
+  SPI_AutoIncReset(6);
+{$IFDEF DEBUG_FH}
+  IntToStr(tg_size, debug_str);
+  ltrim(debug_str);
+  Serial1_sendstringCRLF('/ FH Hipass #6, TG size ' + debug_str);
+{$ENDIF}
+end;
+
+procedure FH_KeymapToFPGA(tg_size: Word; do_high_foldback: Boolean);
+// 1024 Keymap-Werte 8 Bit breit an FPGA DDS96 übertragen
+var
+  note, busbar, start_note: Word;
+begin
+  SPI_AutoIncSetup(3); // for Write Core 3
+  for busbar:= 0 to 15 do begin
+    start_note:= edit_BusBarNoteOffsets[busbar];
+    for note:= 0 to 63 do begin
+      SPI_fpga_rw_byte(start_note);
+      inc(start_note);
+      if start_note >= tg_size then
+        if do_high_foldback then
+          start_note:= start_note - 12
+        else
+          start_note:= 127;   // Rest abgeschaltet
+    end;
+  end;
+  SPI_AutoIncReset(3);
+  // erste Oktave
+  start_note:= edit_BusBarNoteOffsets[0];
+  if (edit_DB16_FoldbMode and 1) = 0 then  // Foldback oder Foldback muted
+    start_note:= start_note + 12;
+  SPI_AutoIncSetup(3); // for Write Core 3 = Keymap BRAM
+  for idx:= 0 to 11 do
+    SPI_fpga_rw_byte(start_note + idx);
+  SPI_AutoIncReset(3);
+{$IFDEF DEBUG_FH}
+  IntToStr(tg_size, debug_str);
+  ltrim(debug_str);
+  Serial1_sendstringCRLF('/ FH Keymap #3, TG size ' + debug_str);
+{$ENDIF}
+end;
+
+// #############################################################################
+
+procedure FH_LicenceToFPGA;
+var lic_valid_dw: DWord;
+begin
+{$IFDEF DEBUG_FH}
+  Serial1_sendstringCRLF('/ FH LicenceToFPGA');
+{$ENDIF}
+  SPI_fpga_xfer_32(240, 0, false); // trigger DNA Read
+  // Freischaltcode Organ, sofern gesetzt:
+  SPI_fpga_xfer_32(240, eep_Boardinfo.LicenceOrgan and $FFFFFF, true);
+  // Freischaltcode Extended, sofern gesetzt:
+  SPI_fpga_xfer_32(241, eep_Boardinfo.LicenceExtd and $FFFFFF, true);
+  // FPGA-Freischaltungen gültig?
+  SPI_fpga_xfer_32(240, 0, false); // trigger DNA Read
+  lic_valid_dw:= SPI_fpga_xfer_32(244, 0, false);
+  if lic_valid_dw < $FFFFFFFF then begin
+    eep_BoardInfo.LicenceOrganValid:= lic_valid_dw and 1 <> 0;
+    eep_BoardInfo.LicenceExtValid:= lic_valid_dw and 2 <> 0;
+  end else begin
+    eep_BoardInfo.LicenceOrganValid:= false;
+    eep_BoardInfo.LicenceExtValid:= false;
+  end;
+end;
+
+procedure FH_BoardInfo;
+const
+  fpga_ok_str = '/ FPGA OK';
+  ser_str = ', serial #'; fpga_inval_str = '/ FPGA invalid';
+  scan_ok = '/ ScanDriver OK, #'; scan_inval_str = '/ ScanDriver invalid';
+  lic_ok =   ' Licence OK, #';
+  organ_ok    = '/ Organ';
+  extended_ok = '/ Extnd';
+  version_str = ', version #';
+var fpga_resp: DWord;
+  init_boardinfo: Boolean;
+begin
+  eep_BoardInfo.FPGAloaded:= false;
+  DF_ReadBlock(c_boardinfo_DF, sizeof(eep_BoardInfo));
+  CopyBlock(@BlockBuffer8, @eep_BoardInfo, sizeof(eep_BoardInfo));
+  init_boardinfo:= false;
+  if eep_BoardInfo.InitFlag <> c_magic_flag_DW then begin
+    FillBlock(@eep_BoardInfo, sizeof(eep_BoardInfo), 0);
+    eep_BoardInfo.Username:= def_username;
+    init_boardinfo:= true;
+  end;
+
+  if SPI_CheckFPGA(false) then begin
+    eep_BoardInfo.InitFlag:= c_magic_flag_DW;
+    eep_BoardInfo.Valid:= true;
+    eep_BoardInfo.FPGAloaded:= true;
+    FH_LicenceToFPGA;
+    eep_BoardInfo.FPGAsernum:= SPI_fpga_xfer_32(242, 0, false);  // FPGA Sernum
+    Serial1_sendstring(fpga_ok_str);
+    LongWordToStr(eep_BoardInfo.FPGAsernum, val_str);
+    ltrim(val_str);
+    Serial1_sendstring(ser_str + val_str);
+    fpga_resp:= SPI_fpga_xfer_32(3, 0, false);
+    eep_BoardInfo.FPGAversion:= fpga_resp;
+    LongWordToHex(fpga_resp, val_str);
+    ltrim(val_str);
+    Serial1_sendstringCRLF(version_str + val_str);
+
+    LongWordToStr(eep_BoardInfo.LicenceOrgan, val_str);
+    ltrim(val_str);
+    if eep_BoardInfo.LicenceOrganValid then
+      Serial1_sendstringCRLF(organ_ok + lic_ok + val_str);
+
+    LongWordToStr(eep_BoardInfo.LicenceExtd, val_str);
+    ltrim(val_str);
+    if eep_BoardInfo.LicenceExtValid then
+      Serial1_sendstringCRLF(extended_ok + lic_ok + val_str);
+  end else begin
+    eep_BoardInfo.FPGAloaded:= false;
+    Serial1_sendstringCRLF(fpga_inval_str);
+  end;
+  SPI_ResetScan;
+  fpga_resp:= SPI_fpga_xfer_32(2, 0, false);
+  if fpga_resp and $FF0000 = $AA0000 then begin
+    eep_BoardInfo.ScanVersion:= lo(loWord(fpga_resp));
+    eep_BoardInfo.ScanRevision:= hi(loWord(fpga_resp));
+    eep_BoardInfo.ScanValid:= true;
+    ByteToHex(eep_BoardInfo.ScanVersion, val_str);
+    Serial1_sendstring(scan_ok + val_str);
+    ByteToHex(eep_BoardInfo.ScanRevision, val_str);
+    Serial1_sendstringCRLF('.' + val_str);
+    FH_OrganParamsToFPGA;
+  end else begin
+    eep_BoardInfo.ScanVersion:= 0;
+    eep_BoardInfo.ScanRevision:= 0;
+    eep_BoardInfo.ScanValid:= false;
+    Serial1_sendstringCRLF(scan_inval_str);
+  end;
+
+  if init_boardinfo then begin
+    CopyBlock(@eep_BoardInfo, @BlockBuffer8, sizeof(eep_BoardInfo));
+    DF_EraseWriteBlock(c_boardinfo_DF, sizeof(eep_BoardInfo));
+  end;
+
+end;
+
+end.

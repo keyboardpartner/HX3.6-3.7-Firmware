@@ -1,0 +1,43 @@
+unit bkp_reg;
+
+uses
+  const_def;
+
+procedure bkp_write(regnum, regdata: Word);
+function bkp_read(regnum: Word): Word;
+
+procedure bkp_init();
+procedure bkp_shutdown();
+
+implementation
+
+var idx, temp_w : word;
+    ptr_dword: ^DWord;
+
+procedure bkp_write(regnum, regdata: Word);
+begin
+  ptr_dword:= @BKP_DR1 + regnum; // DWORD-Pointer-Arithmetik (*4)!
+  ptr_dword^:= regdata;
+end;
+
+function bkp_read(regnum: Word): Word;
+begin
+  ptr_dword:= @BKP_DR1 + regnum; // DWORD-Pointer-Arithmetik (*4)!
+  result:= ptr_dword^;
+end;
+
+procedure bkp_init();
+// Enable Backup region
+begin
+  PWREN_bit:= true; // RCC_APB1ENR.PWREN bit
+  BKPEN_bit:= true; // RCC_APB1ENR.DBP bit
+  DBP_bit:= true;   // PWR_CR.DBP bit, Backup Write Enable
+end;
+
+procedure bkp_shutdown();
+// Enable Backup region
+begin
+  DBP_bit:= false;      // enable RTC write protection
+end;
+
+end.

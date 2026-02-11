@@ -1,0 +1,745 @@
+unit save_restore;
+
+// wird von ApplyChanges aufgerufen
+
+
+uses const_def, var_def, edit_vals, edit_offsets, edit_defaults, events,
+     dataflash, intflash, avrco_compat, twi_systimer, nuts_bolts, serial1,
+     messages;
+
+function SR_LoadCommonPreset(preset: Word): Boolean;
+function SR_GetPresetFromBlockBuffer: Boolean;
+
+procedure SR_LoadUpperVoice(voice: Word);
+procedure SR_LoadLowerVoice(voice: Word);
+procedure SR_LoadPedalVoice(voice: Word);
+
+procedure SR_SaveCommonPreset(voice: Word);
+procedure SR_InitCommonPreset(preset: Word);
+
+procedure SR_SaveUpperVoice(voice: Word);
+procedure SR_SaveLowerVoice(voice: Word);
+procedure SR_SavePedalVoice(voice: Word);
+
+procedure SR_ChangeCommonPresetName(preset: Word; var preset_name: String[15]);
+procedure SR_GetCommonPresetName(preset: Word; var preset_name: String[15]);
+
+procedure SR_CheckForLive;
+procedure SR_UpperLiveToTemp;
+procedure SR_UpperTempToLive;
+procedure SR_LowerLiveToTemp;
+procedure SR_LowerTempToLive;
+procedure SR_PedalLiveToTemp;
+procedure SR_PedalTempToLive;
+
+procedure SR_PresetLiveToTemp;
+procedure SR_PresetTempToLive;
+
+procedure SR_Init;  // Voiceblock aus DF laden (EEPROM-Simulation)
+procedure SR_StoreDefaults;
+procedure SR_StoreSystemInits;
+procedure SR_StoreExtendedParams;
+
+procedure SR_StoreOrganModel(organ: Word);
+function SR_LoadOrganModel(organ: Word): Boolean;
+procedure SR_StoreRotaryModel(leslie: Word);
+function SR_LoadRotaryModel(leslie: Word): Boolean;
+
+procedure SR_InitBoardAndPresets;
+
+
+implementation
+
+var idx, temp_w: Word; temp_b: Byte;
+BlockBuffer_Voices: TVoicesRecord at BlockBuffer8;  // von DF geladener Block
+
+procedure SR_CheckForLive;
+begin
+  UpperSecondaryActive:= (edit_UpperVoice = edit_2ndDBselect);
+  UpperIsLive:= UpperSecondaryActive or (edit_UpperVoice = edit_1stDBselect);
+
+  LowerSecondaryActive:= (edit_LowerVoice = edit_2ndDBselect);
+  LowerIsLive:= LowerSecondaryActive or (edit_LowerVoice = edit_1stDBselect);
+
+  UpperSecondaryActive_DB9_MPX:= UpperSecondaryActive and (edit_ADCconfig = 2);
+  LowerSecondaryActive_DB9_MPX:= LowerSecondaryActive and (edit_ADCconfig = 2);
+
+  if Word(edit_ADCconfig) <> 2 then begin   // Compiler mag nicht, wenn man Word() entfernt
+    UpperSecondaryActive_DB9_MPX_old:= false;
+    LowerSecondaryActive_DB9_MPX_old:= false;
+  end;
+end;
+
+// ------------------------------COMMON-----------------------------------------
+
+function SR_GetPresetFromBlockBuffer: Boolean;
+// Value Type Bits 12..15
+// 0 = None
+// 1 = Button
+// 2 = Knob
+// 3 = Analog
+// 4 = Convert Button to Knob
+// 5 = Convert Knob to Button
+// 6 = Momentary/Pulse/RadioBtn
+// 7 = Number
+// 8 = String
+
+// Save Dest (MenuPanel-Destination-Anzeige) Bits 8..11
+// 0 = None/Unsaved
+// 1 = Common Preset
+// 2 = Defaults
+// 3 = System Inits
+// 4 = Upper Drawbars
+// 5 = Lower Drawbars
+// 6 = Pedal Drawbars
+// 7 = (unused)
+// 8 = Organ Model
+// 9 = Speaker Model
+// 10 = Common Preset, valid only if PresetGM-Mask = 1
+// 11 = Common Preset, valid only if PresetPercDB-Mask = 1
+
+// Bit=1: Wert wird aus Preset geholt
+// Bit 7    Bit 6       Bit 5       Bit 4       Bit 3           Bit 2           Bit 1           Bit 0
+// PresetGM        PresetVolEq        PresetRoty        PresetTabs        PresetPercDBs        PresetPedalDBs        PresetLowerDBs        PresetUpperDBs
+var struct_version: Word;
+  save_dest, control_type, restore_mask, blockarr_val: Byte;
+  old_split_on: boolean;
+begin
+  result:= false;
+  if (BlockBuffer8[c_EditMagicFlagIdx] = $A5) then begin
+    // Block ist ein Preset
+    struct_version:= BlockBuffer8[c_PresetStructure];
+    ForceSplitRequest:= false;
+    old_split_on:= edit_LogicalTab_SplitOn;
+    if struct_version >= c_MinimalPresetStructureVersion then begin
+      // kompatibel mit alter Firmware, nur Drawbars und Tabs, GM
+      for idx:= 0 to c_VibKnob do begin        // freigegeben und Werte abweichend?
+        blockarr_val:= BlockBuffer8[idx];
+        if edit_array[idx] = blockarr_val then
+          continue;
+        temp_w:= c_SaveRestoreMasks[idx];
+        save_dest:= hi(temp_w) and $0F; // unteres Nibble
+        if (save_dest = c_savedestNone) then
+          continue;
+        control_type:= hi(temp_w) shr 4;   // oberes Nibble
+        if (control_type = c_controlTypeSaveEnter) then
+          continue;
+        restore_mask:= lo(temp_w);
+        case save_dest of
+        c_savedestPreset, c_savedestUpperDBs, c_savedestLowerDBs, c_savedestPedalDBs:   //
+          if ((restore_mask and edit_SaveRestoreMask) <> 0) then
+            NewEditIdxEvent(idx, blockarr_val, c_preset_event_source);
+
+        c_savedestPresetifGM:  // mit spezieller Bedingung
+          if edit_SaveRestoreMask.c_presetGMRecallMaskBit
+          and ((restore_mask and edit_SaveRestoreMask) <> 0)  then
+            NewEditIdxEvent(idx, blockarr_val, c_preset_event_source);
+            
+        c_savedestPresetifPercEG:  // mit spezieller Bedingung
+          if edit_SaveRestoreMask.c_presetPercDBsRecallMaskBit
+          and ((restore_mask and edit_SaveRestoreMask) <> 0) then
+            NewEditIdxEvent(idx, blockarr_val, c_preset_event_source);
+
+        end;
+      end;
+
+      if struct_version >= c_CurrentPresetStructureVersion then begin
+        for idx:= c_OrganModel to c_RotaryModel do begin
+          // kompatibel mit aktueller Firmware, auch Organ und Rotary Model
+          blockarr_val:= BlockBuffer8[idx];
+          if edit_array[idx] = blockarr_val then
+            continue;
+          temp_w:= c_SaveRestoreMasks[idx];
+          save_dest:= hi(temp_w) and $0F; // unteres Nibble
+          // control_type:= hi(temp_w) shr 4;   // oberes Nibble
+          restore_mask:= lo(temp_w);
+          if valueInRange(save_dest, c_savedestPreset, c_savedestPresetifPercEG)
+          and ((restore_mask and edit_SaveRestoreMask) <> 0) then
+          // and (control_type <> c_controlTypeSaveEnter) then
+            NewEditIdxEvent(idx, blockarr_val, c_preset_event_source);
+        end;
+        for idx:= c_KeyboardGroup to c_ReverbLevel_3 do begin
+          // kompatibel mit aktueller Firmware, Manual Enables, Reverb Levels
+          blockarr_val:= BlockBuffer8[idx];
+          if edit_array[idx] = blockarr_val then
+            continue;
+          temp_w:= c_SaveRestoreMasks[idx];
+          save_dest:= hi(temp_w) and $0F; // unteres Nibble
+          if (save_dest = c_savedestNone) then
+            continue;
+          control_type:= hi(temp_w) shr 4;   // oberes Nibble
+          if (control_type = c_controlTypeSaveEnter) then
+            continue;
+          restore_mask:= lo(temp_w);
+          if valueInRange(save_dest, c_savedestPreset, c_savedestPresetifPercEG)
+          and ((restore_mask and edit_SaveRestoreMask) <> 0) then
+            NewEditIdxEvent(idx, blockarr_val, c_preset_event_source);
+        end;
+      end else begin
+        // nur kompatibel mit alter Firmware, B3 Std Leslie laden
+        event_array[c_ReverbKnob]:= 0;
+        event_array[c_PercKnob]:= 0;
+        if edit_GatingKnob <> 0 then
+          NewEditIdxEvent(c_GatingKnob, 0, c_preset_event_source);
+        if edit_OrganModel <> 0 then
+          NewEditIdxEvent(c_OrganModel, 0, c_preset_event_source);
+        if edit_RotaryModel <> 0 then
+          NewEditIdxEvent(c_RotaryModel, 0, c_preset_event_source);
+      end;
+      // Namen auf jeden Fall holen, wenn gültig
+      if (BlockBuffer8[c_PresetNameStrArr] > 0)
+      and (BlockBuffer8[c_PresetNameStrArr] < 16) then
+        PStringArr_to_CString(@BlockBuffer8 + c_PresetNameStrArr, CurrentPresetName);
+      result:= true;
+    end;
+  end else begin
+    CurrentPresetName:= s_none;
+    NB_BlockErrMsg(-5);
+{$IFDEF DEBUG_SR}
+    Serial1_sendstringCRLF('/ SR Preset invalid!');
+{$ENDIF}
+  end;
+  // Split Request, geändert?
+  if edit_LogicalTab_SplitOn and (not old_split_on) then
+    ForceSplitRequest:= true;
+  NB_TabsToReverbKnob;
+  NewEditIdxEvent(c_ReverbKnob, edit_ReverbKnob, c_preset_event_source);
+  NB_TabsToPercKnob;
+  FillBlock(@edit_LogicalTab_IncDecBtns, 16+8, 0); // incl. folgende Vib-Buttons
+  FillEventSource(c_LogicalTab_IncDecBtns, 32, 0); // incl. SingleDB-Buttons
+  CopyBlock(@edit_array, @edit_compare_array, c_common_preset_len);
+  MenuRefresh:= true; // Namen anzeigen
+end;
+
+function SR_LoadCommonPreset(preset: Word): Boolean;
+// liefert TRUE wenn Preset gültig (> 0) und geladen
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR LoadPreset #' + IntToStrTrim(preset));
+{$ENDIF}
+  result:= false;
+  SysLEDflash(100);
+  DF_ReadBlock(c_preset_base_DF + preset, c_edit_array_len);
+  SR_GetPresetFromBlockBuffer;
+  if preset = 0 then
+    CurrentPresetName:= s_PresetNameStr0;
+end;
+
+procedure SR_SaveCommonPreset(preset: Word);
+var
+  temp_name: String[15];
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR SavePreset #' + IntToStrTrim(preset));
+{$ENDIF}
+  MSG_SaveTo(0);
+  SysLEDflash(100);
+  edit_array[c_PresetStructure]:= c_CurrentPresetStructureVersion;
+  edit_array[c_EditMagicFlagIdx]:= $A5;   // valid setzen
+  CopyBlock(@edit_array, @BlockBuffer8, c_edit_array_len); // 512 Bytes
+  CString_to_PStringArr(CurrentPresetName, @BlockBuffer8 + c_PresetNameStrArr);
+  DF_EraseWriteBlock(c_preset_base_DF + preset, c_edit_array_len);
+  MenuRefresh:= true;
+  CopyBlock(@edit_array, @edit_compare_array, c_common_preset_len);
+end;
+
+procedure SR_InitCommonPreset(preset: Word);
+// Preset aus ROM/Intflash neu initialisieren
+begin
+  SysLEDflash(100);
+  CopyBlock(@def_edit_defaults, @BlockBuffer8, c_common_preset_len);
+  BlockBuffer8[c_PresetStructure]:= c_CurrentPresetStructureVersion;
+  BlockBuffer8[c_EditMagicFlagIdx]:= $A5;   // valid setzen
+  DF_EraseWriteBlock(c_preset_base_DF + preset, c_edit_array_len);
+  CopyBlock(@edit_array, @edit_compare_array, c_common_preset_len);
+end;
+
+
+procedure SR_GetCommonPresetName(preset: Word; var preset_name: String[15]);
+// Preset teilweise in BlockBuffer8 laden, Namen herausziehen
+begin
+  if preset = 0 then begin
+    preset_name:= s_PresetNameStr0;
+  end else begin
+    // Block bis zum Pascal-String-Ende auf Offset 192 + 15 = 207 lesen
+    DF_ReadBlock(c_preset_base_DF + preset, c_PresetNameStrArr + 16);
+    if (BlockBuffer8[c_PresetNameStrArr] > 0)
+    and (BlockBuffer8[c_PresetNameStrArr] < 16) then
+      PStringArr_to_CString(@BlockBuffer8 + c_PresetNameStrArr, preset_name)
+    else
+      preset_name:= '(none)';
+  end;
+end;
+
+procedure SR_ChangeCommonPresetName(preset: Word; var preset_name: String[15]);
+// Preset laden, Namen ändern, wieder abspeichern
+begin
+  if preset = edit_commonpreset then // auch aktuellen Namen ändern
+    CurrentPresetName:= preset_name;
+  DF_ReadBlock(c_preset_base_DF + preset, c_edit_array_len);
+  if (BlockBuffer8[c_EditMagicFlagIdx] = $A5) then begin // Preset-Block gültig?
+    CString_to_PStringArr(preset_name, @BlockBuffer8 + c_PresetNameStrArr);
+    DF_EraseWriteBlock(c_preset_base_DF + preset, c_edit_array_len);
+  end;
+  MenuRefresh:= true;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure SR_StoreRotaryModel(leslie: Word);
+// Speichert kompletten edit_array-Abzug in c_organModel_base_DF + organ
+begin
+  MSG_SaveTo(5);
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR StoreRotaryModel #' + IntToStrTrim(leslie));
+{$ENDIF}
+  SysLEDflash(100);
+  FillBlock(@BlockBuffer8, c_edit_array_len, 255); // 512 Bytes, nur 64 Bytes benutzt
+  CopyBlock(@eep_LeslieInits, @BlockBuffer8, c_leslie_array_len);
+  CopyBlock(@edit_RotaryGroup, @BlockBuffer8 + c_leslie_array_len, 16);
+  BlockBuffer8[c_PresetStructure]:= c_CurrentRotaryStructureVersion;
+  BlockBuffer8[c_EditMagicFlagIdx]:= $AA;   // valid Rotary setzen
+  DF_EraseWriteBlock(c_leslieModel_base_DF + leslie, c_edit_array_len); // 512 Bytes
+end;
+
+function SR_LoadRotaryModel(leslie: Word): Boolean;
+// kopiert nur für Rotary-Modell relevante Teile ins edit_array
+// liefert TRUE wenn Rotary-Modell gültig (> 0) und geladen
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR LoadRotaryModel #' + IntToStrTrim(leslie));
+{$ENDIF}
+  result:= false;
+  SysLEDflash(100);
+  DF_ReadBlock(c_leslieModel_base_DF + leslie, c_edit_array_len);  // 512 Bytes!
+  if (BlockBuffer8[c_EditMagicFlagIdx] = $AA)
+  and (BlockBuffer8[c_PresetStructure] >= c_MinimalRotaryStructureVersion) then begin
+    result:= true;
+    CopyBlock(@BlockBuffer8, @eep_LeslieInits, c_leslie_array_len);
+    CopyBlock(@BlockBuffer8 + c_leslie_array_len, @edit_RotaryGroup, 16);
+    FillEventSource(c_RotaryGroup, 16, c_preset_event_source);
+    ExtendedEvents[c_extevt_SendLeslieInits]:= true;
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure SR_StoreOrganModel(organ: Word);
+// Speichert kompletten edit_array-Abzug in c_organModel_base_DF + organ
+begin
+  MSG_SaveTo(4);
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR StoreOrganModel #' + IntToStrTrim(organ));
+{$ENDIF}
+  SysLEDflash(100);
+  CopyBlock(@edit_array, @BlockBuffer8, c_edit_array_len);
+  BlockBuffer8[c_PresetStructure]:= c_CurrentOrganStructureVersion;
+  BlockBuffer8[c_EditMagicFlagIdx]:= $A5;   // valid setzen
+  DF_EraseWriteBlock(c_organModel_base_DF + organ, c_edit_array_len);
+  MenuRefresh:= true;
+end;
+
+function SR_LoadOrganModel(organ: Word): Boolean;
+// kopiert nur für Orgelmodell relevante Teile ins edit_array
+// liefert TRUE wenn Orgelmodell gültig (> 0) und geladen
+var save_dest, control_type, blockarr_val: Byte;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR LoadOrganModel #' + IntToStrTrim(organ));
+{$ENDIF}
+  result:= false;
+  SysLEDflash(100);
+  DF_ReadBlock(c_organModel_base_DF + organ, c_edit_array_len);
+  if (BlockBuffer8[c_EditMagicFlagIdx] = $A5)
+  and (BlockBuffer8[c_PresetStructure] >= c_MinimalOrganStructureVersion) then begin
+    result:= true;
+    for idx:= c_PreampGroup to c_SystemInits - 1 do begin
+      // unnötige Werte und Tabs überspringen
+      if valueInRange(idx, c_UpperEnvelopeDBs, c_SaveEventPedal) then
+        continue;
+      blockarr_val:= BlockBuffer8[idx];
+      if edit_array[idx] = blockarr_val then
+        continue;
+      temp_w:= c_SaveRestoreMasks[idx];
+      save_dest:= hi(temp_w) and $0F; // unteres Nibble
+      control_type:= hi(temp_w) shr 4;   // oberes Nibble
+      if (control_type = c_controlTypeSaveEnter) then
+        continue;
+      // Bits 8..11 benötigt
+      if (save_dest = c_savedestOrganModel) then  // freigegeben und Werte abweichend?
+        NewEditIdxEvent(idx, blockarr_val, c_preset_event_source);
+    end;
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure SR_PresetTempToLive;
+// Holt Preset aus BlockBuffer8, geladen von DF oder über Parser
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Preset Temp->Live');
+{$ENDIF}
+  FillBlock(@temp_Common + c_Voices, 4, 0); // Voice/Presets auf 0
+  CopyBlock(@temp_Common, @BlockBuffer8, sizeof(temp_Common));
+  SR_GetPresetFromBlockBuffer;  // Setzt Flags
+
+  FillEventSource(c_voices, 4, 0);
+  edit_upperVoice:= edit_upperVoice_old;
+  edit_lowerVoice:= edit_lowerVoice_old;
+  edit_pedalVoice:= edit_pedalVoice_old;
+end;
+
+procedure SR_PresetLiveToTemp;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Preset Live->Temp');
+{$ENDIF}
+  edit_upperVoice_old:= edit_upperVoice;
+  edit_lowerVoice_old:= edit_lowerVoice;
+  edit_pedalVoice_old:= edit_pedalVoice;
+  CopyBlock(@edit_array, @temp_Common, sizeof(temp_Common));  // ohne System Inits!
+end;
+
+// --------------------------------TEMP-----------------------------------------
+
+procedure SR_UpperLiveToTemp;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Upper Live->Temp');
+{$ENDIF}
+  CopyBlock(@edit_UpperDBs, @temp_VoiceUpperDrawbars, SizeOf(temp_VoiceUpperDrawbars));
+end;
+
+procedure SR_LowerLiveToTemp;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Lower Live->Temp');
+{$ENDIF}
+  CopyBlock(@edit_LowerDBs, @temp_VoiceLowerDrawbars, SizeOf(temp_VoiceLowerDrawbars));
+end;
+
+procedure SR_PedalLiveToTemp;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Pedal Live->Temp');
+{$ENDIF}
+  CopyBlock(@edit_PedalDBs, @temp_VoicePedalDrawbars, SizeOf(temp_VoicePedalDrawbars));
+  CopyBlock(@edit_PedalDB4s, @temp_VoicePedalDrawbars4, SizeOf(temp_VoicePedalDrawbars4));
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure SR_UpperTempToLive;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Upper Temp->Live');
+{$ENDIF}
+  for idx:= 0 to 11 do begin
+    temp_b:= temp_VoiceUpperDrawbars[idx];
+    if temp_b <> edit_UpperDBs[idx]then
+      NewEditIdxEvent(c_UpperDBs + idx, temp_b, c_preset_event_source);
+  end;
+end;
+
+procedure SR_LowerTempToLive;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Lower Temp->Live');
+{$ENDIF}
+  for idx:= 0 to 11 do begin
+    temp_b:= temp_VoiceLowerDrawbars[idx];
+    if temp_b <> edit_LowerDBs[idx]then
+      NewEditIdxEvent(c_LowerDBs + idx, temp_b, c_preset_event_source);
+  end;
+end;
+
+procedure SR_PedalTempToLive;
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR Pedal Temp->Live');
+{$ENDIF}
+  for idx:= 0 to 11 do begin
+    temp_b:= temp_VoicePedalDrawbars[idx];
+    if temp_b <> edit_PedalDBs[idx]then
+      NewEditIdxEvent(c_PedalDBs + idx, temp_b, c_preset_event_source);
+  end;
+  for idx:= 0 to 3 do begin
+    temp_b:= temp_VoicePedalDrawbars4[idx];
+    if temp_b <> edit_PedalDB4s[idx]then
+      NewEditIdxEvent(c_PedalDB4s + idx, temp_b, c_preset_event_source);
+  end;
+end;
+
+// ------------------------------VOICE LOAD-------------------------------------
+
+procedure SR_LoadUpperVoice(voice: Word);
+// Voice aus EEPROM laden
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR LoadUpperVoice #' + IntToStrTrim(voice));
+{$ENDIF}
+  for idx:= 0 to 11 do begin // 12 Zugriegel-Analogwerte
+    temp_b:= eep_Voices.Upper[voice][idx];
+    edit_UpperDBs[idx]:= temp_b;
+    edit_UpperIndirect_DBs[edit_ActiveUpperIndirect and 1][idx]:= temp_b;
+  end;
+  FillEventSource(c_UpperDBs, 12, c_preset_event_source);
+  PresetInvalids[1]:= false;  // Upper
+  CopyBlock(@edit_array, @edit_compare_array, 76);
+end;
+
+
+procedure SR_LoadLowerVoice(voice: Word);
+// Voice aus EEPROM laden
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR LoadLowerVoice #' + IntToStrTrim(voice));
+{$ENDIF}
+  for idx:= 0 to 11 do begin // 12 Zugriegel-Analogwerte
+    temp_b:= eep_Voices.Lower[voice][idx];
+    edit_LowerDBs[idx]:= temp_b;
+    edit_LowerIndirect_DBs[edit_ActiveLowerIndirect and 1][idx]:= temp_b;
+  end;
+  FillEventSource(c_LowerDBs, 12, c_preset_event_source);
+  PresetInvalids[2]:= false;  // Lower
+  CopyBlock(@edit_array, @edit_compare_array, 76);
+end;
+
+
+procedure SR_LoadPedalVoice(voice: Word);
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR LoadPedalVoice #' + IntToStrTrim(voice));
+{$ENDIF}
+  for idx:= 0 to 11 do begin // 12 Zugriegel-Analogwerte
+    edit_PedalDBs[idx]:= eep_Voices.Pedal[voice][idx];
+  end;
+  for idx:= 0 to 3 do begin  // 4 Zugriegel-Analogwerte
+    edit_PedalDB4s[idx]:= eep_Voices.Pedal_4[voice][idx];
+  end;
+  FillEventSource(c_PedalDBs, 12, c_preset_event_source);
+  FillEventSource(c_PedalDB4s, 4, c_preset_event_source);
+  PresetInvalids[3]:= false;  // Pedal
+  CopyBlock(@edit_array, @edit_compare_array, 76);
+end;
+
+// ---------------------------VOICE SAVE----------------------------------------
+
+procedure SR_StoreVoices;
+// Read/Modify/Write-Zyklus
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR StoreVoiceBlock');
+{$ENDIF}
+  eep_Voices.InitFlag:= c_magic_flag_DW;
+  eep_Voices.Valid:= true;
+  CopyBlock(@eep_Voices, @BlockBuffer_Voices, sizeof(eep_Voices));
+  DF_EraseWriteBlock(c_voice_base_DF, sizeof(BlockBuffer_Voices));
+  CopyBlock(@edit_array, @edit_compare_array, 76);
+end;
+
+procedure SR_SaveUpperVoice(voice: Word);
+// Voice in "EEPROM" speichern
+begin
+  MSG_SaveTo(1);
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR SaveUpperVoice #' + IntToStrTrim(voice));
+{$ENDIF}
+  edit_UpperVoice:= voice;
+  for idx:= 0 to 11 do  // 12 Zugriegel-Analogwerte
+    eep_Voices.Upper[voice][idx]:= edit_UpperDBs[idx];
+  SR_StoreVoices;
+  PresetInvalids[1]:= false;  // Upper
+end;
+
+procedure SR_SaveLowerVoice(voice: Word);
+// Voice in "EEPROM" speichern
+begin
+  MSG_SaveTo(2);
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR SaveLowerVoice #' + IntToStrTrim(voice));
+{$ENDIF}
+  for idx:= 0 to 11 do  // 12 Zugriegel-Analogwerte
+    eep_Voices.Lower[voice][idx]:= edit_LowerDBs[idx];
+  SR_StoreVoices;
+  PresetInvalids[2]:= false;  // Lower
+end;
+
+procedure SR_SavePedalVoice(voice: Word);
+// Voice in "EEPROM" speichern
+begin
+  MSG_SaveTo(3);
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR SavePedalVoice #' + IntToStrTrim(voice));
+{$ENDIF}
+  for idx:= 0 to 11 do  // 12 Zugriegel-Analogwerte
+    eep_Voices.Pedal[voice][idx]:= edit_PedalDBs[idx];
+  for idx:= 0 to 3 do   // 4 Zugriegel-Analogwerte
+    eep_Voices.Pedal_4[voice][idx]:= edit_PedalDB4s[idx];
+  SR_StoreVoices;
+  PresetInvalids[3]:= false;  // Pedal
+end;
+
+// ---------------------------------INIT----------------------------------------
+
+procedure SR_StoreDefaults;
+// System Inits belassen, sonstiges edit_array neu schreiben
+begin
+  MSG_SaveTo(6);
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR StoreDefaults');
+{$ENDIF}
+  SysLEDflash(100);
+  DF_ReadBlock(c_defaults_base_DF, c_edit_all_len);
+  CopyBlock(@edit_array, @BlockBuffer8, c_common_preset_len);
+  CopyBlock(@edit_array, @edit_compare_array, c_common_preset_len);
+  BlockBuffer32rec.InitFlag:= c_magic_flag_DW;
+  DF_EraseWriteBlock(c_defaults_base_DF, c_edit_all_len);
+end;
+
+procedure SR_StoreSystemInits;
+// Read/Modify/Write für System Inits, andere Werte belassen
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR StoreSystemInits');
+{$ENDIF}
+  SysLEDflash(100);
+  DF_ReadBlock(c_defaults_base_DF, c_edit_all_len);
+  CopyBlock(@edit_array + c_SystemInits, @BlockBuffer8 + c_SystemInits, 16);
+  BlockBuffer32rec.InitFlag:= c_magic_flag_DW;
+  DF_EraseWriteBlock(c_defaults_base_DF, c_edit_all_len);
+end;
+
+procedure SR_StoreExtendedParams;
+// Read/Modify/Write für erweiterte Parameter (2000..6999), andere Werte belassen
+begin
+{$IFDEF DEBUG_SR}
+  Serial1_sendstringCRLF('/ SR StoreSystemInits');
+{$ENDIF}
+  SysLEDflash(100);
+  DF_ReadBlock(c_defaults_base_DF, c_edit_all_len);
+  eep_MagicFlag:= c_magic_flag_DW;
+  CopyBlock(@edit_array + c_edit_ext_offs,
+            @BlockBuffer8 + c_edit_ext_offs, c_edit_ext_len);
+  BlockBuffer32rec.InitFlag:= c_magic_flag_DW;
+  DF_EraseWriteBlock(c_defaults_base_DF, c_edit_all_len);
+end;
+
+procedure SR_InitBoardAndPresets;
+const 
+  init_str1 = 'Init Board...';
+  init_str2 = 'Init Presets...';
+begin
+  MSG_BottomStr(init_str1);
+  DF_Unprotect;
+  SysLEDflash(100);
+  DF_EraseBlock(c_defaults_base_DF);
+  DF_EraseBlock(c_voice_base_DF);
+  DF_EraseBlock(c_boardinfo_DF);
+  for idx:= 0 to 15 do begin
+    SysLEDflash(25);
+    DF_EraseBlock(c_organModel_base_DF + idx);
+  end;
+  for idx:= 0 to 15 do begin
+    SysLEDflash(25);
+    DF_EraseBlock(c_leslieModel_base_DF + idx);
+  end;
+  MSG_BottomStr(init_str2);
+  for idx:= 0 to 99 do begin
+    SysLEDflash(25);
+    DF_EraseBlock(c_preset_base_DF + idx);
+  end;
+  DF_Protect;
+  SR_Init;
+  SysLEDflash(100);
+  ReloadRequest:= true;
+end;
+
+procedure SR_Init;
+var block_idx: Word;
+// Defaults und Voiceblock aus DF laden (EEPROM-Simulation)
+begin
+{$IFDEF DEBUG_INITS}
+    Serial1_sendstringCRLF('/ SR Init');
+{$ENDIF}
+  // Voices aus DF laden, ggf. neu initialisieren wenn ungültig
+  DF_ReadBlock(c_voice_base_DF, sizeof(BlockBuffer_Voices));
+  if (BlockBuffer_Voices.InitFlag = c_magic_flag_DW) then begin
+{$IFDEF DEBUG_SR}
+    Serial1_sendstringCRLF('/ SR voices in DF OK');
+{$ENDIF}
+    CopyBlock(@BlockBuffer_Voices, @eep_Voices, sizeof(eep_Voices));
+  end else begin
+{$IFDEF DEBUG_SR}
+    Serial1_sendstringCRLF('/ SR init voices');
+{$ENDIF}
+    EDIT_VoicesInit; // aus Intflash-Defaults (ROM)
+    // Aktuelle Einstellungen erstmalig sichern, Upper/lower/Pedal
+    SR_StoreVoices;
+  end;
+  
+  // Defaults aus DF laden, ggf. neu initialisieren wenn ungültig
+  DF_ReadBlock(c_defaults_base_DF, c_edit_all_len); // "EEPROM" lesen
+  if BlockBuffer32rec.InitFlag = c_magic_flag_DW then begin
+{$IFDEF DEBUG_SR}
+    Serial1_sendstringCRLF('/ SR defaults in DF OK');
+{$ENDIF}
+    CopyBlock(@BlockBuffer8, @edit_array32rec, c_edit_all_len);
+  end else begin
+{$IFDEF DEBUG_SR}
+    Serial1_sendstringCRLF('/ SR init defaults');
+{$ENDIF}
+    EDIT_DefaultsInit;
+    CopyBlock(@edit_array, @BlockBuffer8, c_edit_all_len);
+    CopyBlock(@edit_array, @edit_compare_array, c_common_preset_len);
+    BlockBuffer32rec.InitFlag:= c_magic_flag_DW;
+    DF_EraseWriteBlock(c_defaults_base_DF, c_edit_all_len);
+    SR_InitCommonPreset(0);
+  end;
+
+  // Orgelmodelle bei Bedarf initialisieren,
+  // gültige B3-Werte aus IntFlash lesen
+{$IFDEF DEBUG_SR}
+    Serial1_sendstringCRLF('/ SR check OrganModels');
+{$ENDIF}
+  for block_idx:= 0 to 15 do begin
+    DF_ReadBlock(c_organModel_base_DF + block_idx, c_edit_array_len);
+    if (BlockBuffer8[c_EditMagicFlagIdx] <> $A5) then begin
+      CopyBlock(@def_edit_defaults, @BlockBuffer8, c_edit_array_len);
+      SR_StoreOrganModel(block_idx);
+    end;
+  end;
+  
+  // Rotary-Modelle bei Bedarf initialisieren,
+  // gültige B3-Werte aus IntFlash lesen
+{$IFDEF DEBUG_SR}
+    Serial1_sendstringCRLF('/ SR check RotaryModels');
+{$ENDIF}
+  for block_idx:= 0 to 15 do begin
+    DF_ReadBlock(c_leslieModel_base_DF + block_idx, c_edit_array_len);
+    if (BlockBuffer8[c_EditMagicFlagIdx] <> $AA) then begin
+      CopyBlock(@def_LeslieInits, @eep_LeslieInits, sizeof(def_LeslieInits));
+      SR_StoreRotaryModel(block_idx);
+    end;
+  end;
+  SR_LoadUpperVoice(0);
+  SR_LoadLowerVoice(0);
+  SR_LoadPedalVoice(0);
+  SR_LoadCommonPreset(0);
+  SR_LoadOrganModel(edit_OrganModel);
+  SR_LoadRotaryModel(edit_RotaryModel);
+  SR_PresetLiveToTemp;
+  SR_UpperLiveToTemp;
+  SR_LowerLiveToTemp;
+  SR_PedalLiveToTemp;
+  FillEventSource(0, 496, c_to_fpga_event_source);
+  FillBlock(@edit_voices, 4, 0);
+  FillEventSource(c_voices, 4, 0);
+  FillEventSource(c_OrganModel, 4, 0);
+  CopyBlock(@edit_array, @edit_compare_array, c_common_preset_len);
+  MIDIswell128:= 127;
+  ToneChanged:= true;
+end;
+
+end.

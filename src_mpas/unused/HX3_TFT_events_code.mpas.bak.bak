@@ -1,0 +1,156 @@
+unit HX3_TFT_events_code;
+
+uses HX3_TFT_types, HX3_TFT_resources;
+
+{$I HX3_TFT_driver.inc}
+{$I HX3_TFT_objects.inc}
+
+procedure ButtonDownClick();
+procedure ButtonPageOnDown();
+procedure CircleButton1OnDown();
+procedure EveSlider1OnPress();
+
+//-------------- User code declarations ---------------//
+
+function GetEditVal(edit_idx: Word): Word; external;
+procedure NewEditIdxEvent(edit_idx, pvalue, event_source: Word); external;
+
+procedure EveInitGUI;
+procedure EveUpdateGUIelement(edit_idx, new_val: Word);
+
+const
+  c_num_leds1 = sizeof(Screen1_Boxes_Round) div sizeof(TBox_RoundPtr); // Screen 1
+  c_num_btns1 = sizeof(Screen1_Buttons_Round) div sizeof(TButton_RoundPtr); // Screen 1
+  c_gui_event_source: Word; external;
+  
+var
+  PageSelect: Word;
+  
+//-------------- End of User code declarations --------//
+
+implementation
+//--------------------- User code ---------------------//
+
+var
+  idx: Word;
+
+function vib_to_deg(vib_knob: Word): Word;
+begin
+  case vib_knob of
+    0: result:= 54613;
+    2: result:= 10922;
+    3: result:= 21844;
+    4: result:= 32768;
+    5: result:= 43690
+  else
+    result:= 0;
+  end;
+end;
+
+procedure EveSetButtons1;
+var btn_tag: Byte; edit_val: Word;
+begin
+  for idx:= 0 to c_num_leds1 - 1 do begin
+    btn_tag:= Screen1_Boxes_Round[idx]^.Tag;
+    edit_val:= GetEditVal(btn_tag);
+    if edit_val then
+      Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Press_Color
+    else
+      Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Pen_Color
+  end;
+  DrawScreen(CurrentScreen);
+end;
+
+procedure EveUpdateGUIelement(edit_idx, new_val: Word);
+begin
+  case edit_idx of
+  264:
+    begin
+      EveDial1.Value:= vib_to_deg(new_val);
+      DrawScreen(CurrentScreen);
+    end
+  else if edit_idx < 224 then
+    // Logical Tabs, Tag = Edit-Index 100..223
+    for idx:= 0 to c_num_leds1 - 1 do     // Button mit gleichem Tag suchen
+      if Screen1_Boxes_Round[idx]^.Tag = edit_idx then begin
+        if new_val then
+          Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Press_Color
+        else
+          Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Pen_Color;
+        DrawScreen(CurrentScreen);
+      end;
+  end;
+end;
+
+procedure EveInitGUI;
+begin
+  ProcessVTFTStack();
+  EveDial1.Value:= vib_to_deg(5);
+  EveSetButtons1;
+end;
+
+//----------------- End of User code ------------------//
+
+// Event Handlers
+
+procedure CheckBox1OnPress();
+begin
+
+end;
+
+
+procedure EveSlider1OnPress();
+// OnPress wird laufend aufgerufen, solange Berührung festgestellt wird
+var val: Word;
+begin
+  if (TouchS.X < EveSlider1.Left) then
+    val := 0
+  else if (TouchS.X > EveSlider1.Left + EveSlider1.Width) then
+    val := EveSlider1.Range
+  else
+    val := dword((TouchS.X - EveSlider1.Left) * EveSlider1.Range) / EveSlider1.Width;
+
+  EveSlider1.Value := val;
+  DrawScreen(CurrentScreen);
+end;
+
+
+procedure ButtonDownClick();
+// für Logical Tabs 128..223
+var btn_tag, btn: Word; btn_state: Boolean;
+begin
+  btn_tag:= TouchS.Tag;
+  if btn_tag < 255 then begin
+    btn_state:= (GetEditVal(btn_tag) = 0);           // LogicalTabs invertieren
+    for btn:= 0 to c_num_leds1 - 1 do begin
+      if Screen1_Boxes_Round[btn]^.tag = btn_tag then
+        if btn_state then
+          Screen1_Boxes_Round[btn]^.Color:= Screen1_Boxes_Round[btn]^.Press_Color
+        else
+          Screen1_Boxes_Round[btn]^.Color:= Screen1_Boxes_Round[btn]^.Pen_Color;
+        NewEditIdxEvent(btn_tag, btn_state, c_gui_event_source); // eintragen
+      end;
+  end;
+  DrawScreen(CurrentScreen);
+end;
+
+
+procedure CircleButton1OnDown();
+// Vibrato-Buttons, Tags 100 bis 105
+var vib_knob, deg: Word;
+begin
+  vib_knob:= TouchS.Tag - 100;
+  NewEditIdxEvent(264, vib_knob, c_gui_event_source);
+  EveDial1.Value:= vib_to_deg(vib_knob);
+end;
+
+
+procedure ButtonPageOnDown();
+var btn_tag, btn: Word;
+begin
+  if TouchS.Tag >= 240 then
+    CurrentScreen:= TouchS.Tag - 240;
+  DrawScreen(CurrentScreen);
+end;
+
+end.

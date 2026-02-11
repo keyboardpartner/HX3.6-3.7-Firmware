@@ -1,0 +1,234 @@
+unit HX3_TFT_events_code;
+
+uses HX3_TFT_types, HX3_TFT_resources;
+
+{$I HX3_TFT_driver.inc}
+{$I HX3_TFT_objects.inc}
+
+procedure ButtonDown1Click();
+procedure ButtonPageOnDown();
+procedure ButtonRound3Down();
+procedure CheckBox3OnUp();
+procedure CircleButton1OnDown();
+procedure EveSlider1OnPress();
+
+//-------------- User code declarations ---------------//
+
+
+function GetEditVal(edit_idx: Word): Word; external;
+procedure NewEditIdxEvent(edit_idx, pvalue, event_source: Word); external;
+
+procedure EveRefreshGUI;
+procedure EveUpdateGUIelement(edit_idx, new_val: Word);
+
+const
+  c_num_leds1 = sizeof(Screen1_Boxes_Round) div sizeof(TBox_RoundPtr); // Screen 1
+  c_num_btns1 = sizeof(Screen1_Buttons_Round) div sizeof(TButton_RoundPtr); // Screen 1
+
+  c_num_leds3 = sizeof(Screen3_Boxes_Round) div sizeof(TBox_RoundPtr); // Screen 3
+  c_num_chkboxes3 = sizeof(Screen3_CheckBoxes) div sizeof(TCheckBoxPtr);
+
+  c_gui_event_source: Word; external;
+  c_VibKnobMenu: Byte; external;
+  
+var
+  PageSelect: Word;
+  
+  
+//-------------- End of User code declarations --------//
+
+implementation
+//--------------------- User code ---------------------//
+
+// Screens und Buttons/Boxes dürfen nich "static" sein!
+var
+  idx: Word;
+
+function vib_to_deg(vib_knob: Word): Word;
+begin
+  case vib_knob of
+    0: result:= 54613;
+    2: result:= 10922;
+    3: result:= 21844;
+    4: result:= 32768;
+    5: result:= 43690
+  else
+    result:= 0;
+  end;
+end;
+
+procedure EveRefreshGUI;
+var btn_tag: Byte; edit_val: Word;
+begin
+  // Page 1
+  for idx:= 0 to c_num_leds1 - 1 do begin
+    btn_tag:= Screen1_Boxes_Round[idx]^.Tag;
+    if btn_tag < 240 then begin  // >= 240 reserviert für Page Select
+      edit_val:= GetEditVal(btn_tag);
+      if edit_val then
+        Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Press_Color
+      else
+        Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Pen_Color
+    end;
+  end;
+  // Page 3
+  for idx:= 0 to c_num_leds3 - 1 do begin
+    btn_tag:= Screen3_Boxes_Round[idx]^.Tag;
+    if btn_tag < 240 then begin  // >= 240 reserviert für Page Select
+      edit_val:= GetEditVal(btn_tag);
+      if edit_val then
+        Screen3_Boxes_Round[idx]^.Color:= Screen3_Boxes_Round[idx]^.Press_Color
+      else
+        Screen3_Boxes_Round[idx]^.Color:= Screen3_Boxes_Round[idx]^.Pen_Color
+    end;
+  end;
+  for idx:= 0 to c_num_chkboxes3 - 1 do begin
+    btn_tag:= Screen3_CheckBoxes[idx]^.Tag;
+    if btn_tag < 240 then begin  // >= 240 reserviert für Page Select
+      edit_val:= GetEditVal(btn_tag);
+      Screen3_CheckBoxes[idx]^.Checked:= edit_val <> 0;
+    end;
+  end;
+  //
+  DrawScreen(CurrentScreen);
+end;
+
+procedure EveUpdateGUIelement(edit_idx, new_val: Word);
+var do_update: Boolean;
+begin
+  do_update:= false;
+  case edit_idx of
+  264:
+    begin
+      EveDial1.Value:= vib_to_deg(new_val);
+      do_update:= true;
+    end
+  else if edit_idx < 224 then begin
+    // Logical Tabs, Tag = Edit-Index 100..223
+    // Screen/Page 1
+    for idx:= 0 to c_num_leds1 - 1 do     // Button mit gleichem Tag suchen
+      if Screen1_Boxes_Round[idx]^.Tag = edit_idx then begin
+        if new_val then
+          Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Press_Color
+        else
+          Screen1_Boxes_Round[idx]^.Color:= Screen1_Boxes_Round[idx]^.Pen_Color;
+        do_update:= true;
+      end;
+    // Screen/Page 3
+    for idx:= 0 to c_num_leds3 - 1 do     // Button mit gleichem Tag suchen
+      if Screen3_Boxes_Round[idx]^.Tag = edit_idx then begin
+        if new_val then
+          Screen3_Boxes_Round[idx]^.Color:= Screen3_Boxes_Round[idx]^.Press_Color
+        else
+          Screen3_Boxes_Round[idx]^.Color:= Screen3_Boxes_Round[idx]^.Pen_Color;
+        do_update:= true;
+      end;
+    end;
+  end;
+  if do_update then
+    DrawScreen(CurrentScreen);
+end;
+
+//----------------- End of User code ------------------//
+
+// Event Handlers
+
+procedure EveSlider1OnPress();
+// OnPress wird laufend aufgerufen, solange Berührung festgestellt wird
+var val: Word;
+begin
+  if (TouchS.X < EveSlider1.Left) then
+    val := 0
+  else if (TouchS.X > EveSlider1.Left + EveSlider1.Width) then
+    val := EveSlider1.Range
+  else
+    val := dword((TouchS.X - EveSlider1.Left) * EveSlider1.Range) / EveSlider1.Width;
+
+  EveSlider1.Value := val;
+  DrawScreen(CurrentScreen);
+end;
+
+
+procedure ButtonDown1Click();
+// für Logical Tabs 128..223 Screen 1
+var btn_tag, btn: Word; btn_state: Boolean;
+begin
+  btn_tag:= TouchS.Tag;
+  if btn_tag < 255 then begin
+    btn_state:= (GetEditVal(btn_tag) = 0);           // LogicalTabs invertieren
+    for btn:= 0 to c_num_leds1 - 1 do begin
+      if Screen1_Boxes_Round[btn]^.tag = btn_tag then
+        if btn_state then
+          Screen1_Boxes_Round[btn]^.Color:= Screen1_Boxes_Round[btn]^.Press_Color
+        else
+          Screen1_Boxes_Round[btn]^.Color:= Screen1_Boxes_Round[btn]^.Pen_Color;
+        NewEditIdxEvent(btn_tag, btn_state, c_gui_event_source); // eintragen
+      end;
+  end;
+  DrawScreen(CurrentScreen);
+end;
+
+
+procedure CircleButton1OnDown();
+// Vibrato-Buttons, Tags 100 bis 105
+var vib_knob, deg: Word;
+begin
+  vib_knob:= TouchS.Tag - 100;
+  NewEditIdxEvent(264, vib_knob, c_gui_event_source);
+  EveDial1.Value:= vib_to_deg(vib_knob);
+  // MenuIndex_Requested:= c_VibKnobMenu;
+end;
+
+// #############################################################################
+// ###                                Page 3                                 ###
+// #############################################################################
+
+procedure ButtonRound3Down();
+var btn_tag, btn: Word; btn_state: Boolean;
+begin
+  btn_tag:= TouchS.Tag;
+  if btn_tag < 255 then begin
+    btn_state:= (GetEditVal(btn_tag) = 0);           // LogicalTabs invertieren
+    for btn:= 0 to c_num_leds1 - 1 do begin
+      if Screen3_Boxes_Round[btn]^.tag = btn_tag then
+        if btn_state then
+          Screen3_Boxes_Round[btn]^.Color:= Screen3_Boxes_Round[btn]^.Press_Color
+        else
+          Screen3_Boxes_Round[btn]^.Color:= Screen3_Boxes_Round[btn]^.Pen_Color;
+        NewEditIdxEvent(btn_tag, btn_state, c_gui_event_source); // eintragen
+      end;
+  end;
+  DrawScreen(CurrentScreen);
+end;
+
+procedure CheckBox3OnUp();
+// 16'..Mixt3 = Tag 1..12
+var btn: Word; btn_state: Boolean;
+begin
+  for btn:= 0 to c_num_chkboxes3 - 1 do
+    if Screen3_CheckBoxes[btn]^.tag = TouchS.Tag then begin
+      btn_state:= Screen3_CheckBoxes[btn]^.Checked;
+      // Index 160..171 für 16'..Mixt3 = Tag 1..12
+      NewEditIdxEvent(TouchS.Tag + 159, btn_state, c_gui_event_source); // eintragen
+    end;
+end;
+
+
+// #############################################################################
+// ###                   Gemeinsam für alle Screens                          ###
+// #############################################################################
+
+procedure ButtonPageOnDown();
+var btn_tag, btn: Word;
+begin
+  case TouchS.Tag of
+    240: CurrentScreen:= @Screen1;
+    241: CurrentScreen:= @Screen2;
+    242: CurrentScreen:= @Screen3;
+    243: CurrentScreen:= @Screen4;
+    244: CurrentScreen:= @Screen5;
+  end;
+  DrawScreen(CurrentScreen);
+end;
+
+end.

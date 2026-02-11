@@ -1,0 +1,203 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+
+// #############################################################################
+
+//    MCU:             STM32F407ZG
+//    Dev.Board:       Fusion_STM32_ARM_FT800_Port_CH
+//    Oscillator:      168000000 Hz
+//    SW:              mikroPascal PRO for ARM v6.20
+
+
+// TFT Calibration Constants, 6 Messungen
+// A:00008055, B:00000000, C:FFF35790, D:FFFFFF9F, E:00004CD2, F:FFF21104
+// A:00008190, B:0000003D, C:FFF11DC5, D:FFFFFD04, E:00004DC0, F:FFF40D5A
+// A:00008035, B:00000096, C:FFF29983, D:FFFFFEB4, E:00004C0B, F:FFF4B477
+// A:00008106, B:FFFFFF4A, C:FFF1DC32, D:FFFFFE36, E:00004CD5, F:FFF57398
+// A:0000801A, B:000000D9, C:FFF07056, D:FFFFFF67, E:00004EC8, F:FFEBE6C0
+// A:0000815B, B:FFFFFFA4, C:FFF0059D, D:FFFFFE77, E:00004D53, F:FFF2143D
+
+program HX3_TFT_main;
+
+uses parser, lcd_twi, spi_rw, twi_systimer, const_def, sd_card, fpga_hilevel,
+     apply_changes, dataflash, switch_if, menu_system, save_restore;
+
+var
+    // vector_table: array[0..127] of DWord; absolute c_vector_start;
+    current_duty, temp_w, idx: word;
+    pwm_period : word;
+    enc_value: Integer;
+
+const RESET_VECTOR_SIZE: byte  = 20;   // MCU reset vector size in bytes.
+
+procedure MainTasks;
+// benutzte LCs
+// (6)  HP-Filter,
+// (8)  DB Upper,
+// (9)  DB Lower,
+// (10) DB Pedal,
+// (11) ADSR Upper,
+// (12) ADSR Lower,
+// (13) ADSR Pedal
+var
+  temp_buttons: Byte;
+  idx: Word;
+begin
+  // Event aufgetreten?
+  case IRQ_roundrobin of
+  0:
+    begin
+      SWI_HandlePanel(0, false);
+      SWI_HandlePanel(1, false);
+    end;
+  1:
+    begin
+      SWI_HandlePanel(2, false);
+      SWI_HandlePanel(3, false);
+    end;
+  2:
+    begin
+      SWI_HandlePanel(4, false);
+      SWI_HandlePanel(5, false);
+      SWI_HandlePanel(7, false);  // XB2-Panel
+    end;
+  6:
+    begin
+      SWI_HandleVibratoKnob;
+      MenuPanelHandling;   // Aufruf sollte vor AC_ExecEditChanges erfolgen!
+    end;
+  7:
+    begin
+      AC_ExecEditChanges;
+      if SendPromptRequest then
+        Serial3_sendChar(#62);  // '>' Prompt nach jedem Befehl
+      SendPromptRequest:= false;
+    end;
+  end;
+  ADC_ReadSwell; // Port PA.0
+  AC_SendSwell;  // spontate Reaktion auf Schweller erforderlich, alle 2ms
+
+end;
+
+procedure InitMain();
+  var int_reg: DWord;
+begin
+  int_reg:= DisableInterrupts;
+  // 4 LED Outputs
+  GPIO_Digital_Output(@GPIOD_BASE, _GPIO_PINMASK_12 or _GPIO_PINMASK_13 or _GPIO_PINMASK_14 or _GPIO_PINMASK_15);
+
+  // configure PORTA pin 4 as output, 9 = UART1 Tx
+  GPIO_Digital_Output(@GPIOA_BASE, _GPIO_PINMASK_4 or _GPIO_PINMASK_1);
+
+  LEDcard:= true;
+  LEDactivity:= true;
+
+  SysTimerInit;
+  SPI_fpga_init;
+
+  // Initialize UART module at 57600 bps PD8 = Tx, PD9 = Rx, UART3_Init(57600);
+  // wenn alternative Pins verwendet werden (nicht an erster Stelle):
+  Serial3_Init();
+  TWI_Init;
+
+  RestoreInterrupts(int_reg);  // bevor irgendetwas ausgegeben wird!
+
+  InitMsgEnable:= true;        // Ausgabe von Init-Meldungen beim Start
+
+  LCD_TWI_Init;
+
+  for idx:= 0 to 5 do begin
+    LEDgreen:= true;
+    Delay_ms(50);
+    LEDgreen:= false;
+    Delay_ms(50);
+  end;
+
+  Serial3_sendstringCRLF('');
+  Serial3_sendstringCRLF(s_divline);
+  Serial3_sendstringCRLF('/ ' + s_SysExDeviceStr);
+  Serial3_sendstringCRLF('/ STM32F407VG MCU ' + val_str);
+
+  SD_Init;   // SD-SPI, SD vorhanden?
+  Serial3_sendstringCRLF(s_divline);
+
+  if LCD_TWI_present and InitMsgEnable then
+    Serial3_sendstringCRLF('/ LCD found');
+  SWI_Init;
+  EDIT_Init; // Defaults laden
+
+  DF_LoadScanDriver;
+  DF_LoadFIRcoeff;
+  // DF_LoadTapering(edit_TG_TaperCaps); // wird in AC_Init erledigt
+  // DF_LoadWaveset(edit_TG_WaveSet);    // wird in AC_Init erledigt
+
+  LCD_TWI_WriteStr(s_LCD1Str);
+  LCD_TWI_XY(0, 1);
+  WordToStr(Clock_MHz(), val_str);
+  ltrim(val_str);
+  LCD_TWI_WriteStr(val_str + ' MHz');
+
+  // Default-Werte initialisieren und senden
+  PA_Init;
+  SR_Init; // EEPROM-Bereich und Voiceblock aus DF laden, vor AC_Init!
+  ADC_Init;
+  AC_Init;
+  MenuInit;
+  MainTasks;
+  FH_BoardInfo;
+  Serial3_sendstringCRLF(s_divline);
+  SendPromptRequest:= true;             // Bereitschafts-Prompt
+end;
+
+
+// #############################################################################
+
+begin
+  org($010000);
+  orgall($010000); // 64K für Bootloader   - RESET_VECTOR_SIZE
+  InitVTFTStack();
+  InitMain();
+
+  pwm_period := PWM_TIM4_Init(5000);
+  PWM_TIM4_Start(_PWM_CHANNEL2, @_GPIO_MODULE_TIM4_CH2_PD13); // orange LED
+
+  current_duty:= 25;
+  while true do begin
+    GPIOD_ODR.B12:= true; // grüne LED
+    repeat
+      ProcessVTFTStack();
+      PA_CheckSer;
+      if IRQ_sema then begin
+        IRQ_sema:= false;
+        MainTasks;
+        if IRQ_roundrobin = 7 then begin
+          PWM_TIM4_Set_Duty(current_duty, _PWM_NON_INVERTED, _PWM_CHANNEL2);       // set newly acquired duty ratio
+          current_duty:= current_duty + (current_duty div 5);
+        end;
+      end;
+    until current_duty >= pwm_period;
+
+    GPIOD_ODR.B12:= false; // grüne LED
+    repeat
+      ProcessVTFTStack();
+      PA_CheckSer;
+      if IRQ_sema then begin
+        MainTasks;
+        IRQ_sema:= false;
+        if IRQ_roundrobin = 7 then begin
+          PWM_TIM4_Set_Duty(current_duty, _PWM_NON_INVERTED, _PWM_CHANNEL2);       // set newly acquired duty ratio
+          current_duty:= current_duty - (current_duty div 5);
+        end;
+      end;
+    until current_duty <= 25;
+  end;
+end.

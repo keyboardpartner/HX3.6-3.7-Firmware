@@ -1,0 +1,162 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// TouchOSC-Kommunikation über WiFi, Serial2
+
+unit osc_com;
+
+uses const_def, edit_vals, avrco_compat, serial2, twi_systimer, messages;
+
+procedure OSC_SendBinaryVal(param_num: Integer; value: byte);
+procedure OSC_SendAllOSCvals;
+
+//procedure OSC_SendBinaryAllOSCvals;
+//procedure OSC_SendEditArrayBlock(edit_idx, count: Word);
+
+implementation
+
+
+function OSC_SendBinaryHeader(cmd: byte; param_num: Word):byte;
+// sendet einen binär kodierten Header ohne Länge an BLE bzw. serielle Schnittstelle
+// ESC CMD ADRL ADRH
+// liefert CRC zurück
+var
+  my_temp_crc : byte;
+begin
+  Serial2_sendchar(#27);   // ESC
+  my_temp_crc:= 27;
+  Serial2_sendchar(cmd);     // CMD
+  my_temp_crc:= my_temp_crc + cmd;
+  Serial2_sendchar(lo(param_num));    // ADRL, ADRH
+  my_temp_crc:= my_temp_crc + lo(param_num);
+  Serial2_sendchar(hi(param_num));
+  my_temp_crc:= my_temp_crc + hi(param_num);
+  result:= my_temp_crc;
+end;
+
+function OSC_WaitACK(timeout: Word): Boolean;
+var count: Word;
+begin
+  for count:= 0 to timeout do begin  // Timeout
+    mDelay(1);
+    if Serial2_rxstat then
+      if (Serial2_rcvchar = #6) then begin
+        result:= true;
+        exit;   // ACK
+      end;
+  end;
+  result:= false;
+end;
+
+procedure OSC_SendBinaryVal(param_num: Integer; value: byte);
+var
+  chksum, retry: Byte;
+  done: Boolean;
+begin
+  SysLEDflash(50);
+  retry:= 0;
+  done:= false;
+  repeat
+    chksum:= OSC_SendBinaryHeader(5, param_num); // Event = 4 oder 5
+    Serial2_sendchar(1);     // LEN = 1
+    inc(chksum);
+    Serial2_sendchar(value);        // Wert
+    chksum:= chksum + value;
+    Serial2_sendchar(chksum);     // CHK
+    done:= OSC_WaitACK(25);   // Timeout 25ms
+    inc(retry);
+  until done or (retry > 3);
+  mdelay(3);
+end;
+
+procedure OSC_SendAllOSCvals;
+// Nach Aktivierung von TouchOSC über WiFi, alle Werte <> 0 senden
+const 
+  s_label_preset0 = s_labelpreset + s_PresetNameStr0 + '"';
+var idx: Word;
+begin
+  Serial2_CRLF;
+  Serial2_sendstringCRLF(s_label_preset0);
+  for idx:= 0 to 271 do    // alle Werte bis Pedal Voice Knob
+    if edit_array[idx] > 0 then
+      OSC_SendBinaryVal(1000 + idx, edit_array[idx]);
+end;
+
+// -----------------------------------------------------------------------------
+
+{
+procedure OSC_SendEditArrayBlock(edit_idx, count: Word);
+// Sendet kurzen Speicherauszug aus edit_array
+// mit Event-CMD #5: Erwarte Bestätigung nach Bearbeitung
+// ESC CMD ADRL ADRH LEN DATA0...DATAn CHK, hier also
+// 27  4/5 ADRL ADRH  1  <vals...>     CHK
+// len=1: nur 1 Byte senden
+// param_num nur im Bereich 1000..1511!
+var
+  chksum, retry, my_val: byte;
+  done: Boolean;
+  idx: Word;
+begin
+  retry:= 0;
+  done:= false;
+  repeat
+    chksum:= OSC_SendBinaryHeader(5, edit_idx + 1000);  // mit Bestätigung, 5
+    Serial2_sendchar(count);
+    chksum:=  chksum + count;
+    for idx:= 0 to count - 1 do begin
+      my_val:= edit_array[edit_idx + idx];
+      chksum:= chksum + my_val;
+      Serial2_sendchar(my_val);        // Wert
+    end;
+    Serial2_sendchar(chksum);     // CHK
+    done:= OSC_WaitACK(25 + count);   // Timeout
+    inc(retry);
+  until done or (retry > 3);
+end;
+
+
+procedure OSC_SendBinaryAllOSCvals;
+// TODO!   Check!
+var idx: Word;
+begin
+  for idx:= 0 to 2 do begin          // Drawbars, 12 Werte
+    OSC_SendEditArrayBlock(1000 + (idx * 16), 12);
+    mdelay(25);
+  end;
+  for idx:= 0 to 3 do begin          // ADSRs
+    OSC_SendEditArrayBlock(1048 + (idx * 8), 5);
+    mdelay(25);
+  end;
+  mdelay(25);
+  OSC_SendEditArrayBlock(1080, 11);  // Volumes, 11 Werte
+  mdelay(25);
+  OSC_SendEditArrayBlock(1096, 12);  // EG Env DBs
+  mdelay(25);
+  OSC_SendEditArrayBlock(1112, 10);  // Equalizer, 10 Werte
+  mdelay(25);
+  for idx:= 0 to 3 do begin          // TABs
+    OSC_SendEditArrayBlock(1128 + (idx * 16), 16);
+    mdelay(35);
+  end;
+  OSC_SendEditArrayBlock(1224, 24);   // GM Voices
+  mdelay(20);
+  OSC_SendEditArrayBlock(1264, 9);   // Presets/Knobs
+  mdelay(10);
+  OSC_SendEditArrayBlock(1320, 14);   // Vibrato Params
+  mdelay(10);
+  OSC_SendEditArrayBlock(1448, 12);   // Rotary Live Params
+  mdelay(10);
+  OSC_SendEditArrayBlock(1480, 12);   // Rotary Live Params
+  mdelay(10);
+  OSC_SendBinaryVal(1610, 127);  // Connect Button ON, mit ACK
+end;
+}
+end.

@@ -1,0 +1,152 @@
+unit intflash;
+
+uses avrco_compat, twi_systimer, serial1, const_def, var_def, lcd_twi;
+
+const
+  BLOCK_LEN = $1000;         // 4096
+  // Nicht mehr ändern, nachdem Bootloader im Umlauf ist!
+  FIRMWARE_START = $0000E000;    // Start Firmware, darunter Bootloader
+  FIRMWARE_START_BLOCK = FIRMWARE_START div BLOCK_LEN;
+  
+  VEC_TABLE_START = FIRMWARE_START - BLOCK_LEN;  // Block mit Vektor-Tabelle
+  VEC_TABLE_START_BLOCK = VEC_TABLE_START div BLOCK_LEN;
+  BOOTLOADER_START = $0200;
+
+procedure IFL_ErasePage2K(start_addr: DWord);  // mit Lock/Unlock
+procedure IFL_EraseBlock4K(start_addr: DWord); // 4 KBytes
+procedure IFL_StoreIntFlash_Proc(current_block, block_len: Word);
+procedure IFL_blockmsg(dest, block_idx: Word; to_failsafe: Boolean);
+
+implementation
+
+var 
+  idx, temp_dw : dword;
+  ptr_dword : ^dword;
+  ptr_word : ^word;
+  ptr_byte : ^byte;
+
+{$IFDEF DEBUG_SD}
+  debug_str: String[32];
+{$ENDIF}
+
+// #############################################################################
+
+procedure IFL_blockmsg(dest, block_idx: Word; to_failsafe: Boolean);
+// auch für DF und SD
+begin
+  if LCD_TWI_present then begin
+{$IFDEF BOOTLOADER}
+    if block_idx mod 4 = 0 then begin
+      LCD_TWI_XY(14, 1);
+      if to_failsafe then
+          LCD_TWI_WriteStr('FS')
+      else case dest of
+          1:
+            LCD_TWI_WriteStr('DF');
+          3:
+            LCD_TWI_WriteStr('SE');
+          4:
+            LCD_TWI_WriteStr('FW')
+        else
+            LCD_TWI_WriteStr('  ');
+      end;
+    end;
+    LCD_TWI_XY(13, 0);
+    LCD_TWI_WriteValFill0(block_idx, 3);
+{$ELSE}
+    LCD_TWI_XY(13, 1);
+    LCD_TWI_WriteValFill0(block_idx, 3);
+{$ENDIF}
+  end;
+end;
+
+
+// STM32F103RET6 hat 256 Pages je 2 KByte = 512 KByte
+
+procedure IFL_ErasePage2K(start_addr: DWord);
+// Mit Unlock/Lock, Seite hat 2 KByte
+var my_page: LongInt;
+begin
+  FLASH_Unlock();
+  FLASH_ErasePage(start_addr);
+  FLASH_Lock();
+end;
+
+procedure IFL_EraseBlock4K(start_addr: DWord);
+// Mit Unlock/Lock, zweimal 2 KByte = 4096 Bytes
+var my_page: LongInt;
+begin
+  FLASH_Unlock();
+  FLASH_ErasePage(start_addr);
+  FLASH_ErasePage(start_addr + 2048);
+  FLASH_Lock();
+end;
+
+// -----------------------------------------------------------------------------
+
+// Nach Kompilierung der Firmware befindet sich deren Vektortabelle
+// im Binary immer auf $00000000 (Block 0), egal was bei ORG() vermerkt ist.
+// Gelesener Firmware-Block 0 aus DF wird daher im Bootloader
+// auf Adresse VEC_TABLE_START ($F000) geschrieben, der Bootloader setzt
+// Vektortabellen-Adresse SCB_VTOR des M3/M4 vor dem Einsprung in die
+// Firmware auf diesen Wert. Blocks 1 bis 12 (FIRMWARE_START_BLOCK-1)
+// enthalten nur Nullen und werden ignoriert, damit der Bootloader
+// nicht überschrieben wird.
+
+procedure IFL_StoreIntFlash_Proc(block_nr, block_len: Word);
+// Gelesenen Block in ST32-Flash speichern
+// ignoriert erste 64 KByte, ins STM32-Flash ab $01 0000
+// Block 0 in Datei ist Vektortabelle, wird umgeleitet auf 12
+// Blocks 1..12 werden ignoriert
+var
+  addr, addr_idx, wr_data, fl_err: DWord;
+  buf32_idx: Word;
+  rd_byte: Byte;
+begin
+  IFL_blockmsg(4, block_nr, false);
+  addr:= block_nr * 4096;
+  // Block #0 umleiten auf #12, Sektor 3 $C000..$FFFF
+  if (block_nr = 0) then begin
+    // Firmware-Vektortabelle in Block 0 auf VEC_TABLE_START umleiten
+    // System-Vektoren werden zum Start der Firmware hierhin umgelenkt
+    addr:= VEC_TABLE_START;
+    block_nr:= VEC_TABLE_START_BLOCK;
+  end else if block_nr < FIRMWARE_START_BLOCK then
+    exit; // Vektortabelle nicht überschreiben!
+
+
+  addr:= addr or 0x08000000;  // always to Flash memory
+  IFL_EraseBlock4K(addr);     // 4 KByte löschen
+{$IFDEF DEBUG_SD}
+  LongWordToHex(addr, debug_str);
+  Serial1_sendstring('/ SD store Intflash proc at $' + debug_str);
+{$ENDIF}
+  FLASH_Unlock();
+  addr_idx:= 0;
+  buf32_idx:= 0;
+  repeat
+    SysLEDflash(100); // _ON
+    wr_data:= BlockBuffer32[buf32_idx];
+    if wr_data <> $FFFFFFFF then begin
+      fl_err:= FLASH_Write_Word(addr + addr_idx, wr_data);
+
+{$IFDEF DEBUG_SD}
+    if fl_err > 0 then
+      Serial1_sendstring('err , ');
+{$ENDIF}
+    end;
+    inc(buf32_idx);
+    addr_idx:= addr_idx + 4;
+  until (addr_idx >= block_len);
+  FLASH_Lock();
+{$IFDEF DEBUG_DF}
+  Serial1_CRLF;
+{$IFDEF DEBUG_VERBOSE}
+  DF_BlockContent_msg(block_len);
+{$ENDIF}
+{$ENDIF}
+  LEDactivity:= true;
+end;
+
+
+end.

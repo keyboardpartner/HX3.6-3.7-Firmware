@@ -1,0 +1,1361 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// Menü-System: Werte-Änderungen über Menü
+
+// |-----------------------------User Activity---------------------------------|
+// |--MenuSystem--|--SwitchIF--|--AnalogInputs--|--MIDI Dispatch--|---Parser---|
+// |---------------------------Event/Edit Array--------------------------------|
+// |----------------------------Apply Changes----------------------------------|
+// |---FPGA Hilevel---|---MIDI Send---|--Binary Send (WIFI)--|--Store/Recall---|
+// |-----------------------------Hardware-----------------------|----Events-^--|
+
+
+unit menu_system;
+
+uses var_def, const_def, var_def, events, edit_vals, nuts_bolts, edit_offsets,
+     menu_entries, lcd_twi, twi_systimer, avrco_compat, 
+     midi_com, sd_card, dataflash, serial1, bkp_reg, parser, 
+     save_restore, messages;
+
+// Encoder auf Variable anwenden, liefert TRUE wenn geändert:
+function ApplyEncoderDelta(var value: Integer; min_val, max_val: Integer): Boolean;
+
+// nur Delta, aber mit Beschleunigung, liefert TRUE wenn geändert:
+function GetEncoderKnobDelta(var delta: Integer; val_max: Integer): Boolean;
+
+procedure MenuPanelHandling;  // Aufruf sollte vor apply_changes erfolgen!
+procedure MenuInit;
+
+implementation
+
+type
+  t_substr_array =  Array[0..7] of String[11];    // Menu Subentry
+  
+type t_charset03 = Word;
+const
+  t_charset03_none = 0;
+  t_charset03_bitfield = 1;
+  t_charset03_bar = 2;
+  
+type t_charsetLR = Word;
+const
+  t_charsetLR_none = 0;
+  t_charsetLR_filled = 1;
+  t_charsetLR_gray = 2;
+
+
+var
+  ActivityLED_old, ValueChangeMode,
+  IsInBitField, IsInEditName,
+  IsInMainMenu: Boolean;  // Main menu = true
+  EditFieldSize, EditFieldIndex: Word;
+  
+  LCDcharset_LRarrows: t_charsetLR;
+  LCDcharset_chars: t_charset03;
+
+  idx, temp_w, temp_mask,
+  displayButtons, displayButtons_old,
+  SaveTimerLoops: Word;
+  
+  disp_str: t_cStr;
+  LastMainMenuIndex: Word;
+  
+  EncoderDelta : Integer;
+  EncoderChanged: Boolean;
+  EncoderDiff: Integer;
+  EnterButton_old: Boolean;
+  ValueDiffersFromPreset: Boolean;
+  
+// #############################################################################
+// ###                     LCD-Sonderzeichen setzen                          ###
+// #############################################################################
+
+  cg_arr: t_LCD_cgarr;
+
+const
+  cg_dot0:   t_LCD_cgarr = ( $00, $0E, $11, $11, $11, $0E, $00, $00);
+  cg_dot1:   t_LCD_cgarr = ( $00, $0E, $1F, $1F, $1F, $0E, $00, $00);
+  cg_dot0gr: t_LCD_cgarr = ( $00, $0A, $11, $00, $11, $0A, $00, $00); // OFF gerasterte Darstellung
+  cg_dot1gr: t_LCD_cgarr = ( $00, $0E, $1B, $15, $1B, $0E, $00, $00); // ON  gerasterte Darstellung
+  cg_fullbar:t_LCD_cgarr = ( $1F, $1F, $1F, $1F, $1F, $1F, $1F, $00);
+  cg_halfbar:t_LCD_cgarr = ( $1F, $18, $18, $18, $18, $18, $1F, $00);
+  cg_endbar: t_LCD_cgarr = ( $10, $10, $10, $10, $10, $10, $10, $00);
+  cg_nobar:  t_LCD_cgarr = ( $1F, $00, $00, $00, $00, $00, $1F, $00);
+  cg_updgy:  t_LCD_cgarr = ( $04, $0A, $15, $00, $15, $0A, $04, $00); // Updown (grey)
+  cg_cwht:   t_LCD_cgarr = ( $02, $06, $0E, $1E, $0E, $06, $02, $00); // "<" Cursor filled (white)
+  cg_updwht: t_LCD_cgarr = ( $04, $0E, $1F, $00, $1F, $0E, $04, $00); // Updown (white)
+  cg_cgy:    t_LCD_cgarr = ( $02, $04, $0A, $14, $0A, $04, $02, $00); // "<" Cursor grey
+  cg_submenu:t_LCD_cgarr = ( $1F, $19, $17, $1B, $1D, $13, $1F, $00); // "s" inv.
+
+procedure LCDsetBitfield;
+begin
+  LCD_TWI_UnderlineCursor;
+  if (LCDcharset_chars <> t_charset03_bitfield) then begin
+    LCD_TWI_WriteCG(0, cg_dot0);
+    LCD_TWI_WriteCG(1, cg_dot1);
+    LCD_TWI_WriteCG(2, cg_dot0gr);
+    LCD_TWI_WriteCG(3, cg_dot1gr);
+    LCDcharset_chars:= t_charset03_bitfield;
+  end;
+end;
+
+procedure LCDsetBar;
+begin
+  LCD_TWI_NoCursor;
+  if (LCDcharset_chars <> t_charset03_bar) then begin
+    LCD_TWI_WriteCG(0, cg_fullbar);
+    LCD_TWI_WriteCG(1, cg_halfbar);
+    LCD_TWI_WriteCG(2, cg_endbar);
+    LCD_TWI_WriteCG(3, cg_nobar);
+    LCDcharset_chars:= t_charset03_bar;
+  end;
+end;
+
+procedure LCDset_UpDown_Arrows(filled_arrows: Boolean);
+begin
+  if filled_arrows then begin
+    if (LCDcharset_LRarrows <> t_charsetLR_filled) then begin
+      LCD_TWI_WriteCG(6, cg_updgy);  // Updown (grey)
+      LCD_TWI_WriteCG(7, cg_cwht);   // "<" Cursor filled (white)
+      LCDcharset_LRarrows:= t_charsetLR_filled;
+    end;
+  end else begin
+    if (LCDcharset_LRarrows <> t_charsetLR_gray) then begin
+      LCD_TWI_WriteCG(6, cg_updwht);  // Updown filled (white)
+      LCD_TWI_WriteCG(7, cg_cgy);   // "<" Cursor grey
+      LCDcharset_LRarrows:= t_charsetLR_gray;
+    end;
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+// Menu Tools für menu_system
+
+function menu_isEntryValid(menu_idx: Word): Boolean;
+// Menü-Eintrag vorhanden? Ist nur gültig, wenn KEIN phys.
+// Bedienelement vorhanden ist und Lizenz den Eintrag zulässt.
+// wird bei jedem Menüwechsel aufgerufen (Up/Down/Enter)
+// type t_menuvalid = (t_menu_hidden, t_menu_invalid, t_menu_valid);
+var
+   my_organ_type_bit, scanv_masked: byte;
+begin
+  temp_mask:= c_MenuMaskArr[menu_idx];
+  result:= true;
+  my_organ_type_bit:= valueTrimLimit(edit_GatingKnob, 0, 2); // Default EG
+
+  if valueInRange(menu_idx, c_EquMenuStart, c_EquMenuEnd) then begin
+    if ((not edit_EqualizerFullParametric) and (temp_mask.B7 = 0)) then
+      result:= false;
+
+  end else if temp_mask.my_organ_type_bit = 0 then
+    result:= false;    // hidden!
+
+  if (eep_Boardinfo.LicenceExtValid = 0) and (temp_mask.B6 = 0) then
+    result:= false;  // Eintrag ungültig
+
+  if eep_MenuEnables[menu_idx] = 0 then  // nicht anzeigen
+    result:= false;  // Eintrag nicht anzeigen
+  if (menu_idx = c_KeybEarlySubmenu) then begin
+    scanv_masked:= eep_BoardInfo.ScanVersion and $0F;
+    // $60=SR4014, $61=Fatar, $62=Opto, $63=MIDI, 
+    // $64=OrganScan61, $65=XB2-5, $66=Fatar61 (neu), $67=Fatar73 (neu, mit Presets)
+    result:= false;  // Early Key Contact Submenu nur bei FatarScan-Treiber
+    if (scanv_masked = $01) or (scanv_masked >= $06)  then
+      result:= false;  // Early Key Contact Submenu nur bei FatarScan-Treiber
+  end;
+end;
+
+procedure menu_GetStatus(menu_Index: Word);
+// Menü-Bedienung und Einstellungen über Display, Buttons und Drehgeber
+// wertet DisplayDisplayRequest aus und setzt dieses zurück, sobald angezeigt
+// setzt IsInBitField, EditFieldSize, ValueChangeMode, IsInMainMenu
+var
+  my_menutype: Byte;
+begin
+  my_menutype:= c_MenuTypeArr[menu_Index];
+  IsInBitField:= (my_menutype = tm_adsrena_upr) 
+              or (my_menutype = tm_adsrena_lwr)
+              or (my_menutype = tm_modphasebits)
+              or (my_menutype = tm_savemask)
+              or (my_menutype = tm_items_phrmode);
+  IsInEditName:= (my_menutype = tm_editname);
+
+  if (my_menutype = tm_items_phrmode)
+  or (my_menutype = tm_modphasebits)  
+  or (my_menutype = tm_savemask) then
+    EditFieldSize:= 7
+  else if (my_menutype = tm_editname) then
+    EditFieldSize:= 13  // 14 Zeichen
+  else
+    EditFieldSize:= 11;
+ if menu_isEntryValid(menu_Index) = 0 then begin
+    IsInBitField:= false;
+    ValueChangeMode:= false;
+  end;
+  IsInMainMenu:= valueInRange(menu_Index, c_MainMenuStart, c_MainMenuEnd);
+end;
+
+procedure menu_GetNextValidIndex(var menu_index: Word; delta: Integer);
+// MenuIndex um menu_delta erhöhen/erniedrigen, ggf. Wrap around ausführen
+// t_scroll_both, t_scroll_up, t_scroll_down, t_scroll_none
+// type t_menuvalid = (t_menu_hidden, t_menu_invalid, t_menu_valid);
+var
+  search_index: Integer;
+  first_menu, last_menu: Integer;
+  valid: Boolean;
+  is_on_limit: Boolean;
+begin
+ if delta = 0 then
+   exit;
+ // Group Limits durchsuchen
+  for idx:= 0 to c_MenuGroups do begin
+    first_menu:= c_MenuStartArr[idx];
+    last_menu:= c_MenuEndArr[idx];
+    if (menu_index >= first_menu) and (MenuIndex <= last_menu) then
+      break;
+  end;
+  is_on_limit:= false;
+  search_index:= menu_index;
+  repeat
+    // wiederholen, bis gültiges Menü gefunden
+    search_index:= search_index + delta;
+    if edit_ConfBits2.B2 then begin  // Wrap Menus?
+      if (search_index < first_menu) then
+        search_index:= last_menu;
+      if (search_index > last_menu) then
+        search_index:= first_menu;
+    end else begin
+      if (search_index <= first_menu) then begin
+        search_index:= first_menu;
+        is_on_limit:= true;
+      end;
+      if search_index >= last_menu then begin
+        search_index:= last_menu;
+        is_on_limit:= true;
+      end;
+    end;
+    valid:= menu_isEntryValid(search_index);
+    // Ausgehend vom letzen Menü ein gültiges in Richtung Delta suchen;
+    // Abbrechen wenn gefunden oder Ende erreicht
+    // nur noch Einzelschritte, Richtung beibehalten
+    if delta >= 0 then
+      delta:= 1
+    else
+      delta:= -1;
+  until valid or is_on_limit;
+  if valid then
+    menu_index:= search_index;
+end;
+
+function menu_GetMax(my_menu_index: Word): Word;
+// liefert Maximalwert des Menüeintrags über c_edit_max-Tabelle
+var
+  arr_idx: Word;
+begin
+  arr_idx:= c_Index2ParamArr[my_menu_index] - 1000;
+  if arr_idx < 512 then
+    result:= c_edit_max[arr_idx]
+  else
+    result:= 255;
+end;
+
+// #############################################################################
+
+
+procedure display_header_indexed(my_idx: byte);
+// Display-Überschrift aus Array, Rest löschen und in zweite Zeile wechseln
+begin
+  if (my_idx = c_EnvEnaUpperMenu) and (edit_GatingKnob >= 2)then
+    disp_str:= 'EG Dry  '
+  else
+    disp_str:= s_MenuHeaderArr[my_idx];
+  MSG_MenuHeader(disp_str);
+end;
+
+procedure display_onoff(state: Boolean);
+begin
+  if state then
+    LCD_TWI_WriteStr(' ON')
+  else
+    LCD_TWI_WriteStr('OFF');
+end;
+
+procedure display_arrow_clreol;
+begin
+  LCD_TWI_WriteChar(#7);
+  LCD_TWI_ClrEOL;  // Rest der unteren Zeile löschen
+end;
+
+procedure display_onOffArrow(my_bool: Boolean);
+begin
+  display_onoff(my_bool);
+  display_arrow_clreol;
+end;
+
+procedure display_valueArrow(my_val: Word);
+begin
+  LCD_TWI_WriteVal(my_val, 3);
+  display_arrow_clreol;
+end;
+
+procedure display_valZeroOffArrow(my_val: Word);
+begin
+  if my_val = 0 then
+    display_OnOffArrow(false)
+  else
+    display_valueArrow(my_val);
+end;
+
+procedure DisplayArrowsAndIcons;
+// Up/Down-Arrows für derzeitige Richtung anhand des
+// nächsten und vorherigen Eintrags setzen
+// Weiße Up/Down-Arrows, wenn Submenu vorhanden
+begin
+  LCDset_UpDown_Arrows(ValueChangeMode); // filled wenn ValueChangeMode
+  LCD_TWI_XY(15, 0);
+  LCD_TWI_WriteChar(#6); // Updown, Farbe abhängig von ValueChangeMode
+  LCD_TWI_XY(14, 1);
+  if ValueDiffersFromPreset then
+    LCD_TWI_WriteChar('*')
+  else
+    LCD_TWI_WriteChar(' ');
+  if IsInMainMenu then
+    LCD_TWI_WriteChar(#32)
+  else
+    LCD_TWI_WriteChar(#5); // inv. "s" wenn im Submenü
+  if (IsInBitField or IsInEditName) then begin
+    LCD_TWI_XY(EditFieldIndex, 1);
+    if (IsInEditName and ValueChangeMode) then
+      LCD_TWI_BlockCursor
+    else
+      LCD_TWI_UnderlineCursor;
+  end else
+    LCD_TWI_NoCursor;
+end;
+
+procedure display_percussion(my_percmode: Word);
+// var adsr_mask: Word;
+begin
+  if my_percmode < 8 then
+    display_OnOffArrow(false)
+  else begin
+    display_onoff(true);
+    LCD_TWI_WriteChar(#32);
+    temp_w:= my_percmode;
+    // adsr_mask:= EC_LogicalTabs2Word(32) and $0FFF;
+    if temp_w.B2 then
+      LCD_TWI_WriteStr('SFT ')
+    else
+      LCD_TWI_WriteStr('NRM ');
+
+    if temp_w.B1 then
+      LCD_TWI_WriteStr('FST ')
+    else
+      LCD_TWI_WriteStr('SLW ');
+
+    if (edit_GatingKnob >= 1) and (CurrentADSRmask <> 0) then  // H100-Modus, Fußlagen über Enable-Bits
+        LCD_TWI_WriteChar('H')
+    else
+      if temp_w.B0 then
+        LCD_TWI_WriteChar('3')
+      else
+        LCD_TWI_WriteChar('2');
+    display_arrow_clreol;
+  end;
+end;
+
+procedure display_vibrato(vibon_upr, vibon_lwr: Boolean; knob_pos: Word);
+begin
+// Short Message-Display
+  display_onoff(vibon_upr);
+  LCD_TWI_WriteChar(#32);
+  display_onoff(vibon_lwr);
+  LCD_TWI_WriteChar(#32);
+  if (knob_pos and 1) = 1 then
+    LCD_TWI_WriteChar('C')
+  else
+    LCD_TWI_WriteChar('V');
+  LCD_TWI_WriteChar(char(49 + (knob_pos shr 1)));
+  LCD_TWI_ClrEOL;  // Rest der unteren Zeile löschen
+end;
+
+function drawbarNumberScale(const my_dbval: Word): Word;
+// 0..127 => 0..63, dann Wert aus Antilog-Tabelle entnehmen -> 0..8
+begin
+  result:= ((my_dbval + 4) * 10) div 149; // 0..127 => 0..8
+end;
+
+procedure display_valueBarArrow(my_val: WOrd);
+// 0..127 in Balkenlänge umrechnen
+var my_temp: byte;
+begin
+  LCDsetBar;
+  my_val:= my_val shr 3;
+  my_temp:= my_val shr 1;
+  if (my_val and 1) = 1 then begin
+    for idx:= 0 to my_temp do
+      LCD_TWI_WriteChar(#0);
+  end else begin
+    for idx:= 1 to my_temp do
+      LCD_TWI_WriteChar(#0);
+    LCD_TWI_WriteChar(#1);
+  end;
+  for idx := my_temp to 6 do
+    LCD_TWI_WriteChar(#3);
+  LCD_TWI_WriteChar(#2);
+  display_arrow_clreol;
+end;
+
+procedure display_listItemArrow(array_ptr: ^t_substr_array; my_idx: Integer);
+// Display-Text zweite Zeile über Pointer zum Array
+begin
+  LCD_TWI_WriteStr(array_ptr^[my_idx]);
+  display_arrow_clreol;
+end;
+
+procedure display_mainmenu(my_menutype: Word);
+const
+  drb_str = 'Drb'; prev_str = 'Preset Preview';
+var my_dbval: byte; 
+  // preset_name: String[15];
+begin
+  LCD_TWI_XY(0, 0);
+  case my_menutype of
+    tm_preset_upper: //
+      begin
+        LCD_TWI_WriteStr(drb_str);
+        for idx:= 0 to 11 do begin
+          my_dbval:= DrawbarNumberScale(edit_UpperDBs[idx]); // 0..127 => 0..8
+          if (edit_GatingKnob = 0) and (idx > 8) then
+            LCD_TWI_WriteChar('-')
+          else
+            LCD_TWI_WriteChar(char(my_dbval +48));
+        end;
+      end;
+    tm_preset_lower: //
+      begin
+        LCD_TWI_WriteStr(drb_str);
+        for idx:= 0 to 11 do begin
+          my_dbval:= DrawbarNumberScale(edit_LowerDBs[idx]); // 0..127 => 0..8
+          if (edit_GatingKnob = 0) and (idx > 8) then
+            LCD_TWI_WriteChar('-')
+          else
+            LCD_TWI_WriteChar(char(my_dbval +48));
+        end;
+      end;
+    tm_preset_pedal: //
+      begin
+        LCD_TWI_WriteStr(drb_str);
+        for idx:= 0 to 11 do begin
+          my_dbval:= DrawbarNumberScale(edit_PedalDBs[idx]); // 0..127 => 0..8
+          if (edit_GatingKnob = 0) and (idx > 8) then
+            LCD_TWI_WriteChar('-')
+          else
+            LCD_TWI_WriteChar(char(my_dbval +48));
+        end;
+      end
+    else begin
+      LCD_TWI_WriteStr(s_MenuHeaderArr[c_MenuCommonPreset]);
+      LCD_TWI_XY(11, 0);
+      LCD_TWI_WriteValFill0(edit_CommonPreset, 2);
+      if MenuIndex = c_MenuCommonPreset then
+        LCD_TWI_WriteChar(#7) // left Arrow
+      else
+        LCD_TWI_WriteChar(#32);
+      // Name eingetragen?
+    end;
+  end;
+  LCD_TWI_ClrEOL;
+  LCD_TWI_XY(0, 1);
+  if (my_menutype = tm_preset_common) and (edit_CommonPreset > 0) then begin
+    // SR_GetCommonPresetName(edit_CommonPreset, preset_name);
+    LCD_TWI_WriteStr(CurrentPresetName); // erfolgt durch MenuRefresh
+    LCD_TWI_ClrEOL;
+  end else begin
+    LCD_TWI_WriteChar('U');
+    LCD_TWI_WriteValFill0(edit_UpperVoice, 2);
+    if my_menutype = tm_preset_upper then
+      LCD_TWI_WriteChar(#7) // left Arrow
+    else
+      LCD_TWI_WriteChar(#32);
+    LCD_TWI_WriteChar(#32);
+    
+    LCD_TWI_WriteChar('L');
+    LCD_TWI_WriteValFill0(edit_LowerVoice, 2);
+    if my_menutype = tm_preset_lower then
+      LCD_TWI_WriteChar(#7) // left Arrow
+    else
+      LCD_TWI_WriteChar(#32);
+    LCD_TWI_WriteChar(#32);
+    
+    LCD_TWI_WriteChar('P');
+    LCD_TWI_WriteValFill0(edit_PedalVoice, 2);
+    if my_menutype = tm_preset_pedal then
+      LCD_TWI_WriteChar(#7) // left Arrow
+    else
+      LCD_TWI_WriteChar(#32);
+    LCD_TWI_WriteChar(#32);
+    LCD_TWI_WriteChar(#32);
+  end;
+end;
+
+procedure display_frequ(edit_val, shifts, offset: Word);
+var
+  frequ: Word;
+begin
+  // Wert wird in DSP-FW quadriert, durch divide geteilt und mit Offset versehen
+  frequ:= ((edit_val * edit_val) shr shifts) + offset;
+  LCD_TWI_WriteVal(Integer(frequ), 4);
+  LCD_TWI_WriteStr(' Hz');
+  display_arrow_clreol;
+end;
+
+
+// -----------------------------------------------------------------------------
+
+function ApplyDelta(var my_val: Integer; my_min, my_max, delta: Integer): Integer;
+// Encoder-Änderung auf Variable anwenden
+// Ergebnis -1 wenn Unterlauf, 1 wenn Überlauf, sonst 0
+begin
+  my_val:= my_val + delta;
+  result:= 0;
+  if my_val < my_min then begin
+    result:= -1;
+    my_val:= my_min;
+  end else if my_val > my_max then begin
+    result:= 1;
+    my_val:= my_max;
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+function ApplyEncoderDelta(var value: Integer;
+          min_val, max_val: Integer): Boolean;
+// Encoder auf Variable anwenden
+begin
+  result:= IRQ_EncoderTouched;
+  if IRQ_EncoderTouched then begin
+    value:= value + IRQ_Incr_delta;
+    IRQ_Incr_delta:= 0;
+    IRQ_EncoderTouched:= false;
+    value:= ValueTrimLimit(value, min_val, max_val);
+  end;
+end;
+
+function GetEncoderKnobDelta(var delta: Integer; val_max: Integer): Boolean;
+// liefert TRUE wenn betätigt, neuen Wert in delta
+// mit Beschleunigungsfunktion, benötigt max. des einzustellenden Wertes
+begin
+  // mit Beschleuningung für Drawbar/Poti-Werte
+  delta:= IRQ_Incr_delta;
+  IRQ_Incr_delta:= 0;
+  // Integrierer für Encoder-Absolutwert
+  if isSystimerZero(c_EncoderIntegratorTimer) then begin
+    setSysTimer(c_EncoderIntegratorTimer, 33); // 66 ms
+    EncoderDiff:= IRQ_Incr_acc;
+    IRQ_Incr_acc:= 0;
+  end;
+  if abs(EncoderDiff) > 1 then
+    delta := delta + ((val_max * EncoderDiff) div 64);
+  result:= (delta <> 0);
+end;
+
+// #############################################################################
+
+procedure menu_WaitPanelButtonsReleased;
+// Warten auf Loslassen einer Panel-Taste, my_limit in 20-ms-Schritten
+// Ruft in der Schleife MainTasks auf   - TODO!
+// Liefert TRUE wenn Timeout
+begin
+  while LCD_TWI_GetButtons <> 0 do
+    // MainTasks;         - TODO!
+    mDelay(10);
+end;
+
+// #############################################################################
+// ###                           Memorize-Anzeige                            ###
+// #############################################################################
+
+function menu_GetSaveDestination(my_menu_idx: Word): Char;
+// ermittelt aus Menu-Eintrag und Maske das Preset-Ziel
+var
+  save_dest, save_mask: Word;
+begin
+  save_mask:= c_SaveRestoreMasks[c_Index2ParamArr[my_menu_idx] - 1000];
+  save_dest:= (save_mask shr 8) and $0F;  // Bits 8..11
+  if save_dest < 7 then begin
+    // Mask-Bits isolieren
+    if (save_mask and Word(edit_SaveRestoreMask) and $00FF) = 0 then
+      save_dest:= 9; // Recall-Bit nicht gesetzt, dann in Defaults
+  end;
+  result:= c_destchar_arr[save_dest];
+end;
+
+// -----------------------------------------------------------------------------
+
+function EditPresetName(char_idx: Word; delta: Integer): Byte;
+// liefert neue Länge des Strings
+var my_val: Integer;
+  temp_arr: t_pStrArr;
+  len: Word;
+begin
+  inc(char_idx); // wg. Pascal-Längenbyte
+  FillBlock(@temp_arr, 16, 32); // mit Leerzeichen #32 füllen
+  CString_to_PStringArr(CurrentPresetName, temp_arr);
+  len:= temp_arr[0] + 1;
+  temp_arr[0]:= 14;
+  if delta <> 0 then begin
+    my_val:= Integer(temp_arr[char_idx]);
+    ApplyDelta(my_val, 32, 127, delta);
+    temp_arr[char_idx]:= Char(lo(my_val));
+  end;
+  LCD_TWI_XY(0, 1);
+  PStringArr_to_CString(temp_arr, CurrentPresetName);
+  rtrim(CurrentPresetName);
+  LCD_TWI_WriteStr(CurrentPresetName);
+  LCD_TWI_ClrEol;
+  result:= length(CurrentPresetName);
+end;
+
+procedure EditBitfield(var bitfield: word; my_len, my_idx: byte;
+           invert, all_white_btns: Boolean);
+begin
+  LCDsetBitfield;
+  if invert then
+    bitfield.my_idx:= not bitfield.my_idx;
+  LCD_TWI_XY(0, 1);
+  for idx:= 0 to my_len do
+    if all_white_btns or (idx = 2) or (idx = 3) 
+    or (idx = 5) or (idx = 8) then begin
+      if bitfield.idx then
+        LCD_TWI_WriteChar(#1)
+      else
+        LCD_TWI_WriteChar(#0);
+    end else         // "graue" Buttons für DBs?
+      if bitfield.idx then
+        LCD_TWI_WriteChar(#3)
+      else
+        LCD_TWI_WriteChar(#2);
+end;
+
+procedure menu_doChange(menu_idx: Word; delta: Integer);
+const s_inval_str = '(invalid)';
+   s_press_btn_str = 'Press Btn 2sec'; 
+   s_empty_str = '<Empty>';
+//   s_wait_str = 'Wait...';
+var my_menutype: Word;
+    my_pointer: ^Byte;
+    my_bool, value_changed, invert: Boolean;
+    my_param: Integer;
+    my_max: Word;
+    my_bitfield, my_bitfield_temp: Word;
+    my_save_dest_char: char;
+    my_val: Integer;
+    my_val_b, my_oldval_b: Byte;
+begin
+  value_changed:= delta <> 0;
+  invert:= delta = 999;
+  if invert then begin
+    value_changed:= false;
+    delta:= 0;
+  end;
+  my_menutype:= c_MenuTypeArr[menu_idx];
+  my_max:= menu_GetMax(menu_idx);
+  my_save_dest_char:= menu_GetSaveDestination(menu_idx);
+  my_param:= c_Index2ParamArr[menu_idx];
+
+  // Änderung auf temporäre Variable my_val anwenden
+  my_val_b:= EDIT_GetParamVal(my_param, false);
+  if my_menutype = tm_button then
+    my_val_b:= 0;
+   my_val:= Word(my_val_b);
+  
+  if (my_menutype >= tm_preset_common)
+  and (my_menutype <= tm_preset_pedal) then begin
+    if value_changed then begin
+      ApplyDelta(my_val, 0, my_max, delta);
+      NewParamEvent(my_param, my_val, c_menu_event_source);
+    end;
+    display_mainmenu(my_menutype);
+    IsInBitField:= false;
+    DisplayArrowsAndIcons;
+    exit;
+  end;
+  
+  display_header_indexed(MenuIndex);
+
+  if menu_IsEntryValid(MenuIndex) <= 0 then begin
+    MSG_MenuBottom(s_inval_str);
+    exit;
+  end;
+
+  case my_menutype of
+  tm_editname: // Bei Preset-Namen nix ändern!
+    nop;
+  tm_boolean, tm_vib_on_upr, tm_vib_on_lwr: // Booleans
+    begin
+      my_bool:= my_val <> 0;
+      if delta > 0 then
+        my_bool:= true;
+      if delta < 0 then
+        my_bool:= false;
+      my_val:= Word(my_bool) and $FF;
+    end
+  else
+    ApplyDelta(my_val, 0, my_max, delta);
+  end;
+
+  my_val_b:= lo(my_val);
+  LCD_TWI_XY(0, 1);
+  my_pointer:= nil;
+
+  case my_menutype of
+    tm_drawbar: //
+      display_valueBarArrow(my_val);
+    // Spezieller Editor nötig
+    tm_adsrena_upr: //
+      begin
+        if edit_GatingKnob = 1 then begin
+          LCD_TWI_XY(0, 0);
+          LCD_TWI_WriteStr('H-Perc ');
+        end;
+        EditFieldIndex:= ValueTrimLimit(EditFieldIndex, 0, 11);
+        LCD_TWI_XY(7, 0);
+        LCD_TWI_WriteStr(s_EGbitfieldArr[EditFieldIndex]);
+        LCD_TWI_WriteChar(#32);
+        my_bitfield:= NB_LogicalTabsToWord12(32);
+        my_bitfield_temp:= my_bitfield;
+        EditBitfield(my_bitfield, EditFieldSize, EditFieldIndex, invert, false); // DB-Mode
+        if invert then begin
+          NB_Word12ToLogicalTabs(my_bitfield, 32);
+          // Percussion automatisch einschalten
+          if (edit_GatingKnob = 1) then begin
+            if (my_bitfield > 0) then
+              NewEditIdxEvent(128, 255, c_menu_event_source)
+            else
+              NewEditIdxEvent(128, 0, c_menu_event_source);
+          end;
+        end;
+        display_arrow_clreol;
+      end;
+    tm_adsrena_lwr: // 
+      begin
+        LCD_TWI_XY(0, 0);
+        LCD_TWI_WriteStr('EnvEna ');
+        EditFieldIndex:= ValueTrimLimit(EditFieldIndex, 0, 11);
+        LCD_TWI_WriteStr(s_EGbitfieldArr[EditFieldIndex]);
+        LCD_TWI_WriteChar(#32);
+        my_bitfield:= NB_LogicalTabsToWord12(48);
+        EditBitfield(my_bitfield, EditFieldSize, EditFieldIndex, invert, false); // DB-Mode
+        if invert then
+          NB_Word12ToLogicalTabs(my_bitfield, 48);
+        display_arrow_clreol;
+      end;
+    tm_items_phrmode:  //
+      begin
+        LCD_TWI_XY(4, 0);
+        EditFieldIndex:= ValueTrimLimit(EditFieldIndex, 0, 7);
+        LCD_TWI_WriteStr(s_PHRbitfieldArr[EditFieldIndex]);
+        LCD_TWI_WriteChar(#32);
+        my_bitfield:= NB_LogicalTabsToByte(16);
+        EditBitfield(my_bitfield, EditFieldSize, EditFieldIndex, invert, true);
+        if invert then
+          NB_ByteToLogicalTabs(my_bitfield, 16);
+        display_arrow_clreol;
+      end;
+    tm_savemask:  //
+      begin
+        LCD_TWI_XY(0, 0);
+        LCD_TWI_WriteStr('PMask ');
+        EditFieldIndex:= ValueTrimLimit(EditFieldIndex, 0, 7);
+        LCD_TWI_WriteStr(s_SaveMaskArr[EditFieldIndex]);
+        LCD_TWI_WriteChar(#32);
+        my_bitfield:= edit_SaveRestoreMask;
+        EditBitfield(my_bitfield, EditFieldSize, EditFieldIndex, invert, true);
+        if invert then begin
+          edit_SaveRestoreMask:= my_bitfield;
+        end;
+        display_arrow_clreol;
+      end;
+    tm_editname: //
+      begin
+        EditPresetName(EditFieldIndex, delta); // liefert neue Länge
+        my_val_b:= 0; // Kein Event auslösen!
+        value_changed:= false;
+      end;
+    tm_perc: //
+      begin
+        if (delta > 0) and (my_val = 1) then // wurde von 0 erhöht
+          my_val_b:= 8;
+        if (delta < 0) and (my_val = 7) then // wurde von 8 erniedrigt
+          my_val_b:= 0;
+        display_Percussion(my_val_b);
+      end;
+    tm_vib_on_upr: // bisherigen edit_VibKnob-Wert anzeigen
+      begin
+        display_Vibrato(my_bool, edit_LogicalTab_VibOnLower, edit_VibKnob);
+        LCD_TWI_XY(3, 1);
+        LCD_TWI_WriteChar(#7); // Rest muss stehenbleiben!
+      end;
+    tm_vib_on_lwr:  // bisherigen edit_VibKnob-Wert anzeigen
+      begin
+        display_Vibrato(edit_LogicalTab_VibOnUpper, my_bool, edit_VibKnob);
+        LCD_TWI_XY(7, 1);
+        LCD_TWI_WriteChar(#7); // Rest muss stehenbleiben!
+      end;
+    tm_vibknob: // geänderten edit_VibKnob-Wert anzeigen
+      begin
+        display_Vibrato(edit_LogicalTab_VibOnUpper, edit_LogicalTab_VibOnLower, my_val);
+        LCD_TWI_XY(15, 0);
+        LCD_TWI_WriteChar(#32);
+        LCD_TWI_XY(10, 1);
+        display_arrow_clreol;
+      end;
+    tm_reverb: //
+      display_ValZeroOffArrow(my_val_b);
+    tm_boolean: //
+      display_OnOffArrow(my_bool);
+    tm_button: // Momentary action
+      MSG_MenuBottom(s_press_btn_str);
+    tm_midichannel: // MIDI-Channel +1!
+      begin
+        display_ValueArrow(my_val_b + 1);
+        ConnectMode:= c_connect_midi;
+      end;
+    tm_transpose:   //
+      begin
+        my_val_b:= EDIT_GetParamVal(my_param, false) + 24;  // neu holen ohne Delta
+        my_val:= Integer(my_val_b);
+        delta:= ValueTrimLimit(delta, -1, 1);
+        ApplyDelta(my_val, 0, 48, delta);
+        LCD_TWI_WriteChar(#32);
+        if my_val >= 24 then
+          LCD_TWI_WriteChar('+');
+        LCD_TWI_WriteVal(my_val - 24, 0);
+        my_val_b:= lo(my_val - 24);
+        display_arrow_clreol;
+      end;
+    tm_bassfreq: // Equalizer Bass Frequ
+      display_frequ(my_val, 3, 32);
+    tm_midfreq: // Equalizer Mid Frequ
+      display_frequ(my_val, 2, 128);
+    tm_treblefreq: // Equalizer Treble Frequ
+      display_frequ(my_val, 1, 512);
+    tm_tuning: // Offset 7
+      begin
+        if my_val >= 7 then begin
+          LCD_TWI_WriteChar('+');
+          LCD_TWI_WriteVal(my_val - 7, 0);
+          LCD_TWI_WriteStr(' Hz');
+        end else begin
+          LCD_TWI_WriteChar('-');
+          LCD_TWI_WriteVal(7 - my_val, 0);
+          LCD_TWI_WriteStr(' Hz');
+        end;
+        display_arrow_clreol;
+      end;
+    tm_items_ccset: //
+      begin
+        if value_changed then begin
+          // muss vorab geschehen, um richtigen Namen anzuzeigen
+          edit_MIDI_CC_Set:= my_val_b;
+          DF_LoadCCarray(edit_MIDI_CC_Set);
+          NB_CreateSortedCCarrays;
+          MIDI_SendSustainSostEnable;
+          InvalEditIdxEvent(c_MIDI_CC_Set, my_val_b);
+        end;
+        MSG_MenuBottom(MIDIset_CCdisplayedName);
+        value_changed:= false; // bereits geladen
+      end;
+    tm_items_gatingmode: //
+      display_listItemArrow(@s_GatingArr, my_val_b);
+    tm_items_splitm:  //
+      display_listItemArrow(@s_MenuSplitmodeArr, my_val_b);
+    tm_items_localena: //
+      display_listItemArrow(@s_LocalEnableArr, my_val_b);
+    tm_items_midiopt: //
+      display_listItemArrow(@s_MenuMidiOptArr, my_val_b);
+    tm_items_waveset:  //
+      display_listItemArrow(@s_MenuWaveArr, my_val_b);
+    tm_items_capset:  //
+      display_listItemArrow(@s_MenuTaperingArr, my_val_b);
+{
+    tm_items_spread:   //
+      display_listItemArrow(@s_MenuSpreadArr, my_val);
+    tm_items_fb16:     //
+      display_listItemArrow(@s_MenuFoldbackArr, my_val);
+}
+    tm_items_organmodel:     //
+      begin
+        if not eep_Boardinfo.LicenceExtValid then
+          my_val_b:= ValueTrimLimit(my_val, 0, 3);
+        display_listItemArrow(@s_organModelArr, my_val_b);
+      end;
+    tm_items_rotarymodel:     //
+      begin
+        if not eep_Boardinfo.LicenceExtValid then
+          my_val_b:= ValueTrimLimit(my_val, 0, 5);
+        display_listItemArrow(@s_SpeakerModelArr, my_val_b);
+      end;
+    tm_setupfile:      //
+      begin
+        if not ValueChangeMode then begin
+          edit_CardSetup:= 0;
+          SD_Init;  // reicht manchmal nicht allein
+          if not SD_present then begin
+            SD_Init;
+          end;
+          SD_GetDirArray('.INI');  // erstmalig lesen, Anzahl in SD_DirFileCount
+          if SD_DirFileCount = 0 then begin
+            // ggf. nochmal probieren
+            SD_Init;
+            SD_GetDirArray('.INI');
+          end;
+        end;
+        if SD_DirFileCount > 0 then begin
+          ApplyDelta(edit_CardSetup, 0, SD_DirFileCount - 1, delta);
+          MSG_MenuBottom(SD_DirArray[edit_CardSetup]);
+        end else
+          MSG_MenuBottom(s_empty_str);
+        DisplayArrowsAndIcons;
+        exit;
+      end;
+    tm_savedefault, tm_bootloader,      //
+    tm_initwifi, tm_initpreset, tm_setup_hint:     //
+      begin
+        LCD_TWI_XY(14, 0);
+        LCD_TWI_WriteChar(#32);
+        MSG_MenuBottom(s_press_btn_str);
+        ValueChangeMode:= false;
+        DisplayArrowsAndIcons;
+        exit;
+      end
+  else
+    display_ValueArrow(my_val_b);
+  end;
+  LCD_TWI_XY(14, 0);
+  LCD_TWI_WriteChar(my_save_dest_char); // Zusätzlicher Buchstabe U/L/D
+
+  // Event für geänderten Wert eintragen
+  if value_changed then
+    NewParamEvent(my_param, my_val_b, c_menu_event_source);
+  my_oldval_b:= Word(EDIT_GetParamVal(my_param, true));
+  ValueDiffersFromPreset:= my_val_b <> my_oldval_b;
+  DisplayArrowsAndIcons;
+end;
+
+// #############################################################################
+// ###                    PRESET/DEFAULT SAVE                                ###
+// #############################################################################
+
+
+function menu_RequestNewPresetNumber(old_preset, max_preset: Word; my_str_idx: Word): Word;
+var new_preset: Word;
+begin
+  new_preset:= old_preset;
+  MSG_SaveTo(my_str_idx);
+  menu_WaitPanelButtonsReleased;   // warten auf Loslassen
+  repeat
+    LCD_TWI_XY(4, 1);
+    LCD_TWI_WriteVal(new_preset, 2);
+    LCD_TWI_WriteChar(#7);
+    GetEncoderKnobDelta(EncoderDelta, max_preset);
+    ApplyDelta(new_preset, 0, max_preset, EncoderDelta);
+    displayButtons:= LCD_TWI_GetButtons; // etwa 100us
+    mDelay(20);
+  until displayButtons.B0;
+  result:= new_preset;
+end;
+
+function menu_RequestNewOrganModel(old_preset: Word): Word;
+var new_preset: Word;
+begin
+  new_preset:= old_preset;
+  MSG_SaveTo(4);
+  menu_WaitPanelButtonsReleased;   // warten auf Loslassen
+  repeat
+    LCD_TWI_XY(3, 1);
+    LCD_TWI_WriteStr(s_OrganModelArr[new_preset]);
+    LCD_TWI_WriteChar(#7);
+    GetEncoderKnobDelta(EncoderDelta, 15);
+    ApplyDelta(new_preset, 0, 15, EncoderDelta);
+    displayButtons:= LCD_TWI_GetButtons; // etwa 100us
+    mDelay(20);
+  until displayButtons.B0;
+  result:= new_preset;
+end;
+
+function menu_RequestNewRotaryModel(old_preset: Word): Word;
+var new_preset: Word;
+begin
+  new_preset:= old_preset;
+  MSG_SaveTo(5);
+  menu_WaitPanelButtonsReleased;   // warten auf Loslassen
+  repeat
+    LCD_TWI_XY(3, 1);
+    LCD_TWI_WriteStr(s_SpeakerModelArr[new_preset]);
+    LCD_TWI_WriteChar(#7);
+    GetEncoderKnobDelta(EncoderDelta, 15);
+    ApplyDelta(new_preset, 0, 15, EncoderDelta);
+    displayButtons:= LCD_TWI_GetButtons; // etwa 100us
+    mDelay(20);
+  until displayButtons.B0;
+  result:= new_preset;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure save_to_preset;
+begin
+  edit_CommonPreset:= menu_RequestNewPresetNumber(edit_CommonPreset, 99, 0);
+  NewEditIdxEvent(c_SaveEventPreset, edit_CommonPreset, c_menu_event_source);
+  MSG_SaveDone;
+end;
+
+procedure save_to_upper;
+begin
+  edit_UpperVoice:= menu_RequestNewPresetNumber(edit_UpperVoice, 15, 1);
+  NewEditIdxEvent(c_SaveEventUpper, edit_UpperVoice, c_menu_event_source);
+  MSG_SaveDone;
+end;
+
+procedure save_to_lower;
+begin
+  edit_LowerVoice:= menu_RequestNewPresetNumber(edit_LowerVoice, 15, 2);
+  NewEditIdxEvent(c_SaveEventLower, edit_LowerVoice, c_menu_event_source);
+  MSG_SaveDone;
+end;
+
+procedure save_to_pedal;
+begin
+  edit_PedalVoice:= menu_RequestNewPresetNumber(edit_PedalVoice, 15, 3);
+  NewEditIdxEvent(c_SaveEventPedal, edit_PedalVoice, c_menu_event_source);
+  MSG_SaveDone;
+end;
+
+procedure save_to_organ;
+begin
+  MSG_SaveTo(4);
+  edit_OrganModel:= menu_RequestNewOrganModel(edit_OrganModel);
+  NewEditIdxEvent(c_SaveEventOrganModel, edit_OrganModel, c_menu_event_source);
+  MSG_SaveDone;
+end;
+
+procedure save_to_rotary;
+begin
+  MSG_SaveTo(5);
+  edit_RotaryModel:= menu_RequestNewRotaryModel(edit_RotaryModel);
+  NewEditIdxEvent(c_SaveEventRotaryModel, edit_RotaryModel, c_menu_event_source);
+  MSG_SaveDone;
+end;
+
+procedure save_to_defaults;
+begin
+  SR_StoreSystemInits;
+  MSG_SaveTo(6);
+  NewEditIdxEvent(c_SaveEventDefaults, 0, c_menu_event_source);
+  MSG_SaveDone;
+end;
+
+procedure MenuEnterBtnSaveProc(menu_index: Word);
+// wird nach Timeout aufgerufen
+const 
+  sysreset_str = 'System Reset...';
+  wifi_done_str = 'WiFi Init done';
+  wifi_reconf_str = 'Re-config WiFi!';
+  preset_init_str = 'Preset Init';
+  to_b3_str = 'to Std B3 done';
+  save_inmain_str = 'MainMenu only!';
+var
+  menu_type: Word;
+  save_dest_char: char;
+begin
+  save_dest_char:= menu_GetSaveDestination(menu_index);
+  menu_type:= c_MenuTypeArr[menu_index];
+  case menu_type of
+  tm_preset_common: // wir befinden uns im Preset-Hauptmenü
+    save_to_preset;
+  tm_preset_upper: //
+    save_to_upper;
+  tm_preset_lower: //
+    save_to_lower;
+  tm_preset_pedal: //
+    save_to_pedal;
+  tm_savedefault: //
+    save_to_defaults;
+  tm_setupfile: // INI-File ausführen
+    begin
+      if SD_DirFileCount > 0 then begin
+        PA_RunSDscript(SD_DirArray[edit_CardSetup]);
+      end;
+    end;
+  tm_bootloader: //
+    begin
+      LCD_TWI_Clr;
+      MSG_MenuHeader(sysreset_str);
+      while LCD_TWI_GetButtons do
+        mDelay(10);
+      bkp_init();
+      bkp_write(0, c_blcmd_menu); // Start Bootloader Menu
+      bkp_write(1, 0);
+      bkp_shutdown();
+      SystemReset;
+    end;
+  tm_initwifi: //
+    begin
+      NB_SendBinaryVal(1698, 127);
+      mDelay(50);
+      NB_SendBinaryVal(1699, 127);
+      LCD_TWI_Clr;
+      MSG_MenuHeader(wifi_done_str);
+      MSG_MenuBottom(wifi_reconf_str);
+      setSysTimer(c_DisplayTimer, 1000);
+    end;
+  tm_initpreset: //
+    begin
+      edit_CommonPreset:= menu_RequestNewPresetNumber(edit_CommonPreset, 99, 0);
+      SR_InitCommonPreset(edit_CommonPreset);
+      LCD_TWI_Clr;
+      MSG_MenuHeader(preset_init_str);
+      MSG_MenuBottom(to_b3_str);
+    end
+  else
+    case save_dest_char of
+    'C': //
+      save_to_preset;
+    'U': //
+      save_to_upper;
+    'L': //
+      save_to_lower;
+    'P': //
+      save_to_pedal;
+    'O': //
+      save_to_organ;
+    'R': //
+      save_to_rotary;
+    'D': //
+      save_to_defaults;
+    end;
+  end;
+  while LCD_TWI_GetButtons do
+    mDelay(10);
+  MenuIndex_Requested:= MenuIndex;  // zurück
+
+end;
+
+// #############################################################################
+// ###                       Display Panel Handling                          ###
+// #############################################################################
+
+procedure MenuPanelHandling;
+// Aufruf sollte vor apply_changes erfolgen!
+// Menü-Bedienung und Einstellungen über Display, Buttons und Drehgeber
+// wertet DisplayDisplayRequest aus und setzt dieses zurück, sobald angezeigt
+// type t_ovr = (t_inrange, t_overrange, t_underrange);
+// type t_menuvalid = (t_menu_hidden, t_menu_invalid, t_menu_valid);
+var
+  my_ovr_dir: Integer; menulevel_changed: Boolean;
+begin
+  if not LCD_TWI_present then
+    exit;
+
+  displayButtons_old:= displayButtons;
+  displayButtons:= LCD_TWI_GetButtons; // etwa 100us
+  menulevel_changed:= false;
+  
+  // Bit 0: Enter, Bit 1: Up, Bit 2: Down
+  if displayButtons <> 0 then begin
+    PresetNameEdit:= false;
+    if displayButtons.B0 then begin
+      // ENTER-Button (Encoder Knob)
+      if displayButtons_old.B0 = 0 then
+        if isSystimerzero(c_DoubleClickTimer) then
+          SetSysTimer(c_DoubleClickTimer, 150)
+        else begin
+          MenuIndex:= c_MenuCommonPreset;
+          menulevel_changed:= true;
+        end;
+
+      if IncToLimW(SaveTimerLoops, 50) then begin
+        // Save-Timer NICHT abgelaufen
+        if (displayButtons_old.B0 = 0) then begin
+          if IsInBitfield then
+            menu_doChange(MenuIndex, 999) // invert
+          else begin
+            // EnterButton (Encoder Knob)
+            ValueChangeMode:= ValueChangeMode = 0; // invertieren
+            DisplayArrowsAndIcons;
+          end;
+          SaveTimerLoops:= 0;
+        end;
+      end else begin
+        // Timer abgelaufen, Save
+        LCD_TWI_NoCursor;
+        MenuEnterBtnSaveProc(MenuIndex);
+        ValueChangeMode:= false;
+        SaveTimerLoops:= 0;
+      end;
+    end else
+      SaveTimerLoops:= 0;
+
+    // Up/Down-Buttons, ins Submenü oder daraus zurück
+    if displayButtons.B1 and (displayButtons_old.B1 = 0) then begin
+      // UP Button
+      MIDI_SendController(0, 123, 127);   // AllNotesOff
+      MIDI_SendController(1, 123, 127);
+      MIDI_SendController(2, 123, 127);
+      if IsInMainMenu then
+        MenuIndex:= c_MenuCommonPreset
+      else
+        MenuIndex:= LastMainMenuIndex;   // wieder zurück
+      menulevel_changed:= true;
+    end;
+
+    if displayButtons.B2 and (displayButtons_old.B2 = 0) then begin
+      // DOWN Button
+      MIDI_SendController(0, 123, 127);   // AllNotesOff
+      MIDI_SendController(1, 123, 127);
+      MIDI_SendController(2, 123, 127);
+      if IsInMainMenu then begin
+        LastMainMenuIndex:= MenuIndex;
+        MenuIndex:= c_MenuGotoArr[MenuIndex];  // nur 0..c_MainMenuEnd
+      end;
+      menulevel_changed:= true;
+    end;
+    
+    if menulevel_changed then begin
+      menu_GetNextValidIndex(MenuIndex, EncoderDelta);
+      menu_GetStatus(MenuIndex);
+      EditFieldIndex:= 0;
+      ValueChangeMode:= false;      // immer mit Scroll-Modus beginnen
+      menu_doChange(MenuIndex, 0);  // Menüpunkt geändert
+    end;
+  end;
+  
+  EncoderChanged:= GetEncoderKnobDelta(EncoderDelta, menu_GetMax(MenuIndex));
+  
+  if EncoderChanged then begin
+    if ValueChangeMode then
+      menu_doChange(MenuIndex, EncoderDelta)  // Wert geändert
+    else begin
+      if (IsInEditName or IsInBitField) then begin
+        // in Bitfield, Buttons scrollen immer
+        my_ovr_dir:= ApplyDelta(EditFieldIndex, 0, EditFieldSize, EncoderDelta);
+        if my_ovr_dir <> 0 then
+          menu_GetNextValidIndex(MenuIndex, my_ovr_dir);
+      end else begin
+        // nicht in Bitfield
+        menu_GetNextValidIndex(MenuIndex, EncoderDelta);
+        menu_GetStatus(MenuIndex);         // Menu könnte sich komplett geändert haben
+        if EncoderDelta > 0 then           // nach oben gescrollt
+          EditFieldIndex:= 0
+        else if EncoderDelta < 0 then
+          EditFieldIndex:= EditFieldSize;
+      end;
+      menu_GetStatus(MenuIndex);    // Menu könnte sich komplett geändert haben
+      menu_doChange(MenuIndex, 0);  // Menüpunkt geändert, neu anzeigen
+    end;
+  end;
+  
+  if edit_ConfBits1.B7 and (MenuIndex_SplashIfEnabled <> 255) then begin
+    // kurz auf MenuIndex_SplashIfEnabled wechseln, danach wieder zurück
+    // nur wenn ConfBit 7 gesetzt ist
+    MenuIndex_Splash:= MenuIndex_SplashIfEnabled;
+    MenuIndex_SplashIfEnabled:= 255;
+  end;
+
+  if (MenuIndex_Splash <> 255) then begin
+    // kurz auf #MenuIndex_Splash wechseln, danach wieder zurück
+    MenuIndex_Requested:= MenuIndex;
+    MenuIndex:= MenuIndex_Splash;
+    menu_GetStatus(MenuIndex);        // Menu könnte sich komplett geändert haben
+    menu_doChange(MenuIndex, 0);      // Menüpunkt geändert
+    SetSysTimer(c_DisplayTimer, 500); // zurück nach 1 Sekunde
+    MenuIndex:= MenuIndex_Requested;
+    MenuIndex_Splash:= 255;
+  end;
+
+  if isSystimerzero(c_DisplayTimer) then begin
+    // Neues Menü angefordert: Wenn ActivityTimer abgelaufen ist,
+    // Anzeige auf #MenuIndex setzen und Wert neu anzeigen
+    if (MenuIndex_Requested <> 255) then begin
+      MenuIndex:= MenuIndex_Requested;
+      menu_GetStatus(MenuIndex);       // Menu könnte sich komplett geändert haben
+      MenuIndex_Requested:= 255;
+      MenuRefresh:= true;
+    end;
+    // nur Wert aktualisieren (z.B. wenn extern geändert)
+    if MenuRefresh then begin
+      //aktuelle Anzeige #MenuIndex aktualisieren
+      menu_doChange(MenuIndex, 0);      // Menüpunkt geändert
+      setSysTimer(c_DisplayTimer, 50);   // Update alle 50 ms reicht
+      MenuRefresh:= false;
+    end;
+  end;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure MenuInit;
+var 
+  my_param: Word;
+begin
+{$IFDEF DEBUG_INITS}
+  Serial1_sendstringCRLF('/ MENU Init ');
+{$ENDIF}
+  // Inverses Array für Menu-Zugriff über Parameter-Index
+  FillBlock(@EditIdx2MenuInverseArray, sizeof(EditIdx2MenuInverseArray), 255);  // alle unbelegt
+  for idx:= 0 to c_MenuLen - 1 do begin
+    my_param:= c_Index2ParamArr[idx];
+    if (my_param >= 1000) and (my_param < 1495) then
+      EditIdx2MenuInverseArray[my_param - 1000]:= idx;
+  end;
+  for idx:= c_LogicalTab_PercOn to c_LogicalTab_Perc3rd do
+    EditIdx2MenuInverseArray[idx]:= c_PercMenu;
+  for idx:= c_LogicalTab_6V1 to c_LogicalTab_6C3 do
+    EditIdx2MenuInverseArray[idx]:= c_VibKnobMenu;
+    
+  EditIdx2MenuInverseArray[c_LogicalTab_Reverb1]:= c_ReverbMenu;
+  EditIdx2MenuInverseArray[c_LogicalTab_Reverb2]:= c_ReverbMenu;
+  
+  EditIdx2MenuInverseArray[c_LogicalTab_DecTranspose]:= c_TransposeMenu;
+  EditIdx2MenuInverseArray[c_LogicalTab_IncTranspose]:= c_TransposeMenu;
+
+  EditIdx2MenuInverseArray[c_HammondDBUpperDecode]:= 1;
+  EditIdx2MenuInverseArray[c_HammondDBLowerDecode]:= 2;
+  EditIdx2MenuInverseArray[c_HammondDBPedalDecode]:= 3;
+
+  SaveTimerLoops:= 0;
+  MenuIndex:= c_MenuCommonPreset;    // Index auf Common Presets
+  MenuIndex_Requested:= c_MenuCommonPreset;
+  LastMainMenuIndex:= c_MenuCommonPreset;
+  ValueChangeMode:= false; // Starte mit Menü-Wechsel
+  IRQ_Incr_delta:= 0;
+  IRQ_Incr_acc:= 0;  // Drehgeber-Steps
+  IRQ_sema:= false;
+  IRQ_EncoderTouched:= false;  // Drehgeber betätigt
+  ActivityLED_old:= false;
+  EditFieldIndex:= 0;
+
+  if not LCD_TWI_present then
+    exit;
+  LCD_TWI_WriteCG(5, cg_submenu);  // invertiertes "s"
+  LCDcharset_LRarrows:= t_charsetLR_none;
+  LCDset_UpDown_Arrows(false); // Arrows gray
+  menu_GetStatus(MenuIndex);
+  LCDsetBar;
+  menu_doChange(MenuIndex, 0);
+end;
+
+end.

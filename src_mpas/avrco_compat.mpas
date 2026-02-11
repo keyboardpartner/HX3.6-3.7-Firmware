@@ -1,0 +1,264 @@
+// Kompatibilitätsfunktionen AVRco
+
+unit avrco_compat;
+
+function IncToLimW(var val_to_inc: Word; limit: Word): Boolean;
+function DecToLimW(var val_to_dec: Word; limit: Word): Boolean;
+
+function IncToLimInt(var val_to_inc: Integer; limit: Integer): Boolean;
+function DecToLimInt(var val_to_dec: Integer; limit: Integer): Boolean;
+
+function IncToLimB(var val_to_inc: Byte; limit: Byte): Boolean;
+function DecToLimB(var val_to_dec: Byte; limit: Byte): Boolean;
+
+function ValueInRange(value, vmin, vmax: Integer): Boolean;
+function ValueTrimLimit(value, vmin, vmax: Integer): Integer;
+function ValueTrimLimitB(value, vmin, vmax: Byte): Byte;
+
+function MulDivByte(fac1, fac2, div1: Byte): Byte;
+function MulDivInt(fac1, fac2, div1: Integer): Integer;
+function MulDivWord(fac1, fac2, div1: Word): Word;
+procedure CopyBlock(from_ptr: ^Byte; to_ptr: ^Byte; count: Word);
+procedure FillBlock(from_ptr: ^Byte; count: Word; fill: Byte);
+
+function ByteToStrTrim(the_byte: Byte): String[3];
+function IntToStrTrim(the_int: Integer): String[5];
+function WordToStrTrim(the_word: Word): String[5];
+
+procedure Uppercase(var str_conv: String);
+procedure Lowercase(var str_conv: String);
+procedure mDelay(ms: Word);  // angepasst auf Prozessor ST32F103 oder GD32F303
+
+type
+  t_cStr = String[16];                  // Preset-Name als mikroPascal-C-String
+  t_pStrArr = Array[0..15] of byte;     // Ansi-Pascal-String aus Preset
+
+// Pascal-String in C-String:
+procedure PStringArr_to_CString(var pStringArr: t_pStrArr; var cString: t_cStr);
+// C-String in Pascal-String:
+procedure CString_to_PStringArr(var cString: t_cStr; var pStringArr: t_pStrArr);
+
+
+implementation
+
+
+var idx, temp_w: Word;
+  temp_i: LongInt;
+
+
+procedure PStringArr_to_CString(var pStringArr: t_pStrArr; var cString: t_cStr);
+// Pascal-String in C-String
+var
+  my_char: Char; str_len, c_idx: Word;
+begin
+  cString:= '';
+  str_len:= pStringArr[0]; // Pascal-String, Längenbyte
+  if (str_len > 0) and (str_len < 16) then
+    for c_idx:= 1 to str_len do begin
+      my_char:= Char(pStringArr[c_idx]);
+      if my_char = 0 then
+        break;
+      cString:= cString + my_char;
+    end;
+end;
+
+procedure CString_to_PStringArr(var cString: t_cStr; var pStringArr: t_pStrArr);
+// C-String in Pascal-String
+var
+  my_char: Char; str_len, c_idx: Word;
+begin
+  FillBlock(@pStringArr, 0, sizeof(pStringArr));
+  str_len:= length(cString);
+  pStringArr[0]:= str_len;
+  if str_len > 0 then begin
+    for c_idx:= 0 to str_len - 1 do begin
+      my_char:= Char(cString[c_idx]);
+      if my_char = 0 then
+        break;
+      pStringArr[c_idx + 1]:= my_char;
+    end;
+  end;
+end;
+
+
+procedure mDelay(ms: Word);
+// Delay_ms ist auf ARM M4 zu schnell!
+begin
+  VDelay_ms(ms);
+end;
+
+function IncToLimInt(var val_to_inc: Integer; limit: Integer): Boolean;
+// liefert TRUE, wenn inc() gelang und limit nicht erreicht
+begin
+  inc(val_to_inc);
+  if val_to_inc > limit then begin
+    val_to_inc:= limit;
+    result:= false;
+  end else
+    result:= true;
+end;
+
+function DecToLimInt(var val_to_dec: Integer; limit: Integer): Boolean;
+// liefert TRUE, wenn inc() gelang und limit nicht erreicht
+begin
+  dec(val_to_dec);
+  if val_to_dec < limit then begin
+    val_to_dec:= limit;
+    result:= false;
+  end else
+    result:= true;
+end;
+
+function IncToLimW(var val_to_inc: Word; limit: Word): Boolean;
+// liefert TRUE, wenn inc() gelang und limit nicht erreicht
+begin
+  inc(val_to_inc);
+  if val_to_inc > limit then begin
+    val_to_inc:= limit;
+    result:= false;
+  end else
+    result:= true;
+end;
+
+function DecToLimW(var val_to_dec: Word; limit: Word): Boolean;
+// liefert TRUE, wenn inc() gelang und limit nicht erreicht
+begin
+  dec(val_to_dec);
+  if (val_to_dec < limit) or (val_to_dec = $FFFF) then begin
+    val_to_dec:= limit;
+    result:= false;
+  end else
+    result:= true;
+end;
+
+function IncToLimB(var val_to_inc: Byte; limit: Byte): Boolean;
+// liefert TRUE, wenn inc() gelang und limit nicht erreicht
+begin
+  inc(val_to_inc);
+  if val_to_inc > limit then begin
+    val_to_inc:= limit;
+    result:= false;
+  end else
+    result:= true;
+end;
+
+function DecToLimB(var val_to_dec: Byte; limit: Byte): Boolean;
+// liefert TRUE, wenn inc() gelang und limit nicht erreicht
+begin
+  dec(val_to_dec);
+  if (val_to_dec < limit) or (val_to_dec = $FF) then begin
+    val_to_dec:= limit;
+    result:= false;
+  end else
+    result:= true;
+end;
+
+
+function ValueInRange(value, vmin, vmax: Integer): Boolean;
+begin
+  result:= (value >= vmin) and (value <= vmax);
+end;
+
+function ValueTrimLimit(value, vmin, vmax: Integer): Integer;
+begin
+  result:= value;
+  if value > vmax then
+    result:= vmax;
+  if value < vmin then
+    result:= vmin;
+end;
+
+function ValueTrimLimitB(value, vmin, vmax: Byte): Byte;
+begin
+  result:= value;
+  if value > vmax then
+    result:= vmax;
+  if value < vmin then
+    result:= vmin;
+end;
+
+
+function MulDivByte(fac1, fac2, div1: Byte): Byte;
+var mul_w: Word;
+begin
+  mul_w:= (Word(fac1) * Word(fac2)) div Word(div1);
+  result:= lo(mul_w);
+end;
+
+function MulDivInt(fac1, fac2, div1: Integer): Integer;
+var mul_i: LongInt;
+begin
+  mul_i:= (LongInt(fac1) * LongInt(fac2)) div div1;
+  result:= Integer(mul_i);
+end;
+
+function MulDivWord(fac1, fac2, div1: Word): Word;
+var mul_w: DWord;
+begin
+  mul_w:= (DWord(fac1) * DWord(fac2)) div div1;
+  result:= Word(mul_w);
+end;
+
+procedure CopyBlock(from_ptr: ^Byte; to_ptr: ^Byte; count: Word);
+begin
+  memcpy(to_ptr, from_ptr, count);
+end;
+
+procedure FillBlock(from_ptr: ^Byte; count: Word; fill: Byte);
+begin
+  memset(from_ptr, fill, count);
+end;
+
+procedure Uppercase(var str_conv: String);
+var i: Word; my_char: Char;
+begin
+  for i:= 0 to length(str_conv) - 1 do begin
+    my_char:= str_conv[i];
+    if my_char = 0 then
+      break;
+    if (my_char >= 97) and (my_char <= 122) then  // a..z
+      str_conv[i]:= my_char and $DF;   // upper case
+  end;
+end;
+
+procedure Lowercase(var str_conv: String);
+var i: Word; my_char: Char;
+begin
+  for i:= 0 to length(str_conv) - 1 do begin
+    my_char:= str_conv[i];
+    if my_char = 0 then
+      break;
+    if (my_char >= 65) and (my_char <= 90) then  // A..Z
+      str_conv[i]:= my_char or $20;   // lower case
+  end;
+end;
+
+function ByteToStrTrim(the_byte: Byte): String[3];
+var
+  my_str: String[15];
+begin
+  ByteToStr(the_byte, my_str);
+  ltrim(my_str);
+  result:= my_str;
+end;
+
+function IntToStrTrim(the_int: Integer): String[5];
+var
+  my_str: String[15];
+begin
+  IntToStr(the_int, my_str);
+  ltrim(my_str);
+  result:= my_str;
+end;
+
+function WordToStrTrim(the_word: Word): String[5];
+var
+  my_str: String[15];
+begin
+  WordToStr(the_word, my_str);
+  ltrim(my_str);
+  result:= my_str;
+end;
+
+
+end.

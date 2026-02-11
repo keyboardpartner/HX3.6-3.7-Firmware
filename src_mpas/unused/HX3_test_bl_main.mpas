@@ -1,0 +1,176 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+
+// #############################################################################
+
+//    MCU:             STM32F103RET6
+//    Dev.Board:       Fusion_STM32_ARM_FT800_Port_CH
+//    Oscillator:      72000000 Hz
+//    SW:              mikroPascal PRO for ARM v6.20
+
+
+// TFT Calibration Constants, 6 Messungen
+// A:00008055, B:00000000, C:FFF35790, D:FFFFFF9F, E:00004CD2, F:FFF21104
+// A:00008190, B:0000003D, C:FFF11DC5, D:FFFFFD04, E:00004DC0, F:FFF40D5A
+// A:00008035, B:00000096, C:FFF29983, D:FFFFFEB4, E:00004C0B, F:FFF4B477
+// A:00008106, B:FFFFFF4A, C:FFF1DC32, D:FFFFFE36, E:00004CD5, F:FFF57398
+// A:0000801A, B:000000D9, C:FFF07056, D:FFFFFF67, E:00004EC8, F:FFEBE6C0
+// A:0000815B, B:FFFFFFA4, C:FFF0059D, D:FFFFFE77, E:00004D53, F:FFF2143D
+
+program HX3_TFT_main;
+
+uses parser, lcd_twi, spi_rw, twi_systimer, sd_card, serial1, serial2;
+
+var
+    temp_w, idx: word;
+    sometimes_counter : word;
+
+
+procedure InitMain();
+  var int_reg: DWord;
+begin
+  PortInit(); // in var_def.mpas
+
+  LEDcard:= true;
+  LEDactivity:= false;
+
+
+  SysTimerInit;
+  // Initialize USART modules at 57600 bps
+  Serial1_Init();   // FTDI-Kabel
+  Serial2_Init();   // BT
+
+  EnableInterrupts;  // bevor irgendetwas ausgegeben wird!
+
+  WordToStr(Clock_MHz(), val_str);
+  ltrim(val_str);
+  Serial1_sendstringCRLF('');
+  Serial1_sendstringCRLF(s_divline);
+  Serial1_sendstringCRLF('/ BL TEST 35 KByte');
+{$IFDEF GD303_MCU}
+  Serial1_sendstringCRLF('/ GD32F303RET6 MCU ' + val_str + ' MHz');
+{$ELSE}
+  Serial1_sendstringCRLF('/ STM32F103RET6 MCU ' + val_str + ' MHz');
+{$ENDIF}
+  Serial1_sendstringCRLF(s_divline);
+
+  TWI_Init;
+  // Warte auf FPGA-Konfiguration
+  FPGA_ok:= SPI_fpga_init(false);  // nur warten, kein F_PROG
+
+  InitMsgEnable:= true;        // Ausgabe von Init-Meldungen beim Start
+
+  LCD_TWI_Init;
+
+  QFL_NRST:= true;    // SAM-Flash Reset aufheben
+  SAM_NRST:= true;    // SAM-MCU Reset aufheben
+  BT_RST:=  true;     // WIFI Reset aufheben
+
+
+  if LCD_TWI_present and InitMsgEnable then
+    Serial1_sendstringCRLF('/ LCD found');
+
+//  DF_LoadScanDriver;
+//  DF_LoadFIRcoeff;
+  // DF_LoadTapering(edit_TG_TaperCaps); // wird in AC_Init erledigt
+  // DF_LoadWaveset(edit_TG_WaveSet);    // wird in AC_Init erledigt
+
+  if LCD_TWI_present then begin
+    LCD_TWI_WriteStr('BL TEST 35');
+    LCD_TWI_XY(0, 1);
+    LCD_TWI_WriteStr(val_str + ' MHz');
+    mDelay(1000);
+  end;
+
+  // Default-Werte initialisieren und senden
+
+  SD_Init;   // SD-SPI, SD vorhanden?
+  SD_DirSerial;
+  SendPromptRequest:= true;             // Bereitschafts-Prompt
+  
+end;
+
+
+
+function CheckFirmware: Boolean;
+// liefert TRUE wenn Firmware vorhanden
+const
+  msg_vec_str = '/ MAIN FW vector table, VTOR = $';
+  msg_fw_str = '/ MAIN FW start:';
+var  ptr_dword: ^Dword;
+  rd_Dword: Dword;
+  num_str: String [12];
+begin
+  result:= true;
+  Serial1_sendstringCRLF(s_divline);
+  Serial1_sendstringCRLF(msg_fw_str);
+  Serial1_sendstring('/ $');
+  ptr_dword:= FIRMWARE_START;
+  for idx:= 0 to 3 do begin
+    rd_Dword:= ptr_dword^;
+    LongWordToHex(rd_Dword, num_str);
+    Serial1_sendstring(num_str + ', $');
+    inc(ptr_dword);
+  end;
+  Serial1_sendstringCRLF('...');
+  Serial1_sendstring(msg_vec_str);
+  rd_Dword:= SCB_VTOR and $FFFFFFF8;
+  LongWordToHex(rd_Dword, num_str);
+  Serial1_sendstringCRLF(num_str);
+  Serial1_sendstring('/ $');
+  ptr_dword:= rd_Dword;
+  for idx:= 0 to 3 do begin
+    rd_Dword:= ptr_dword^;
+    LongWordToHex(rd_Dword, num_str);
+    Serial1_sendstring(num_str + ', $');
+    inc(ptr_dword);
+  end;
+  Serial1_sendstringCRLF('...');
+  Serial1_sendstringCRLF(s_divline);
+end;
+
+// #############################################################################
+
+begin
+  // Nach Kompilierung der Firmware befindet sich die Vektortabelle
+  // im Binary immer auf $00000000, egal was bei ORG[all] vermerkt ist.
+  // Gelesener Firmware-Block 0 aus DF wird daher im Bootloader
+  // auf Adresse VEC_TABLE_START geschrieben, Bootloader setzt
+  // Vektortabellen-Adresse vor dem Einsprung in Firmware auf diesen Wert.
+  
+ // Sorgt dafür, dass nichts vor Adresse FIRMWARE_START platziert wird:
+  org(FIRMWARE_START); // 64K für Bootloader
+  orgall(FIRMWARE_START); // 64K für Bootloader
+  // Einsprungpunkt des Bootloaders, Reset-Vektor in NVIC-Tabelle $00000004:
+  edit_array[0]:=1;
+  InitMain();
+  CheckFirmware;
+  for idx:= 0 to 3 do begin
+    SysLEDflash(100);
+    mDelay(500);
+  end;
+  Serial1_sendstringCRLF('/ blink ENDED!');
+  // 31k: geht
+  DF_LoadScanDriver;
+  DF_LoadFIRcoeff;
+  Serial1_sendstringCRLF('/ scan ENDED!');
+  PA_Init;
+  Serial1_sendstringCRLF('/ parser ENDED!');
+  FH_BoardInfo; // 38k: geht
+  Serial1_sendstringCRLF('/ boardinfo ENDED!');
+  MenuInit;
+// Default-Werte initialisieren und senden
+  AC_Init;
+
+  Serial1_sendstringCRLF('/ ENDED!');
+  mDelay(500);
+end.

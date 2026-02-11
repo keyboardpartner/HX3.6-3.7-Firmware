@@ -1,0 +1,590 @@
+unit sd_card;
+
+uses const_def, twi_systimer, spi_rw, dataflash,
+     lcd_twi, const_def, var_def, serial1,
+     avrco_compat, edit_vals, intflash, __Lib_Stdint, messages;
+
+// MMC module connections, extern
+var 
+  // MMC_chip_select: sbit at GPIOC_ODR.B9;
+  MMC_chip_select: sbit at GPIOA_ODR.B4;
+  SD_timeout: Mmc_Timeout_values;
+  SD_err_init, SD_err_cmd, SD_err_spi: Boolean;
+  SD_present: Boolean;
+  SD_directory: __DIR;
+  SD_LastFileSize: DWord;
+  SD_DirArray: Array[0..31] of String[31];
+  SD_DirFileCount: Word;
+
+// SPI-Funktionen für SD-Karte, SPI_1
+procedure SD_Init;
+
+function SD_DirSerial: Word;
+procedure SD_GetDirArray(var match_str: String[15]);
+
+function SD_ReadBinFile(startblock: Word; var file_name: String[15];
+                         block_proc: ^TblockProcType): t_err;
+                         
+{$IFDEF BOOTLOADER}
+// DREAM-DFU hat 2048-Byte-Blöcke und 12-Byte-Prefix vor jedem Block
+function SD_LoadDFUimage(var file_name: String[12]): t_err;
+{$ENDIF}
+
+function SD_LoadAndFlashStandardCCsets: t_err;
+function SD_LoadAndFlashCustomCCsets: t_err;
+function SD_LoadAndFlashWavesets: t_err;
+function SD_LoadAndFlashTaperings: t_err;
+
+procedure SD_fileToLC(var file_name: String[15]; target, width: Word);
+
+function SD_fileToDF(var file_name: String[15]; start_block: Word): t_err;
+
+// ignoriert erste 64 KByte, ins ST-RAM ab $01 000
+function SD_fileToIntFlash(var file_name: String[15]; start_block: Word): t_err;
+
+implementation
+const
+  dir_header_str = '/ --------------- CARD DIRECTORY -----------------' ;
+  s_filecount_str = '/ FileCount: ';
+  s_okFAT32 = '/ SD Card OK';
+  s_noFAT32 = '/ SD FAT32 not present or empty';
+
+var 
+  ptr_dword: ^dword;
+  ptr_word: ^word;
+  ptr_byte: ^byte;
+
+var 
+  file_name: String[15]; 
+  num_str: String[5];
+
+  temp_err: t_err;
+// Callback-Funktion nach jedem gelesenen Block
+// Displaying routine für MMC Directory
+//procedure mmc_PrintChar(ch_b: byte);
+//begin
+//  while Serial1_txstat do ;
+//  Serial1_sendChar(char(ch_b));
+//end;
+
+// declare timeout callback function
+procedure MMC_TimeoutCallback(errorCode : byte);
+begin
+  // if there was error during the INIT sequence
+  if (errorCode = _MMC_INIT_TIMEOUT) then
+    SD_err_init:= true;
+
+  // if there was error during the CMD sequence
+  if (errorCode = _MMC_CMD_TIMEOUT) then
+    SD_err_cmd:= true;
+
+  // if there was error during the SPI sequence
+  if (errorCode = _MMC_SPI_TIMEOUT) then
+    SD_err_spi:= true;
+end;
+
+function SD_DirSerial: Word;
+// Directory ausgeben und Anzahl gefundener Files zurückgeben
+var dir_name: String[12];
+  num_str: String[6];
+  dir_info, entry_num: Integer;
+begin
+  if SD_present then begin
+    dir_name:='\';
+    FAT32_ChangeDir(@dir_name);
+    dir_info:= FAT32_FindFirst(@SD_directory);
+    entry_num:= 1;
+    if dir_info = 1 then begin
+      Serial1_sendstringCRLF(dir_header_str);
+      Serial1_sendstringCRLF('/ ' + SD_directory.NameExt);
+      repeat
+       dir_info:= FAT32_FindNext(@SD_directory);
+       if dir_info = 1 then begin
+         rtrim(SD_directory.NameExt);
+         IntToStr(entry_num, num_str);
+         ltrim(num_str);
+         if entry_num < 10 then
+           num_str:= ' ' + num_str;
+         if length(SD_directory.NameExt) > 1 then begin
+           Serial1_sendstringCRLF('/ ' + num_str + ': ' + SD_directory.NameExt);
+           inc(entry_num);
+         end;
+       end;
+      until (dir_info <> 1);
+      Serial1_sendstringCRLF(s_divline);
+    end else
+      Serial1_sendstringCRLF(s_noFAT32);
+  end;
+  result:= entry_num - 1;
+end;
+
+procedure SD_GetDirArray(var match_str: String[15]);
+// Directory in Array speichern und Anzahl gefundener Files 
+// in SD_DirFileCount zurückgeben
+var dir_name: String[12];
+  dir_info, match_pos: Integer;
+begin
+  SD_DirFileCount:= 0;
+  if SD_present then begin
+    dir_name:='\';
+    FAT32_ChangeDir(@dir_name);
+    dir_info:= FAT32_FindFirst(@SD_directory);
+    if dir_info = 1 then begin
+      repeat
+        dir_info:= FAT32_FindNext(@SD_directory);
+        if dir_info = 1 then begin
+          rtrim(SD_directory.NameExt);
+          UpperCase(SD_directory.NameExt);
+          match_pos:= strstr(SD_directory.NameExt, match_str);
+          if (length(SD_directory.NameExt) > 1) and (match_pos >= 0) then begin
+           SD_DirArray[SD_DirFileCount]:= SD_directory.NameExt;
+           inc(SD_DirFileCount);
+          end;
+        end;
+      until (dir_info <> 1) or (SD_DirFileCount > 15);
+    end;
+    Serial1_sendstring(s_filecount_str);
+    Serial1_sendIntValCRLF(SD_DirFileCount);
+  end;
+end;
+
+procedure SD_Init;
+var
+  dir_name: String[12];
+begin
+  Serial1_sendstringCRLF('/ SD Init ');
+  // initialize timeout structure
+  MMC_chip_select:= true;
+  GPIO_Digital_Output(@GPIOA_BASE, _GPIO_PINMASK_4);   //  SDCARD /CS
+  SD_DirFileCount:= 0;
+  SD_err_init:= false;
+  SD_err_cmd:= false;
+  SD_err_spi:= false;
+  // GPIO_Alternate_Function_Enable(@_GPIO_MODULE_SPI1_PC10_11_12);
+  
+  // set the desired timeout values and callback function
+  sd_timeout.cmd_timeout  := 1000;
+  sd_timeout.spi_timeout  := 10000;
+  sd_timeout.init_timeout := 100000;
+
+  // initialise SPI1 for MMC/SD card
+  SPI1_CR1 := 0;
+  SPI1_Init_Advanced(_SPI_FPCLK_DIV64, _SPI_MASTER or _SPI_8_BIT or
+                     _SPI_CLK_IDLE_LOW or _SPI_FIRST_CLK_EDGE_TRANSITION or
+                     _SPI_MSB_FIRST or _SPI_SS_DISABLE or _SPI_SSM_ENABLE or _SPI_SSI_1,
+                     @_GPIO_MODULE_SPI1_PA567);
+
+  Mmc_SetTimeoutCallback(sd_timeout, @MMC_TimeoutCallback);
+  // Initialize SD - Cluster müssen in Standardgröße sein!
+  SD_present:= false;
+  if FAT32_Init() <> 0 then
+    Serial1_sendstringCRLF(s_noFAT32)
+  else begin
+    Serial1_sendstringCRLF(s_okFAT32);
+    SD_present:= true;
+  end;
+  if SD_present then begin
+    // Reinitialize the SPI module at higher speed _SPI_FPCLK_DIV8
+    // _SPI_FPCLK_DIV2 und _SPI_FPCLK_DIV4 sind für einige Karten zu schnell!
+    SPI1_CR1 := 0;
+    SPI1_Init_Advanced(_SPI_FPCLK_DIV8, _SPI_MASTER or _SPI_8_BIT or
+                       _SPI_CLK_IDLE_LOW or _SPI_FIRST_CLK_EDGE_TRANSITION or
+                       _SPI_MSB_FIRST or _SPI_SS_DISABLE or _SPI_SSM_ENABLE or _SPI_SSI_1,
+                       @_GPIO_MODULE_SPI1_PA567);
+    dir_name:='\';
+    FAT32_ChangeDir(@dir_name);
+  end;
+end;
+
+// #############################################################################
+// Callbacks für BlockRead-Routine von SD-Karte
+// Werden angesprungen, wenn ein max. 4k großer Block gelesen wurde und
+// zur Weiterverarbeitung bereit ist.
+// #############################################################################
+
+procedure SD_noProc(current_block, block_len: Word);
+// Dummy-Proc als @block_proc für die nachfolgende Routine,
+// wenn nur in BlockBuffer8 gelesen werden soll
+begin
+{$IFDEF DEBUG_SD}
+  IntToStr(current_block, debug_str);
+  ltrim(debug_str);
+  Serial1_sendstring('/ SD dummy proc, block #' + debug_str);
+  IntToStr(block_len, debug_str);
+  ltrim(debug_str);
+  Serial1_sendstring(', len: ' + debug_str);
+{$ENDIF}
+end;
+
+procedure SD_LC8_Proc(current_block, block_len: Word);
+// Gelesenen Block an LC in 8 Bit Breite senden
+// Für Drawbars und Taper
+begin
+{$IFDEF DEBUG_SD}
+  Serial1_sendstring('/ SD LC8 proc, block #' + IntToStrTrim(current_block));
+  Serial1_sendstringCRLF(', len16: ' + IntToStrTrim(block_len));
+{$ENDIF}
+  SPI_SendBuf8(block_len);
+end;
+
+procedure SD_LC16_Proc(current_block, block_len: Word);
+// Gelesenen Block an LC in 16 Bit Breite senden
+// Für FIR, DDS Wavesets
+var len_words: Word;
+begin
+  len_words:= block_len div 2;
+{$IFDEF DEBUG_SD}
+  Serial1_sendstring('/ SD LC16 proc, block #' + IntToStrTrim(current_block));
+  Serial1_sendstringCRLF(', len16: ' + IntToStrTrim(block_len div 2));
+{$ENDIF}
+  SPI_SendBuf16(len_words);
+end;
+
+procedure SD_LC32_Proc(current_block, block_len: Word);
+// Gelesenen Block an LC in 32 Bit Breite senden
+// Für PicoBlaze-Core
+var len_dwords: Word;
+begin
+  len_dwords:= block_len div 4;
+{$IFDEF DEBUG_SD}
+  Serial1_sendstring('/ SD LC24 proc, block #' + IntToStrTrim(current_block));
+  Serial1_sendstringCRLF(', len32: ' + IntToStrTrim(len_dwords));
+{$ENDIF}
+  SPI_SendBuf32(len_dwords);
+end;
+
+procedure SD_StoreDF_Proc(current_block, block_len: Word);
+// Gelesenen Block in DF speichern
+begin
+{$IFDEF DEBUG_SD}
+  Serial1_sendstring('/ SD store DF proc, block #' + IntToStrTrim(current_block));
+  Serial1_sendstringCRLF(', len: ' + IntToStrTrim(block_len));
+{$ENDIF}
+  DF_EraseWriteBlock(current_block, block_len);
+end;
+
+// -----------------------------------------------------------------------------
+
+function SD_ReadBinFile(startblock: Word; var file_name: String[15];
+                         block_proc: ^TblockProcType): t_err;
+// Datei von SD-Karte lesen und ab startblock z.B. in DF abspeichern
+// Liefert TRUE wenn SD Card vorhanden und File gelesen
+// block_proc weist auf Block-Behandlungsroutine, dieser wird aktuelle Block-Nr.
+// und LC-Target übergeben, falls erforderlich.
+var
+  fileHandle: __HANDLE;
+  sd_size, sd_pos, sd_eof, block_size: DWord;
+  block_count, block_idx: Word;
+
+begin
+  block_count:= 0;
+  SD_LastFileSize:= 0;
+  DF_Errors:= 0;
+  if not SD_present then begin
+    // sd_missing_msg;
+    result:= ce_SDnotPresent;
+    exit;
+  end;
+  if FAT32_Exists(@file_name) = 1 then begin
+    if LCD_TWI_present then begin
+      LCD_TWI_Clr;
+      LCD_TWI_WriteStr(s_sdload);
+      LCD_TWI_XY( 0, 1);
+      LCD_TWI_WriteStr(file_name);
+      LCD_TWI_ClrEOL;
+    end;
+    FAT32_Size(@file_name, @sd_size);
+{$IFDEF DEBUG_SD}
+    if InitMsgEnable then begin
+      Serial1_sendstringCRLF('/ SD Load: ' + file_name);
+      LongWordToStr(sd_size, val_str);
+      ltrim(val_str);
+      Serial1_sendstring('/ SD File Size: ' + val_str);
+    end;
+{$ENDIF}
+    SD_LastFileSize:= sd_size;
+    if sd_size < 512 then begin
+      result:= ce_wrongFormat;
+      exit;
+    end;
+    dec(sd_size);
+    result:= ce_noErr;
+    block_count:= Word(sd_size div 4096);
+    fileHandle:= FAT32_Open(@file_name, FILE_READ_F32);
+{$IFDEF DEBUG_SD}
+    if InitMsgEnable then
+      Serial1_sendstringCRLF(', block count: ' + IntToStrTrim(block_count + 1));
+{$ENDIF}
+    sd_pos:= 0;
+    for block_idx:= 0 to block_count do begin// read the entire file
+      IntToStr(block_idx, val_str);
+      ltrim(val_str);
+      block_size:= sizeof(BlockBuffer8); // Default: Buffer komplett füllen
+      FAT32_Read(fileHandle, @BlockBuffer8, block_size);
+      FAT32_Tell(fileHandle, @sd_eof);
+      // wenn sich sd_pos und sd_eof unterscheiden, wurde vom letzten Block
+      // nur ein Teil gelesen.
+      block_size:= sd_eof - sd_pos;
+      sd_pos:= sd_pos + block_size;
+{$IFDEF DEBUG_SD}
+      if InitMsgEnable then
+        Serial1_sendstringCRLF('/ SD read  block #' + val_str);
+{$ENDIF}
+      if block_proc <> nil then
+        block_proc^(block_idx, Word(block_size));
+      if FAT32_Eof(fileHandle) > 0 then
+        break;
+    end; // until end of file
+    FAT32_Close(fileHandle);
+    SetSysTimer(c_DisplayTimer, 500);
+    MenuRefresh:= true;
+  end else
+    result:= ce_fileNotFound;
+end;
+
+// #############################################################################
+{$IFDEF BOOTLOADER}
+// #############################################################################
+
+function sd_check_dfu_prefix: Boolean;
+begin
+  // Überprüfen, ob Prefix-Info gültig ist, falls versehentlich
+  // DSP-DFU oder Soundbank geladen wurde
+  result:= (DFU_element_prefix.DataCount = $400) and
+           (DFU_element_prefix.DestAddr >= $81E00000);
+end;
+
+
+function SD_LoadDFUimage(var file_name: String[12]): t_err;
+// Lädt Dream-DFU-File von SD-Karte, ähnlich DF_CopyDFUimageFromSAM
+// DREAM-DFU hat 2048-Byte-Blöcke und 12-Byte-Prefix vor jedem Block
+// Datei von SD-Karte lesen und ab startblock z.B. in DF abspeichern
+// Liefert TRUE wenn SD Card vorhanden und File gelesen
+var
+  fileHandle: __HANDLE;
+  sd_size: DWord;
+  block_count, block_idx,
+  dfudl_idx: Word; dest_block, destination: Word;
+  fpga_reinit, to_failsafe: Boolean;
+  old_timestamp: DWord;
+
+begin
+  SysLEDflash(100);
+  fpga_reinit:= false;
+  block_count:= 0;
+  SD_LastFileSize:= 0;
+  FillBlock(@DFUDL, 4096, 0);
+  DF_Errors:= 0;
+  if not SD_present then begin
+    // sd_missing_msg;
+    result:= ce_SDnotPresent;
+    exit;
+  end;
+  ExitBootloaderMenuWhenDone:= false;
+  if LCD_TWI_present then begin
+    LCD_TWI_Clr;
+    LCD_TWI_WriteStr(s_sdload);
+    LCD_TWI_XY( 0, 1);
+    LCD_TWI_WriteStr(file_name);
+    LCD_TWI_ClrEOL;
+  end;
+  if FAT32_Exists(@file_name) = 1 then begin
+    FAT32_Size(@file_name, @sd_size);
+{$IFDEF DEBUG_SD}
+    if InitMsgEnable then begin
+      Serial1_sendstring('/ SD Load: ' + file_name);
+      LongWordToStr(sd_size, val_str);
+      ltrim(val_str);
+      Serial1_sendstringCRLF(', File Size: ' + val_str);
+    end;
+{$ENDIF}
+    if sd_size < 8192 then begin // DFU-Files sind immer mind. 2 Blöcke groß
+      result:= ce_wrongFormat;
+      exit;
+    end;
+    result:= ce_noErr;
+    fileHandle:= FAT32_Open(@file_name, FILE_READ_F32);
+    // Prefix als Dummy, wird stets ignoriert,
+    // weil Blöcke immer fortlaufend gespeichert sind
+    FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix));
+    FAT32_Read(fileHandle, @BlockBuffer8, 2048);
+    if not (FAT32_Eof(fileHandle) > 0) then begin
+      FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix)); 
+      FAT32_Read(fileHandle, @BlockBuffer8[2048], 2048);  // 1024 Words = 2048 Bytes
+    end;
+    CopyBlock(@BlockBuffer8, @DFUDL, 4096);
+    // Überprüfen, ob Prefix-Info gültig ist, falls versehentlich
+    // DSP-DFU oder Soundbank geladen wurde
+    if sd_check_dfu_prefix and DF_CheckDFUDLflags then begin
+      UpdateBitFlags:= UpdateBitFlags or DFUDL_partbits_DW;
+      UpdateTimeStamp:= DFUDL_timestamp_DW;
+      DF_Unprotect;
+      dest_block:= DFUDL[0];
+      if DF_CheckDFUDLfailsafe then begin // DFUDL[0] muss jetzt $92FC sein
+        // Failsafe komplett enthalten?
+        if DF_EraseBlock(c_dfudl_failsafe_DF) then // Block in DF speichern
+          DF_WriteBlock(c_dfudl_failsafe_DF, 4096, true);
+        dest_block:= ($1000 or c_update_info_DF); // auch als Info-Block speichern
+      end;
+      if DF_EraseBlock(c_update_info_DF) then  // Info-Block in DF speichern
+        DF_WriteBlock(c_update_info_DF, 4096, true);
+
+       if DF_errors = 0 then for dfudl_idx:= 1 to LoWord(DFUDL_bcount_DW) do begin
+        SysLEDflash(100);
+        dest_block:= DFUDL[dfudl_idx];
+        if dest_block = 0 then
+          break;
+        // obere 4 Bits = Destination Flags,
+        // Bit 0 = DF (+1), 1 = ReInit-Kennung (+2), 
+        // 2 = STM32 IntFlash Firmware (+4),
+        // 3 = to Failsafe DF (+8)
+        to_failsafe:= (dest_block and $8000) <> 0;
+        destination:= (dest_block shr 12) and 7;
+        dest_block:= dest_block and $FFF;
+        // Blocks sind fortlaufend gespeichert, darf daher nicht unterbrochen werden
+        if (destination and $0002) <> 0 then
+          fpga_reinit:= true;
+        IFL_blockmsg(destination, dest_block, to_failsafe);
+        // zwei DFU-Blocks mit Prefix lesen
+        FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix));
+        if FAT32_Eof(fileHandle) then
+          break;
+        FAT32_Read(fileHandle, @BlockBuffer8[0], 2048);
+        FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix));
+        if FAT32_Eof(fileHandle) then
+          break;
+        FAT32_Read(fileHandle, @BlockBuffer8[2048], 2048);
+        if not sd_check_dfu_prefix then begin
+          result:= ce_wrongFormat;
+          break;
+        end;
+        if destination = 4 then    // Internes Flash des STM32
+          IFL_StoreIntFlash_Proc(dest_block, 4096)     // Sortiert NVIC-Block um
+        else if (destination and $1) <> 0 then begin   // FPGA DataFlash
+          if DF_EraseBlock(dest_block) then
+            DF_WriteBlock(dest_block, 4096, true)
+          else begin
+            result:= ce_DFwriteErr;
+            break;
+          end;
+        end;
+        if (FAT32_Eof(fileHandle) > 0) then
+          break;
+        if (DF_errors > 0) then begin
+          result:= ce_DFwriteErr;
+          break;
+        end;
+      end; // until end of DFUDL
+      DF_protect;
+    end else begin
+      result:= ce_wrongFormat;
+      // war falsch oder nur ein DSP/Soundbank-File; im Menu bleiben
+      ExitBootloaderMenuWhenDone:= false;
+    end;
+    SysLEDflash(500);
+    FAT32_Close(fileHandle);
+    if fpga_reinit then begin
+      DF_StopDFU(false); // keep DSP in Reset
+      SPI_InitFPGA(true);  // FPGA neu laden
+      eep_BoardInfo.FPGAloaded:= SPI_CheckFPGA(false); // sperrt ggf. FPGA wenn fail
+      if eep_BoardInfo.FPGAloaded then begin
+        DF_StartDFU;
+        DF_LoadScanDriver; // muss sofort wieder einsatzbereit sein
+      end;
+    end;
+  end;
+end;
+
+// #############################################################################
+{$ENDIF}
+// #############################################################################
+
+procedure SD_fileToLC(var file_name: String[15]; target, width: Word);
+begin
+  SPI_AutoIncSetup(target);
+  case width of
+    8:
+      SD_ReadBinFile(0, file_name, @SD_LC8_Proc);   // an LC
+    16:
+      SD_ReadBinFile(0, file_name, @SD_LC16_Proc);  // an LC
+    24, 32:
+      SD_ReadBinFile(0, file_name, @SD_LC32_Proc);  // an LC
+  end;
+  SPI_AutoIncReset(target);
+{$IFDEF DEBUG_SD}
+  if InitMsgEnable then
+    Serial1_sendstringCRLF(s_divline);
+{$ENDIF}
+
+end;
+
+// #############################################################################
+
+function SD_fileToDF(var file_name: String[15]; start_block: Word): t_err;
+begin
+  result:= SD_ReadBinFile(start_block, file_name, @SD_StoreDF_Proc);  // ins DF
+{$IFDEF DEBUG_SD}
+  if InitMsgEnable then
+    Serial1_sendstringCRLF(s_divline);
+{$ENDIF}
+end;
+
+function SD_fileToIntFlash(var file_name: String[15]; start_block: Word): t_err;
+begin
+  result:= SD_ReadBinFile(start_block, file_name, @IFL_StoreIntFlash_Proc);  // ins DF
+{$IFDEF DEBUG_SD}
+  if InitMsgEnable then
+    Serial1_sendstringCRLF(s_divline);
+{$ENDIF}
+end;
+
+function SD_LoadAndFlashStandardCCsets: t_err;
+// 1 Block pro File
+var
+  file_idx: Byte;
+begin
+  result:= ce_noErr;
+  for file_idx:= 0 to 8 do begin  // cc_set0.dat bis cc_set8.dat
+    file_name:= s_ccset_name + ByteToStrTrim(file_idx) + s_dat_ext;
+    result:= result or SD_fileToDF(file_name, c_midicc_base_DF + word(file_idx));  // ins DF
+  end;
+end;
+
+function SD_LoadAndFlashCustomCCsets: t_err;
+// 1 Block pro File
+var
+  file_idx: Byte;
+begin
+  result:= ce_noErr;
+  for file_idx:= 9 to 10 do begin  // cc_set9.dat bis cc_set10.dat
+    file_name:= s_ccset_name + ByteToStrTrim(file_idx) + s_dat_ext;
+    result:= result or SD_fileToDF(file_name, c_midicc_base_DF + word(file_idx));  // ins DF
+  end;
+end;
+
+function SD_LoadAndFlashWavesets: t_err;
+// 4 Blöcke pro File!
+var
+  file_idx: Byte; block_offs: Word;
+begin
+  result:= ce_noErr;
+  block_offs:= 0;
+  for file_idx:= 0 to 7 do begin
+    file_name:= s_waveset_name + ByteToStrTrim(file_idx) + s_bin_ext;
+    result:= result or SD_fileToDF(file_name, c_waveset_base_DF + word(file_idx * 4));  // ins DF
+    block_offs:= block_offs + 4;
+  end;
+end;
+
+function SD_LoadAndFlashTaperings: t_err;
+// 1 Block pro File
+var
+  file_idx: Byte;
+begin
+  for file_idx:= 0 to 3 do begin
+    file_name:= s_taper_name + ByteToStrTrim(file_idx + 1) + s_dat_ext;
+    result:= result or SD_fileToDF(file_name, c_taper_base_DF + word(file_idx));  // ins DF
+  end;
+end;
+
+end.

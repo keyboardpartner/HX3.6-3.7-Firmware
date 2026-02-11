@@ -1,0 +1,401 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// SPI-Funktionen für FPGA, SPI_1
+
+unit SPI_rw;
+
+uses const_def, edit_vals, intflash, twi_systimer, var_def, serial1, avrco_compat;
+  function SPI_InitFPGA(fprog_pulse: Boolean): Boolean;
+  function SPI_CheckFPGA(msg_on: Boolean): Boolean;
+  procedure SPI_ResetScan;
+  procedure SPI_DeInitFPGA;
+  procedure SPI_ShutDownFPGA;
+
+  // Transfers ohne Register-Select
+  function SPI_fpga_rw_byte(spi_wr: Byte): Byte;
+  function SPI_fpga_rw_word(spi_wr: Word): Word;
+  function SPI_fpga_rw_24(spi_wr_dw: DWord): DWord;
+  function SPI_fpga_rw_32(spi_wr_dw: DWord): DWord;
+
+  // Transfers mit Register-Select
+  procedure SPI_fpga_send_byte(const reg: Byte; const data_b: Byte);
+{$IFNDEF BOOTLOADER}
+  procedure SPI_fpga_send_scaled_byte(reg, data_b: Byte; scale_100: Word);
+  procedure SPI_fpga_send_doubled_byte(reg, data_b: Byte);
+  procedure SPI_fpga_send_volume_byte(reg, data_b: Byte);
+  procedure SPI_fpga_send_log_byte(reg, data_b: Byte);
+{$ENDIF}
+
+  procedure SPI_fpga_send_word(reg: Byte; data_w: word);
+  function SPI_fpga_xfer_24(reg: Byte; data_dw: dword; write_ena: Boolean): DWord;
+  function SPI_fpga_xfer_32(reg: Byte; data_dw: dword; write_ena: Boolean): DWord;
+  function SPI_fpga_xfer_16(reg: Byte; data_w: word; write_ena: Boolean): Word;
+  function SPI_fpga_xfer_8(reg: Byte; data_b: byte; write_ena: Boolean): Byte;
+
+  procedure SPI_AutoIncSetup(const target: Word);
+  procedure SPI_AutoIncReset(const target: Word);
+  procedure SPI_SendBuf32(const len_dwords: Word); // für PicoBlaze und Taper(!)
+  procedure SPI_SendBuf16(const len_words: Word);  // für FIR und DDS
+  procedure SPI_SendBuf8(const len_bytes: Word);   // für Drawbars und andere
+
+var
+  F_DS: sbit at GPIOC_ODR.B7;    // Pin Data Select
+  F_RS: sbit at GPIOC_ODR.B6;    // Pin Register Select
+
+  F_FCS_B: sbit at GPIOB_ODR.B12; // Dataflash CS
+  F_DONE: sbit at GPIOB_IDR.B2;   // FPGA Ready
+  F_PROG: sbit at GPIOB_ODR.B10;  // FPGA ReInit
+
+  F_INT_FIFO: sbit at GPIOB_IDR.B11;   // FIFO status
+  F_AUX_SEL: sbit at GPIOA_ODR.B8;     // Select QSPI SAM Flash
+  
+  QFL_NRST:   sbit at GPIOC_ODR.B12;      // Output C
+  SAM_NRST:   sbit at GPIOC_ODR.B13;      // Output C
+
+  SPI_dword: DWord;
+  SPI_word: Word at SPI_dword;
+  SPI_byte: Byte at SPI_dword;
+  SPI_bytes: Array[0..3] of Byte at SPI_dword;
+
+implementation
+
+var
+    idx, temp_w: Word;
+    
+    // Overlays, wie AVR Little Endian
+    wr_dword: DWord;
+    wr_word: Word at wr_dword;
+    wr_bytes: Array[0..3] of Byte at wr_dword;  
+
+    rd_dword: DWord;
+    rd_word: Word at rd_dword;
+    rd_bytes: Array[0..3] of Byte at rd_dword;
+
+// -----------------------------------------------------------------------------
+
+procedure SPI_DeInitFPGA;
+// SPI #2 für FPGA-IO abschalten, alle Portpins freigeben
+begin
+  SPI2_DeInit();
+  GPIO_Digital_Input(@GPIOA_BASE, _GPIO_PINMASK_8);  // F_AUX_SEL
+  GPIO_Digital_Input(@GPIOB_BASE, _GPIO_PINMASK_2    // F_DONE
+                               or _GPIO_PINMASK_12   // F_FCS_B
+                               or _GPIO_PINMASK_13   // F_SCK
+                               or _GPIO_PINMASK_14   // F_MISO
+                               or _GPIO_PINMASK_15   // F_MOSI
+                               );   // SPI2
+  GPIO_Digital_Input(@GPIOC_BASE,  _GPIO_PINMASK_6   // F_RS
+                                or _GPIO_PINMASK_7   // F_DS
+                                or _GPIO_PINMASK_12  // QSPI Reset
+                                or _GPIO_PINMASK_13  // SAM Reset
+                                );
+end;
+
+procedure SPI_ShutDownFPGA;
+// FPGA abschalten, z.B. für Erstprogrammierung DSP
+begin
+  F_AUX_SEL:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  GPIO_Digital_Output(@GPIOB_BASE, _GPIO_PINMASK_10);   // F_PROG
+  F_PROG:= false;
+  QFL_NRST:= true;
+  SAM_NRST:= true;
+end;
+
+function SPI_CheckFPGA(msg_on: Boolean): Boolean;
+// liefert TRUE wenn erfolgreich
+// Nicht ausführen nach DF_SAM_Init, keine Zugriffe auf QSPI
+var status_dword: DWord;
+  a_str: String[8];
+const
+  fpga_date_str = '/ FPGA check, date code: $';
+  fpga_failed_str = ' FAILED';
+begin
+  F_AUX_SEL:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  status_dword:= SPI_fpga_xfer_32(3, 0, false);
+  if (status_dword = $FFFFFFFF) or (status_dword = 0) then begin
+    // FPGA fehlerhaft, wieder sperren, damit DF-Zugriff frei wird
+    SPI_ShutDownFPGA;
+    result:= false;
+  end else begin
+    SPI_fpga_send_byte(240, 0); // Trigger DNA Read
+{$IFDEF BOOTLOADER}
+    SPI_fpga_send_byte(246, 1); // Set DSP ROW01 bits = 1, Bootloader aktiv
+{$ELSE}
+    SPI_fpga_send_byte(246, 0); // Set DSP ROW01 bits = 0, Bootloader inaktiv
+{$ENDIF}
+    result:= true;
+  end;
+  QFL_NRST:= true;
+  SAM_NRST:= true;
+  if msg_on then begin
+    LongWordToHex(status_dword, a_str);
+    Serial1_sendstring(fpga_date_str + a_str);
+    if not result then
+      Serial1_sendstring(fpga_failed_str);
+    Serial1_CRLF;
+  end;
+end;
+
+
+function SPI_InitFPGA(fprog_pulse: Boolean): Boolean;
+// Warten auf FPGA DONE und SPI #2 für FPGA-IO einrichten
+// liefert TRUE wenn erfolgreich (F_DONE und Versionsdatum überprüft)
+begin
+  result:= false;
+{$IFDEF DEBUG_INITS}
+  Serial1_sendstringCRLF('/ SPI (FPGA) Init ');
+{$ENDIF}
+  GPIO_Digital_Output(@GPIOA_BASE, _GPIO_PINMASK_8); // F_AUX_SEL
+  GPIO_Digital_Input(@GPIOB_BASE, _GPIO_PINMASK_2    // F_DONE
+                               or _GPIO_PINMASK_10   // F_PROG
+                               or _GPIO_PINMASK_11   // F_INT_FIFO
+                               or _GPIO_PINMASK_12   // F_FCS_B
+                               );
+
+  GPIO_Digital_Output(@GPIOC_BASE, _GPIO_PINMASK_6        // F_RS
+                                or _GPIO_PINMASK_7        // F_DS
+                                or _GPIO_PINMASK_12       // QSPI Reset
+                                or _GPIO_PINMASK_13);     // SAM Reset
+  F_RS:= true;
+  F_DS:= true;
+  F_FCS_B:= true;
+  F_PROG:= true;
+  F_AUX_SEL:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  QFL_NRST:= false;
+  SAM_NRST:= false;
+  if fprog_pulse then begin
+    SPI2_DeInit();
+    GPIO_Digital_Output(@GPIOB_BASE, _GPIO_PINMASK_10);   // F_PROG
+    F_PROG:= false;
+    mDelay(5);
+    F_PROG:= true;
+  end;
+  for idx:= 0 to 7 do begin
+    SysLEDflash(100); // _ON
+    mDelay(200);
+    if F_DONE then begin
+      result:= true;
+      break;
+    end;
+  end;
+  GPIO_Digital_Input(@GPIOB_BASE, _GPIO_PINMASK_10);   // F_PROG freigeben
+  GPIO_Digital_Output(@GPIOB_BASE, _GPIO_PINMASK_12);  // F_FCS_B jetzt von MCU
+
+  // Set SPI2 to the Master Mode, data length is 8-bit, clock = Peripheral/8,
+  // clock IDLE state low and data transmitted at the first clock edge transition,
+  // MSB transferred first, Slave Select Disabled:
+  SPI2_Init_Advanced(_SPI_FPCLK_DIV2, _SPI_MASTER
+                     OR _SPI_8_BIT OR _SPI_CLK_IDLE_HIGH
+                     OR _SPI_SECOND_CLK_EDGE_TRANSITION
+                     OR _SPI_MSB_FIRST OR _SPI_SS_DISABLE
+                     OR _SPI_SSM_ENABLE OR _SPI_SSI_1,
+                     @_GPIO_MODULE_SPI2_PB13_14_15);
+                     
+  SPI_fpga_send_byte(240, 0); // Trigger DNA Read
+{$IFDEF BOOTLOADER}
+  SPI_fpga_send_byte(246, 1); // Set DSP ROW01 bits = 1, Bootloader aktiv
+{$ELSE}
+  SPI_fpga_send_byte(246, 0); // Set DSP ROW01 bits = 0, Bootloader inaktiv
+{$ENDIF}
+  SPI_ResetScan;
+  QFL_NRST:= true;
+  SAM_NRST:= true;
+  mDelay(200);  // DSP bootet
+end;
+
+
+procedure SPI_clear_fifo;
+// MIDI-Fifo leer lesen
+begin
+  for idx:= 0 to 511 do begin
+    SPI_fpga_xfer_32(2, 0, false);
+    if F_INT_FIFO then
+      break;
+  end;
+end;
+
+procedure SPI_ResetScan;
+begin
+  SPI_AutoIncReset(0);  // Scan Core
+  mDelay(25);           // PicoBlaze Startup
+  SPI_clear_fifo;
+end;
+
+function SPI_fpga_rw_byte(spi_wr: Byte): Byte;
+begin
+  F_DS:= false;                // Data Select Pin
+  result:= SPI2_Read(spi_wr);  // schreibt gleichzeitig byte_x
+  F_DS:= true;
+end;
+
+function SPI_fpga_rw_word(spi_wr: Word): Word;
+begin
+  wr_word:= spi_wr;
+  F_DS:= false;                  // Data Select Pin
+  rd_bytes[1]:= SPI2_Read(wr_bytes[1]);  // schreibt gleichzeitig byte_x
+  rd_bytes[0]:= SPI2_Read(wr_bytes[0]);  // schreibt gleichzeitig byte_x
+  F_DS:= true;
+  result:= rd_word;
+end;
+
+function SPI_fpga_rw_24(spi_wr_dw: DWord): DWord;
+// Für LC-Daten an PicoBlaze (18 Bit)
+begin
+  wr_dword:= spi_wr_dw;
+  F_DS:= false;                  // Data Select Pin
+  rd_bytes[3]:= 0;
+  rd_bytes[2]:= SPI2_Read(wr_bytes[2]);  // schreibt gleichzeitig byte_x
+  rd_bytes[1]:= SPI2_Read(wr_bytes[1]);  // schreibt gleichzeitig byte_x
+  rd_bytes[0]:= SPI2_Read(wr_bytes[0]);  // schreibt gleichzeitig byte_x
+  F_DS:= true;
+  result:= rd_dword;
+end;
+
+function SPI_fpga_rw_32(spi_wr_dw: DWord): DWord;
+begin
+  wr_dword:= spi_wr_dw;
+  F_DS:= false;                  // Data Select Pin
+  rd_bytes[3]:= SPI2_Read(wr_bytes[3]);  // schreibt gleichzeitig byte_x
+  rd_bytes[2]:= SPI2_Read(wr_bytes[2]);  // schreibt gleichzeitig byte_x
+  rd_bytes[1]:= SPI2_Read(wr_bytes[1]);  // schreibt gleichzeitig byte_x
+  rd_bytes[0]:= SPI2_Read(wr_bytes[0]);  // schreibt gleichzeitig byte_x
+  F_DS:= true;
+  result:= rd_dword;
+end;
+
+procedure SPI_fpga_regsel(reg: Byte; write_ena: Boolean);
+begin
+  F_RS:= false;            // Register Select Pin
+  if write_ena then
+    SPI2_Write($80)
+   else
+    SPI2_Write(0);
+  SPI2_Write(Word(reg));
+  F_RS:= true;
+end;
+
+procedure SPI_fpga_send_byte(reg: Byte; data_b: Byte);
+begin
+  SPI_fpga_regsel(reg, true);
+  SPI_fpga_rw_byte(data_b);   // Lese-Ergebnis nicht benutzt
+end;
+
+{$IFNDEF BOOTLOADER}
+procedure SPI_fpga_send_scaled_byte(reg, data_b: Byte; scale_100: Word);
+begin
+  SPI_fpga_regsel(reg, true);
+  temp_w:= (scale_100 * data_b) div 100;
+  SPI_fpga_rw_byte(lo(temp_w));   // Lese-Ergebnis nicht benutzt
+end;
+
+procedure SPI_fpga_send_doubled_byte(reg, data_b: Byte);
+begin
+  SPI_fpga_regsel(reg, true);
+  SPI_fpga_rw_byte(data_b * 2);   // Lese-Ergebnis nicht benutzt
+end;
+
+procedure SPI_fpga_send_volume_byte(reg, data_b: Byte);
+begin
+  SPI_fpga_regsel(reg, true);
+  temp_w:= (Word(data_b) * Word(data_b)) div 64;
+  SPI_fpga_rw_word(temp_w);   // Lese-Ergebnis nicht benutzt
+end;
+
+procedure SPI_fpga_send_log_byte(reg, data_b: Byte);
+begin
+  SPI_fpga_regsel(reg, true);
+  temp_w:= word(c_DrawbarLogTable[data_b]) shl 1;
+  SPI_fpga_rw_word(temp_w);   // Lese-Ergebnis nicht benutzt
+end;
+{$ENDIF}
+
+procedure SPI_fpga_send_word(reg: Byte; data_w: word);
+begin
+  SPI_fpga_regsel(reg, true);
+  SPI_fpga_rw_word(data_w);   // Lese-Ergebnis nicht benutzt
+end;
+
+function SPI_fpga_xfer_24(reg: Byte; data_dw: dword; write_ena: Boolean): DWord;
+begin
+  SPI_fpga_regsel(reg, write_ena);
+  result:= SPI_fpga_rw_24(data_dw);
+end;
+
+function SPI_fpga_xfer_32(reg: Byte; data_dw: dword; write_ena: Boolean): DWord;
+begin
+  SPI_fpga_regsel(reg, write_ena);
+  result:= SPI_fpga_rw_32(data_dw);
+end;
+
+function SPI_fpga_xfer_16(reg: Byte; data_w: word; write_ena: Boolean): Word;
+begin
+  SPI_fpga_regsel(reg, write_ena);
+  result:= SPI_fpga_rw_word(data_w);
+end;
+
+function SPI_fpga_xfer_8(reg: Byte; data_b: byte; write_ena: Boolean): Byte;
+begin
+  SPI_fpga_regsel(reg, write_ena);
+  result:= SPI_fpga_rw_byte(data_b);
+end;
+
+procedure SPI_AutoIncReset(target: Word);
+// AutoInc zurücksetzen, Core freigeben
+begin
+  SPI_fpga_regsel($81, true);   // SPI Wite Enable, SPI-Register Adress-Reset
+  SPI_fpga_rw_byte(lo(target));  // Lese-Ergebnis nicht benutzt
+end;
+
+procedure SPI_AutoIncSetup(target: Word);
+// AutoInc vorbereiten: Länge, Start an SPI übermitteln
+begin
+  SPI_AutoIncReset(target);
+  SPI_fpga_regsel($80, true);   // SPI Wite Enable, SPI-Register Adress-Reset
+end;
+
+procedure SPI_SendBuf8(len_bytes: Word);
+// Fortlaufende Registersätze (Drawbars) übertragen
+// SPI_AutoIncSetup muss ausgeführt sein!
+begin
+  for idx:= 0 to len_bytes - 1 do
+    SPI_fpga_rw_byte(BlockBuffer8[idx]);   // Lese-Ergebnis nicht benutzt
+end;
+
+procedure SPI_SendBuf16(len_words: Word);
+// 16-Bit-Werte für DDS Wavesets
+// SPI_AutoIncSetup muss ausgeführt sein!
+var lc_word: Word;
+  arr16_ptr: ^Word;
+begin
+  arr16_ptr:= @BlockBuffer8[0];
+  for idx:= 0 to len_words - 1 do begin
+    lc_word:= arr16_ptr^;
+    SPI_fpga_rw_word(lc_word);   // Lese-Ergebnis nicht benutzt
+    inc(arr16_ptr);
+  end;
+end;
+
+procedure SPI_SendBuf32(len_dwords: Word);
+// BlockBuffer8 als DWords an LC (PicoBlaze, DDS) übertragen
+// SPI_AutoIncSetup muss ausgeführt sein!
+var lc_dword: DWord;
+  arr32_ptr: ^DWord;
+begin
+  arr32_ptr:= @BlockBuffer8[0];
+  for idx:= 0 to len_dwords - 1 do begin
+    lc_dword:= arr32_ptr^;
+    SPI_fpga_rw_32(lc_dword);   // Lese-Ergebnis nicht benutzt
+    inc(arr32_ptr);
+  end;
+end;
+
+end.

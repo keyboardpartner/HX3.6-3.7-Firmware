@@ -1,0 +1,560 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// Offsets für Edit- und Event-Arrays
+
+unit edit_offsets;
+
+uses const_def;
+
+// Index-Offsets für edit_array und event_array
+
+// #############################################################################
+// ###                    Index-Offsets  Edit-Tabelle 0                      ###
+// ###                                                                       ###
+// ###                               #####                                   ###
+// ###                              ##   ##                                  ###
+// ###                              ##   ##                                  ###
+// ###                              ##   ##                                  ###
+// ###                              ##   ##                                  ###
+// ###                               #####                                   ###
+// ###                                                                       ###
+// ###              Gleiche Reihenfolge wie eep_defaults_0                   ###
+// #############################################################################
+
+const
+  c_table_0 = 0;
+
+// @0, #1000 Upper Drawbars
+  c_UpperDBs = c_table_0 + 0;
+  c_UpperDB_1 = c_UpperDBs + 8; // für Percussion gebraucht
+
+// @16, #1016 Lower Drawbars
+  c_LowerDBs = c_table_0 + 16;
+
+// @32, #1032 Pedal Drawbars
+  c_PedalDBs = c_table_0 + 32;
+  c_PedalDB_16 = c_PedalDBs + 0; // #1032
+  c_PedalDB_5_13 = c_PedalDBs + 1;
+  c_PedalDB_8 = c_PedalDBs + 2;
+  c_PedalDB_4 = c_PedalDBs + 3;
+  c_PedalDB_2_23 = c_PedalDBs + 4;
+  c_PedalDB_2 = c_PedalDBs + 5;
+  c_PedalDB_1_35 = c_PedalDBs + 6;
+  c_PedalDB_1_23 = c_PedalDBs + 7;
+  c_PedalDB_1 = c_PedalDBs + 8;
+  c_PedalDB_mixt1 = c_PedalDBs + 9;
+  c_PedalDB_mixt2 = c_PedalDBs + 10;
+  c_PedalDB_mixt3 = c_PedalDBs + 11;
+
+// Parameter ADSR in Reihenfolge der FPGA-LC-Werte!
+// @48, #1048
+  c_ADSR = c_table_0 + 48;
+  c_UpperADSR = c_ADSR;
+  c_UpperAttack = c_UpperADSR + 0; // #420
+  c_UpperDecay = c_UpperADSR + 1; // #421
+  c_UpperSustain = c_UpperADSR + 2; // #422
+  c_UpperRelease = c_UpperADSR + 3; // #423
+  c_UpperADSRharmonics = c_ADSR + 4; // #426 Oberton-Zerfall
+
+// @56, #1056
+  c_LowerADSR = c_ADSR + 8;
+  c_LowerAttack = c_LowerADSR + 0; // #520
+  c_LowerDecay = c_LowerADSR + 1; // #521
+  c_LowerSustain = c_LowerADSR + 2; // #522
+  c_LowerRelease = c_LowerADSR + 3; // #523
+  c_LowerADSRharmonics = c_LowerADSR + 4; // #526 Oberton-Zerfall
+
+// @64, #1064
+  c_PedalADSR = c_ADSR + 16;
+  c_PedalAttack = c_PedalADSR + 0; // #620
+  c_PedalDecay = c_PedalADSR + 1; // #621
+  c_PedalSustain = c_PedalADSR + 2; // #622
+  c_PedalRelease = c_PedalADSR + 3; // #623
+  c_PedalADSRharmonics = c_PedalADSR + 4; // #626 Oberton-Zerfall
+
+// @72, #1072
+  c_PedalDB4s = c_table_0 + 72;
+  c_PedalDB_B3_16 = c_PedalDB4s + 0; // für MIDI und Hammond,
+  c_PedalDB_B3_16H = c_PedalDB4s + 1; // werden später umgerechnet
+  c_PedalDB_B3_8 = c_PedalDB4s + 2; // und auf 11 Drawbars verteilt
+  c_PedalDB_B3_8H = c_PedalDB4s + 3; //
+
+// @76, #1076
+  c_Wheels = c_table_0 + 76;
+  c_Wheel_PitchToMIDI = c_Wheels + 0; // Pitchwheel MIDI Send
+  c_Wheel_PitchRotary = c_Wheels + 1; // Pitchwheel Rotary Control
+  c_Wheel_ModToMIDI = c_Wheels + 2; // Modwheel MIDI Send
+  c_Wheel_ModRotary = c_Wheels + 3; // Modwheel Rotary Control
+
+// @80 #1080 ff. AO28/Preamp/Audio/Routing Group
+  c_PreampGroup = c_table_0 + 80;
+  c_MasterVolume = c_PreampGroup + 0; // + 00
+  c_LeslieVolume = c_PreampGroup + 1; // + 01
+  c_UpperVolumeWet = c_PreampGroup + 2; // + 02
+  c_LowerVolume = c_PreampGroup + 3; // + 03
+  c_PedalVolume = c_PreampGroup + 4; // + 04
+  c_UpperVolumeDry = c_PreampGroup + 5; // + 05
+  c_OverallReverb = c_PreampGroup + 6; // + 06
+  c_TonePot = c_PreampGroup + 7; // + 07
+  c_TrimSwell = c_PreampGroup + 8; // + 08
+  c_MinimalSwell = c_PreampGroup + 9; // + 09
+  c_Triode_k2 = c_PreampGroup + 10; // + 10
+
+  c_ModuleRevVolume = c_PreampGroup + 11; // + 91
+  c_ModuleEfxVolume = c_PreampGroup + 12; // + 92
+  c_ModuleSwellVolume = c_PreampGroup + 13; // + 93
+  c_ModuleFrontVolume = c_PreampGroup + 14; // + 94
+  c_ModuleRearVolume = c_PreampGroup + 15; // + 95  
+  
+  c_1091 = c_PreampGroup + 11; // + 91
+  c_1092 = c_PreampGroup + 12; // + 92
+  c_1093 = c_PreampGroup + 13; // + 93
+  c_1094 = c_PreampGroup + 14; // + 94
+  c_1095 = c_PreampGroup + 15; // + 95
+
+// @96, #1096 ff. getrennte DBs für elektronische Tastenkontakte mit ADSR, Upper
+  c_UpperEnvelopeDBs = c_table_0 + 96;
+  c_UpperEnvelopeDB_16 = c_UpperEnvelopeDBs + 0;
+  c_UpperEnvelopeDB_5_13 = c_UpperEnvelopeDBs + 1;
+  c_UpperEnvelopeDB_8 = c_UpperEnvelopeDBs + 2;
+  c_UpperEnvelopeDB_4 = c_UpperEnvelopeDBs + 3;
+  c_UpperEnvelopeDB_2_23 = c_UpperEnvelopeDBs + 4;
+  c_UpperEnvelopeDB_2 = c_UpperEnvelopeDBs + 5;
+  c_UpperEnvelopeDB_1_35 = c_UpperEnvelopeDBs + 6;
+  c_UpperEnvelopeDB_1_23 = c_UpperEnvelopeDBs + 7;
+  c_UpperEnvelopeDB_1 = c_UpperEnvelopeDBs + 8;
+  c_UpperEnvelopeDB_mixt1 = c_UpperEnvelopeDBs + 9;
+  c_UpperEnvelopeDB_mixt2 = c_UpperEnvelopeDBs + 10;
+  c_UpperEnvelopeDB_mixt3 = c_UpperEnvelopeDBs + 11;
+
+// @112, #1112 Parametrischer 3-Band-EQ
+  c_EqualizerGroup = c_table_0 + 112;
+  c_EqualizerBass = c_EqualizerGroup + 0;
+  c_EqualizerBassFreq = c_EqualizerGroup + 1;
+  c_EqualizerBassPeak = c_EqualizerGroup + 2;
+
+  c_EqualizerMid = c_EqualizerGroup + 3;
+  c_EqualizerMidFreq = c_EqualizerGroup + 4;
+  c_EqualizerMidPeak = c_EqualizerGroup + 5;
+
+  c_EqualizerTreble = c_EqualizerGroup + 6;
+  c_EqualizerTrebleFreq = c_EqualizerGroup + 7;
+  c_EqualizerTreblePeak = c_EqualizerGroup + 8;
+
+  c_EqualizerFullParametric = c_EqualizerGroup + 9;
+  c_ModuleExtRotaryLeft = c_EqualizerGroup + 10;
+  c_ModuleExtRotaryRight = c_EqualizerGroup + 11;
+
+  c_PotDetentShiftGroup = c_table_0 + 124;
+  c_EquBassDetentShift = c_PotDetentShiftGroup + 0;
+  c_EquMidDetentShift = c_PotDetentShiftGroup + 1;
+  c_EquTrebleDetentShift = c_PotDetentShiftGroup + 2;
+  c_PercVolDetentShift = c_PotDetentShiftGroup + 3;
+
+// @128..191, #1128..1191 im Parser reserviert für Boolean Tabs
+// Tabs 0-7, #1128 ff.
+  c_LogicalTabs = c_table_0 + 128;
+  c_LogicalTab_PercOn = c_LogicalTabs + 0; // Perc ON, Reihenfolge wie B3
+  c_LogicalTab_PercSoft = c_LogicalTabs + 1; // Perc SOFT (NORMAL)
+  c_LogicalTab_PercFast = c_LogicalTabs + 2; // Perc FAST (SLOW)
+  c_LogicalTab_Perc3rd = c_LogicalTabs + 3; // Perc THIRD (SECOND)
+  c_LogicalTab_VibOnUpper = c_LogicalTabs + 4; // Vib ON upper
+  c_LogicalTab_VibOnLower = c_LogicalTabs + 5; // Vib ON lower
+  c_LogicalTab_LeslieRun = c_LogicalTabs + 6; // Leslie Slow
+  c_LogicalTab_LeslieFast = c_LogicalTabs + 7; // Leslie Fast
+
+// Tabs 8-15, #1136 ff.
+  c_LogicalTab_TubeAmpBypass = c_LogicalTabs + 8; // Insert Tube Amp
+  c_LogicalTab_RotarySpkrBypass = c_LogicalTabs + 9; // Insert Seaker Sim
+  c_LogicalTab_PHRupperOn = c_LogicalTabs + 10; // Insert PHR upper
+  c_LogicalTab_PHRlowerOn = c_LogicalTabs + 11; // Insert PHR lower
+
+  c_LogicalTab_Reverb1 = c_LogicalTabs + 12; // Effekt 1
+  c_LogicalTab_Reverb2 = c_LogicalTabs + 13; // Effekt 2
+  c_LogicalTab_PedalPostMix = c_LogicalTabs + 14; // Bass on Amp enable
+  c_LogicalTab_SplitOn = c_LogicalTabs + 15; // Split Lower
+
+// Tabs 16-23, #1144 ff.
+  c_LogicalTab_PHR_WersiBoehm = c_LogicalTabs + 16; // Böhm Phasing Rotor
+  c_LogicalTab_PHR_Ensemble = c_LogicalTabs + 17;
+  c_LogicalTab_PHR_Celeste = c_LogicalTabs + 18;
+  c_LogicalTab_PHR_Fading = c_LogicalTabs + 19;
+  c_LogicalTab_PHR_Weak = c_LogicalTabs + 20;
+  c_LogicalTab_PHR_Deep = c_LogicalTabs + 21;
+  c_LogicalTab_PHR_Fast = c_LogicalTabs + 22;
+  c_LogicalTab_PHR_Delay = c_LogicalTabs + 23;
+
+// Tabs 24-31, #1152 ff.
+  c_LogicalTabs_KeyingModes = c_LogicalTabs + 24;
+  c_LogicalTab_H100_Mode = c_LogicalTabs + 24; // H100 Percussion statt B3
+  c_LogicalTab_EG_Mode = c_LogicalTabs + 25; // Electronic Gating Mode, Attack-Release, Enables => Percussion, ADSR
+  c_LogicalTab_EG_PercMode = c_LogicalTabs + 26; // Electronic Gating Mode, EG Drawbars sind Percussion
+  c_LogicalTab_EG_TimeBendMode = c_LogicalTabs + 27; // Electronic Gating Mode, EG Drawbars sind TimeBend DBs
+  c_LogicalTab_H100_2ndVoice = c_LogicalTabs + 28; // H100 Perc Bypass (2nd Voice)
+  c_LogicalTab_H100_HarpSustain = c_LogicalTabs + 29;// H100 HarpSustain voice on DB 8'
+  c_LogicalTab_EG_mask2dry = c_LogicalTabs + 30; // Electronic Gating Option, Enables => Fußlagen auf Dry
+  c_LogicalTab_EqualizerBypass = c_LogicalTabs + 31;
+
+// Tabs 32-47, #1160 ff.
+  c_LogicalTab_UpperDBtoADSR = c_LogicalTabs + 32; // Upper BBs to ADSRs
+  c_LogicalTab_UpperDB0toADSR = c_LogicalTab_UpperDBtoADSR + 0; // Upper BBs to ADSRs
+  c_LogicalTab_UpperDB1toADSR = c_LogicalTab_UpperDBtoADSR + 1; //
+  c_LogicalTab_UpperDB2toADSR = c_LogicalTab_UpperDBtoADSR + 2; //
+  c_LogicalTab_UpperDB3toADSR = c_LogicalTab_UpperDBtoADSR + 3; //
+  c_LogicalTab_UpperDB4toADSR = c_LogicalTab_UpperDBtoADSR + 4; //
+  c_LogicalTab_UpperDB5toADSR = c_LogicalTab_UpperDBtoADSR + 5; //
+  c_LogicalTab_UpperDB6toADSR = c_LogicalTab_UpperDBtoADSR + 6; //
+  c_LogicalTab_UpperDB7toADSR = c_LogicalTab_UpperDBtoADSR + 7; //
+  c_LogicalTab_UpperDB8toADSR = c_LogicalTab_UpperDBtoADSR + 8; //
+  c_LogicalTab_UpperDB9toADSR = c_LogicalTab_UpperDBtoADSR + 9; //
+  c_LogicalTab_UpperDB10toADSR = c_LogicalTab_UpperDBtoADSR + 10; //
+  c_LogicalTab_UpperDB11toADSR = c_LogicalTab_UpperDBtoADSR + 11; // #1171
+
+// Tab 44, #1172
+  c_LogicalTab_InsertExternalEfx = c_LogicalTabs + 44; // #1172
+
+
+// 2 Tabs OctaveShift Upper/Lower
+  c_LogicalTab_ShiftBtns = c_table_0 + 174;
+  c_LogicalTab_Shift_upper = c_table_0 + 174;
+  c_LogicalTab_Shift_lower = c_table_0 + 175;
+
+// Tabs 48-63, #1176 ff.
+  c_LogicalTab_LowerDBtoADSR = c_table_0 + 176;
+  c_LogicalTab_LowerDB0toADSR  = c_table_0 + 176;
+  c_LogicalTab_LowerDB1toADSR  = c_table_0 + 177;
+  c_LogicalTab_LowerDB2toADSR  = c_table_0 + 178;
+  c_LogicalTab_LowerDB3toADSR  = c_table_0 + 179;
+  c_LogicalTab_LowerDB4toADSR  = c_table_0 + 180;
+  c_LogicalTab_LowerDB5toADSR  = c_table_0 + 181;
+  c_LogicalTab_LowerDB6toADSR  = c_table_0 + 182;
+  c_LogicalTab_LowerDB7toADSR  = c_table_0 + 183;
+  c_LogicalTab_LowerDB8toADSR  = c_table_0 + 184;
+  c_LogicalTab_LowerDB9toADSR  = c_table_0 + 185;
+  c_LogicalTab_LowerDB10toADSR = c_table_0 + 186;
+  c_LogicalTab_LowerDB11toADSR = c_table_0 + 187;
+
+// bis 191 benutzt
+// String Preset-Name, aus DF gelesen und temporär, überlagert IncDec-Buttons
+  c_PresetNameStrArr = c_table_0 + 192;
+
+// ab #1192 spezielle Buttons, nicht gespeichert
+  c_LogicalTab_IncDecBtns = c_table_0 + 192;
+  c_LogicalTab_DecPreset = c_table_0 + 192;
+  c_LogicalTab_IncPreset = c_table_0 + 193;
+  c_LogicalTab_DecUpperVoice = c_table_0 + 194;
+  c_LogicalTab_IncUpperVoice = c_table_0 + 195;
+  c_LogicalTab_DecLowerVoice = c_table_0 + 196;
+  c_LogicalTab_IncLowerVoice = c_table_0 + 197;
+  c_LogicalTab_DecPedalVoice = c_table_0 + 198;
+  c_LogicalTab_IncPedalVoice = c_table_0 + 199;
+  c_LogicalTab_DecOrganModel = c_table_0 + 200;
+  c_LogicalTab_IncOrganModel = c_table_0 + 201;
+  c_LogicalTab_DecSpeakerModel = c_table_0 + 202;
+  c_LogicalTab_IncSpeakerModel = c_table_0 + 203;
+  c_LogicalTab_DecTranspose = c_table_0 + 204;
+  c_LogicalTab_IncTranspose = c_table_0 + 205;
+// Nur Platzhalter für MIDI-Dekodierung
+  c_HammondDBUpperDecode = c_table_0 + 208;
+  c_HammondDBLowerDecode = c_table_0 + 209;
+  c_HammondDBPedalDecode = c_table_0 + 210;
+  c_HammondVibKnobDecode = c_table_0 + 211;
+// Vibrato-Buttons, Funktion abhängig von #1497
+  c_LogicalTab_VibBtns = c_table_0 + 212;
+  c_LogicalTab_4V1 = c_table_0 + 212;
+  c_LogicalTab_4V2 = c_table_0 + 213;
+  c_LogicalTab_4V3 = c_table_0 + 214;
+  c_LogicalTab_4VCh = c_table_0 + 215;
+  c_LogicalTab_6V1 = c_table_0 + 212;
+  c_LogicalTab_6C1 = c_table_0 + 213;
+  c_LogicalTab_6V2 = c_table_0 + 214;
+  c_LogicalTab_6C2 = c_table_0 + 215;
+  c_LogicalTab_6V3 = c_table_0 + 216;
+  c_LogicalTab_6C3 = c_table_0 + 217;
+  c_LogicalTab_SingleDBdestBtns = c_table_0 + 218;
+  c_LogicalTab_SingleDBtoggle = c_table_0 + 218;
+  c_LogicalTab_SingleDBtoUpper = c_table_0 + 219;
+  c_LogicalTab_SingleDBtoLower = c_table_0 + 220;
+  c_LogicalTab_SingleDBtoPedal = c_table_0 + 221;
+
+// Tabs 0-7, #1128 ff.
+  c_GMprogs = c_table_0 + 224;
+  c_UpperGMprg_0 = c_GMprogs + 0; // GM Layer 1 Voice #, 0 = OFF
+  c_UpperGMlvl_0 = c_GMprogs + 1; // GM Layer 1 Level
+  c_UpperGMharm_0 = c_GMprogs + 2; // Harmonic Transpose Layer 1
+  c_UpperGMprg_1 = c_GMprogs + 3; // GM Layer 2 Voice #, 0 = OFF
+  c_UpperGMlvl_1 = c_GMprogs + 4; // GM Layer 2 Level
+  c_UpperGMharm_1 = c_GMprogs + 5; // Harmonic Transpose Layer 2
+  c_UpperGMdetune_1 = c_GMprogs + 6; // Detune Layer 2
+// 232 ff.
+  c_LowerGMprg_0 = c_GMprogs + 8; // GM Layer 1 Voice #, 0 = OFF
+  c_LowerGMlvl_0 = c_GMprogs + 9; // GM Layer 1 Level
+  c_LowerGMharm_0 = c_GMprogs + 10; // Harmonic Transpose Layer 1
+  c_LowerGMprg_1 = c_GMprogs + 11; // GM Layer 2 Voice #, 0 = OFF
+  c_LowerGMlvl_1 = c_GMprogs + 12; // GM Layer 2 Level
+  c_LowerGMharm_1 = c_GMprogs + 13; // Harmonic Transpose Layer 2
+  c_LowerGMdetune_1 = c_GMprogs + 14; // Detune Layer 2
+// 240 ff.
+  c_PedalGMprg_0 = c_GMprogs + 16; // GM Layer 1 Voice #, 0 = OFF
+  c_PedalGMlvl_0 = c_GMprogs + 17; // GM Layer 1 Level
+  c_PedalGMharm_0 = c_GMprogs + 18; // Harmonic Transpose Layer 1
+  c_PedalGMprg_1 = c_GMprogs + 19; // GM Layer 2 Voice #, 0 = OFF
+  c_PedalGMlvl_1 = c_GMprogs + 20; // GM Layer 2 Level
+  c_PedalGMharm_1 = c_GMprogs + 21; // Harmonic Transpose Layer 2
+  c_PedalGMdetune_1 = c_GMprogs + 22; // Detune Layer 2
+
+  c_SaveEventDefaults = 247;
+  c_SaveEventOrganModel = 248;
+  c_SaveEventRotaryModel = 249;
+
+  c_SaveEventPreset = 252;
+  c_SaveEventUpper = 253;
+  c_SaveEventLower = 254;
+  c_SaveEventPedal = 255;
+
+// #############################################################################
+// ###                    Index-Offsets  Edit-Tabelle 1                      ###
+// ###                                                                       ###
+// ###                                 ##                                    ###
+// ###                               ####                                    ###
+// ###                                 ##                                    ###
+// ###                                 ##                                    ###
+// ###                                 ##                                    ###
+// ###                               #####                                   ###
+// ###                                                                       ###
+// ###              Gleiche Reihenfolge wie eep_defaults_1                   ###
+// #############################################################################
+
+  c_table_1 = c_table_0 + 256;
+  c_table_1_start = c_table_1;
+
+  c_knobs = 260;   // 8 Bytes bis 267
+  c_GatingKnob = 261;
+  c_PercKnob = 262;
+  c_ReverbKnob = 263;
+// @8, #1264 ff. "Drehknöpfe", exklusive Stellungen, werden auf edit- oder Tab-Werte umgesetzt
+  c_VibKnob = 264; // #1264 Bedienfeld-Stellung
+
+  c_OrganModel = 265; // #1265
+  c_RotaryModel = 266; // #1266
+
+  c_HalfmoonSw = 267; // #1267
+
+// @12, #1268 ff. Voices und Presets
+  c_voices = c_table_1 + 12;
+  c_CommonPreset = c_voices + 0;  // #1268
+  c_UpperVoice = c_voices + 1;
+  c_LowerVoice = c_voices + 2;
+  c_PedalVoice = c_voices + 3;
+
+  // #############################################################################
+
+// @16, #1272 Busbar Levels
+  c_BusbarLevels = c_table_1 + 16;
+
+  // Zur Erzeugung der Keymap-Tabelle, Offsets aus Orgel-Tabellen
+// @32, #1288
+  c_BusBarNoteOffsets = c_table_1 + 32;
+
+// @64, #1320 Hammond-Vibrato
+  c_VibratoGroup = c_table_1 + 64;
+  c_VibChPreEmphasis = c_VibratoGroup + 0; // #1320
+  c_VibChLineAgeAM = c_VibratoGroup + 1; // #1321
+  c_VibChFeedback = c_VibratoGroup + 2; // #1322
+  c_VibChReflection = c_VibratoGroup + 3; // #1323
+  c_VibChRespCutoff = c_VibratoGroup + 4; // #1324
+  c_PhaseLk_Shelving = c_VibratoGroup + 5; // #1325
+  c_ScannerGearing = c_VibratoGroup + 6; // #1326
+  c_ChorusBypassLevel = c_VibratoGroup + 7; // #1327
+  c_ChorusScannerLevel = c_VibratoGroup + 8; // #1328
+  c_VibMods = c_VibratoGroup + 9;
+  c_CV1mod = c_VibratoGroup + 9; // #1329
+  c_CV2mod = c_VibratoGroup + 10; // #1330
+  c_CV3mod = c_VibratoGroup + 11; // #1331
+  c_ChorusEnhance = c_VibratoGroup + 12; // #1332
+  c_SegmentFlutter = c_VibratoGroup + 13; // #1333
+  c_PreemphCutoff = c_VibratoGroup + 14; // #1334
+  c_PreemphPhase = c_VibratoGroup + 15; // #1335
+
+// @80, #1336..#1351 TEMP!
+// Phasing Rotor, Reihenfolge wie FPGA, temporär aus PHR-Preset geladen
+// im Edit-Bereich für PHR-Programmerstellung über Editor
+  c_PhasingGroup = c_table_1 + 80;
+  c_PHR_SpeedVariSlow = c_PhasingGroup + 0; // #1336
+  c_PHR_SpeedVariFast = c_PhasingGroup + 1; // #1337
+  c_PHR_SpeedSlow = c_PhasingGroup + 2;
+  c_PHR_Feedback = c_PhasingGroup + 3;
+  c_PHR_LevelPh1 = c_PhasingGroup + 4;
+  c_PHR_LevelPh2 = c_PhasingGroup + 5;
+  c_PHR_LevelPh3 = c_PhasingGroup + 6;
+  c_PHR_LevelDry = c_PhasingGroup + 7;
+  c_PHR_FeedBackInvert = c_PhasingGroup + 8;
+  c_PHR_RampDelay = c_PhasingGroup + 9;
+  c_PHR_ModVariPh1 = c_PhasingGroup + 10;
+  c_PHR_ModVariPh2 = c_PhasingGroup + 11;
+  c_PHR_ModVariPh3 = c_PhasingGroup + 12;
+  c_PHR_ModSlowPh1 = c_PhasingGroup + 13;
+  c_PHR_ModSlowPh2 = c_PhasingGroup + 14;
+  c_PHR_ModSlowPh3 = c_PhasingGroup + 15;
+
+// @96, #1352 ff. Keyboard control
+  c_KeyboardGroup = c_table_1 + 96;
+  c_SplitPoint = c_KeyboardGroup + 1; // + 97 #1353
+  c_SplitMode = c_KeyboardGroup + 2; // + 98 #1354
+  c_KeyTranspose = c_KeyboardGroup + 3; // + 99 #1355
+  c_EarlyKeyCont = c_KeyboardGroup + 4; // + 100 #1356
+  c_NoDB1_atPerc = c_KeyboardGroup + 5; // + 101 #1357
+  c_DB16_FoldbMode = c_KeyboardGroup + 6; // + 102 #1358
+  c_HighFoldbackOn = c_KeyboardGroup + 7; // + 103 #1359
+  c_ContSpringFlx = c_KeyboardGroup + 8; // + 104 #1360
+  c_ContSpringDmp = c_KeyboardGroup + 9; // + 105 #1361
+  c_PercEnaOnLiveDBonly = c_KeyboardGroup + 10; // keine B3-Perc auf Presets
+  c_FatarVelocityFac = c_KeyboardGroup + 11; // + 107 #1363
+  c_LubedContacts = c_KeyboardGroup + 12; // + 108 #1364
+  c_EnaGenLoadMap = c_KeyboardGroup + 13; // + 109 #1365
+
+// @112, #1368 MIDI
+  c_MidiGroup = c_table_1 + 112;
+  c_MIDI_Channel = c_MidiGroup + 0; // #1368
+  c_MIDI_Option = c_MidiGroup + 1;
+  c_MIDI_CC_Set = c_MidiGroup + 2;
+  c_SwellCC = c_MidiGroup + 3;
+  c_VolumeCC = c_MidiGroup + 4;
+  c_LocalEnable = c_MidiGroup + 5; // #1373
+  c_PresetCC = c_MidiGroup + 6; // #1374
+  c_ShowCC = c_MidiGroup + 7; // #1375
+  c_MIDI_DisableProgramChange = c_MidiGroup + 8; // #1376
+
+// @128, #1384 Generator
+  c_GeneratorGroup = c_table_1 + 128;
+  c_PreampSwellType = c_GeneratorGroup + 0; // #1384
+  c_TG_TuningSet = c_GeneratorGroup + 1; // #1385
+  c_TG_Size = c_GeneratorGroup + 2; // #1386
+  c_TG_FixedTaperVal = c_GeneratorGroup + 3; // #1387
+  c_TG_WaveSet = c_GeneratorGroup + 4; // #1388
+  c_TG_Flutter = c_GeneratorGroup + 5; // #1389
+  c_TG_Leakage = c_GeneratorGroup + 6; // #1390
+  c_TG_Tuning = c_GeneratorGroup + 7; // #1391 A 440 = 7 (433 .. 447 Hz)
+  c_TG_TaperCaps = c_GeneratorGroup + 8; // #1392 CapSet
+  c_TG_FilterFac = c_GeneratorGroup + 9; // #1393 LC Filters cutoff
+  c_TG_First16TaperVal = c_GeneratorGroup + 10; // #1394
+  c_GenTranspose = c_GeneratorGroup + 11; // #1395
+  c_GeneratorModelLimit = c_GeneratorGroup + 12; // #1396
+  c_Audio_Enables = c_GeneratorGroup + 13;
+  c_EnableUpperAudio = c_GeneratorGroup + 13; // #1397
+  c_EnableLowerAudio = c_GeneratorGroup + 14; // #1398
+  c_EnablePedalAudio = c_GeneratorGroup + 15; // #1399
+
+// @144, #1400 Effects & Reverb control
+  c_EffectsGroup = c_table_1 + 144;
+  c_ReverbLevels = c_EffectsGroup + 0;
+  c_ReverbLevel_1 = c_ReverbLevels + 0;
+  c_ReverbLevel_2 = c_ReverbLevels + 1;
+  c_ReverbLevel_3 = c_ReverbLevels + 2;
+
+// @152, #1408 ff. ReadOnly/MenuList Items
+  c_MenuListItems = c_table_1 + 152;
+// @154, #1410 PhasingProgram
+  c_CurrentPhasingSet = c_MenuListItems + 2; // #1410
+
+// Drawbar-zu-Busbar-Mapping
+// Es kann ein Busbar-Pegel nur EINEM Zugriegel zugeordnet werden!
+// Wert > 0 ist gleichzeitig Flag, dass dieser Busbar schon einem DB zugeordnet ist.
+// Er wird dann keinem anderem mehr zugewiesen.
+// DB10 ist vorrangig vor DB11, DB11 ist vorrangig vor DB12
+// Drawbar-zu-Busbar-Mapping, 10. Zugriegel (erster nach 1')
+// Folge 9, 10, 11, 12, 13, 14 -- -- Anteile Drawbar an Busbar-#
+// @160, #1416
+  c_MixtureLevels = c_table_1 + 160;
+  c_DB10_MixtureSet = c_MixtureLevels + 0;
+  c_DB11_MixtureSet = c_MixtureLevels + 8;
+  c_DB12_MixtureSet = c_MixtureLevels + 16;
+
+// @192, #1448 ff. Rotary live control
+  c_RotaryGroup = c_table_1 + 192;
+  c_HornSlowTm = c_RotaryGroup + 0;
+  c_RotorSlowTm = c_RotaryGroup + 1;
+  c_HornFastTm = c_RotaryGroup + 2;
+  c_RotorFastTm = c_RotaryGroup + 3;
+  c_HornRampUp = c_RotaryGroup + 4;
+  c_RotorRampUp = c_RotaryGroup + 5;
+  c_HornRampDown = c_RotaryGroup + 6;
+  c_RotorRampDown = c_RotaryGroup + 7;
+
+  c_RotaryGroup_DB = c_RotaryGroup + 8;
+  c_LeslieThrob = c_RotaryGroup + 8;
+  c_LeslieSpread = c_RotaryGroup + 9;
+  c_LeslieBalance = c_RotaryGroup + 10;
+  // c_SyncPHRtoLeslie = c_RotaryGroup + 11;   // ersetzt durch edit_ConfBits2.B2
+  c_TubeAmpCurveA = c_RotaryGroup + 12;
+  c_TubeAmpCurveB = c_RotaryGroup + 13;
+
+
+// @208, #1464 ff. Advanced Routing Bits for RealOrgan. WORDs!
+  c_UpperRoutingWords = c_table_1 + 208;
+
+// @224, #1480 ff. Percussion Hammond
+  c_PercussionGroup = c_table_1 + 224;
+  c_PercNormLvl = c_PercussionGroup + 0; // #1480
+  c_PercSoftLvl = c_PercussionGroup + 1; // #1481
+  c_PercLongTm = c_PercussionGroup + 2; // #1482
+  c_PercShortTm = c_PercussionGroup + 3; // #1483
+  c_PercMutedLvl = c_PercussionGroup + 4; // #1484
+  //c_H100harpSust = c_PercussionGroup + 5; // H100 Harp Sustain length
+  c_PercPrecharge = c_PercussionGroup + 6; // #1486
+
+// @232, #1488 GM2 Synth control (SAM5504)
+  c_GM2group = c_table_1 + 232;
+  // c_GM2frqShiftAmount = c_GM2group + 0; // #1488
+  // c_GM2frqShiftInGain = c_GM2group + 1; // #1489
+  c_GM2synthVolume = c_GM2group + 2; // #1490 final gain
+  c_GM2organVolume = c_GM2group + 3; // #1491 final gain
+
+  c_H100harpSust = c_GM2group + 4; // #1492 H100 Harp Sustain length
+  c_H100_2ndVlvl = c_GM2group + 5; // #1493 H100 2nd Voice Level
+
+  c_LED_PWM = c_GM2group + 7; // #1495 LED Dimmer
+
+  // bis hier wird aus DF-c_CommonPreset kopiert
+
+// #############################################################################
+// ###                                                                       ###
+// ###                  - + + S Y S T E M  I N I T S + + -                   ###
+// ###                                                                       ###
+// #############################################################################
+
+// ab hier nur EEPROM mit persistenter Kopie
+
+// @240, #1496 ff. Defaults, alles mögliche, nur zum Start und Reset gelesen
+  c_SystemInits = c_table_1 + 240;
+  c_VibKnobMode = c_SystemInits + 1; // #1497
+  c_RestoreCommonPresetMask = c_SystemInits + 2; // #1498
+  c_ButtonMask0 = c_SystemInits + 3; // #1499 ALT
+  c_ButtonMask1 = c_SystemInits + 4; // #1500 ALT
+  c_ConfBits1 = c_SystemInits + 5; // #1501
+  c_ConfBits2 = c_SystemInits + 6; // #1502
+  c_ADCconfig = c_SystemInits + 7; // #1503
+  c_1stDBselect = c_SystemInits + 8; // #1504
+  c_2ndDBselect = c_SystemInits + 9; // #1505
+  c_PedalDBsetup = c_SystemInits + 10; // #1506
+  c_ADCscaling = c_SystemInits + 11; // #1507
+  // c_LatchingPresets = c_SystemInits + 12; // #1508
+  c_DeviceType = c_SystemInits + 13; // #1509
+  c_PresetStructure = c_SystemInits + 14; // #1510
+  c_EditMagicFlagIdx = c_SystemInits + 15; // #1511
+
+  c_LeslieInpLvl = 4; // Offset in LeslieInits-Array
+  
+
+implementation
+
+end.

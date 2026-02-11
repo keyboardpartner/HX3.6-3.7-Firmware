@@ -1,0 +1,519 @@
+// #############################################################################
+// ####                        ACTION-TABELLE                               ####
+// #############################################################################
+
+// Diese Tabelle enthält alle Indexe auf Routinen-Adressen in ac_proclist,
+// die bei Änderung eines edit-Wertes aufgerufen werden müssen.
+
+// Bei Änderungen REBUILD ALL SOURCES!
+
+unit ac_proc_idx;
+
+uses const_def;
+
+const
+
+
+
+ac_proc_idx: Array[0..c_edit_array_len-17] of byte = (
+    39,  // #1000, Upper Drawbar 16
+    39,  // #1001, Upper Drawbar 5 1/3
+    39,  // #1002, Upper Drawbar 8
+    39,  // #1003, Upper Drawbar 4
+    39,  // #1004, Upper Drawbar 2 2/3
+    39,  // #1005, Upper Drawbar 2
+    39,  // #1006, Upper Drawbar 1 3/5
+    39,  // #1007, Upper Drawbar 1 1/3
+    39,  // #1008, Upper Drawbar 1
+    39,  // #1009, Upper Mixture Drawbar 10
+    39,  // #1010, Upper Mixture Drawbar 11
+    39,  // #1011, Upper Mixture Drawbar 12
+    46,  // #1012, (RFU)
+    46,  // #1013, (RFU)
+    46,  // #1014, (RFU)
+    46,  // #1015, (RFU)
+    40,  // #1016, Lower Drawbar 16
+    40,  // #1017, Lower Drawbar 5 1/3
+    40,  // #1018, Lower Drawbar 8
+    40,  // #1019, Lower Drawbar 4
+    40,  // #1020, Lower Drawbar 2 2/3
+    40,  // #1021, Lower Drawbar 2
+    40,  // #1022, Lower Drawbar 1 3/5
+    40,  // #1023, Lower Drawbar 1 1/3
+    40,  // #1024, Lower Drawbar 1
+    40,  // #1025, Lower Mixture Drawbar 10
+    40,  // #1026, Lower Mixture Drawbar 11
+    40,  // #1027, Lower Mixture Drawbar 12
+    46,  // #1028, (RFU)
+    46,  // #1029, (RFU)
+    46,  // #1030, (RFU)
+    46,  // #1031, (RFU)
+    42,  // #1032, Pedal Drawbar 16
+    42,  // #1033, Pedal Drawbar 5 1/3
+    42,  // #1034, Pedal Drawbar 8
+    42,  // #1035, Pedal Drawbar 4
+    42,  // #1036, Pedal Drawbar 2 2/3
+    42,  // #1037, Pedal Drawbar 2
+    42,  // #1038, Pedal Drawbar 1 3/5
+    42,  // #1039, Pedal Drawbar 1 1/3
+    42,  // #1040, Pedal Drawbar 1
+    42,  // #1041, Pedal Mixture Drawbar 10
+    42,  // #1042, Pedal Mixture Drawbar 11
+    42,  // #1043, Pedal Mixture Drawbar 12
+    46,  // #1044, (RFU)
+    46,  // #1045, (RFU)
+    46,  // #1046, (RFU)
+    46,  // #1047, (RFU)
+    39,  // #1048, Upper Attack
+    39,  // #1049, Upper Decay
+    39,  // #1050, Upper Sustain
+    39,  // #1051, Upper Release
+    39,  // #1052, Upper ADSR Harmonic Decay
+    46,  // #1053, (RFU)
+    46,  // #1054, (RFU)
+    46,  // #1055, (RFU)
+    40,  // #1056, Lower Attack
+    40,  // #1057, Lower Decay
+    40,  // #1058, Lower Sustain
+    40,  // #1059, Lower Release
+    40,  // #1060, Lower ADSR Harmonic Decay
+    46,  // #1061, (RFU)
+    46,  // #1062, (RFU)
+    46,  // #1063, (RFU)
+    42,  // #1064, Pedal Attack
+    42,  // #1065, Pedal Decay
+    42,  // #1066, Pedal Sustain
+    42,  // #1067, Pedal Release
+    42,  // #1068, Pedal ADSR Harmonic Decay
+    46,  // #1069, (RFU)
+    46,  // #1070, (RFU)
+    46,  // #1071, (RFU)
+    41,  // #1072, Pedal Drawbar 16 AutoMix
+    41,  // #1073, Pedal Drawbar 16H AutoMix
+    41,  // #1074, Pedal Drawbar 8 AutoMix
+    41,  // #1075, Pedal Drawbar 8H AutoMix
+    46,  // #1076, Pitchwheel MIDI Send
+    46,  // #1077, Pitchwheel Rotary Control
+    46,  // #1078, Modwheel MIDI Send
+    46,  // #1079, Modwheel Rotary Control
+    43,  // #1080, General Master Volume
+    38,  // #1081, Rotary Simulation Tube Amp Gain
+    38,  // #1082, Upper Manual Level
+    38,  // #1083, Lower Manual Level
+    38,  // #1084, Pedal Level
+    38,  // #1085, Upper Dry/2ndVoice Level
+    35,  // #1086, Overall Reverb Level
+    38,  // #1087, Tone Pot Equ
+    38,  // #1088, Trim Cap Swell
+    38,  // #1089, Minimal Swell Level
+    38,  // #1090, AO 28 Triode Distortion
+    38,  // #1091, Böhm Module Reverb Volume
+    38,  // #1092, Böhm Module Efx Volume
+    38,  // #1093, Böhm Module Swell Volume
+    38,  // #1094, Böhm Module Front Volume
+    38,  // #1095, Böhm Module Rear Volume
+    39,  // #1096, Upper Envelope Drawbar 16
+    39,  // #1097, Upper Envelope Drawbar 5 1/3
+    39,  // #1098, Upper Envelope Drawbar 8
+    39,  // #1099, Upper Envelope Drawbar 4
+    39,  // #1100, Upper Envelope Drawbar 2 2/3
+    39,  // #1101, Upper Envelope Drawbar 2
+    39,  // #1102, Upper Envelope Drawbar 1 3/5
+    39,  // #1103, Upper Envelope Drawbar 1 1/3
+    39,  // #1104, Upper Envelope Drawbar 1
+    39,  // #1105, Upper Envelope Mixture Drawbar 10
+    39,  // #1106, Upper Envelope Mixture Drawbar 11
+    39,  // #1107, Upper Envelope Mixture Drawbar 12
+    46,  // #1108, (RFU)
+    46,  // #1109, (RFU)
+    46,  // #1110, (RFU)
+    46,  // #1111, (RFU)
+    37,  // #1112, Equ Bass Control
+    37,  // #1113, Equ Bass Frequency if FullParametric
+    37,  // #1114, Equ Bass Peak/Q if FullParametric
+    37,  // #1115, Equ Mid Control
+    37,  // #1116, Equ Mid Frequency
+    37,  // #1117, Equ Mid Peak/Q
+    37,  // #1118, Equ Treble Control
+    37,  // #1119, Equ Treble Frequency if FullParametric
+    37,  // #1120, Equ Treble Peak/Q if FullParametric
+    37,  // #1121, Equ FullParametric Enable
+    38,  // #1122, Böhm Module Ext Rotary Volume Left
+    38,  // #1123, Böhm Module Ext Rotary Volume Right
+    36,  // #1124, Equ Bass Gain Pot Mid Position
+    36,  // #1125, Equ Mid Gain Pot Mid Position
+    36,  // #1126, Equ Treble Gain Pot Mid Position
+    36,  // #1127, Perc/Dry Volume Mid Position
+    7,  // #1128, Percussion ON
+    7,  // #1129, Percussion SOFT
+    7,  // #1130, Percussion FAST
+    7,  // #1131, Percussion THIRD
+    17,  // #1132, Vibrato Upper ON
+    17,  // #1133, Vibrato Lower ON
+    21,  // #1134, Leslie RUN
+    21,  // #1135, Leslie FAST
+    17,  // #1136, Tube Amp Bypass
+    17,  // #1137, Rotary Speaker Bypass
+    17,  // #1138, Phasing Rotor upper ON
+    17,  // #1139, Phasing Rotor lower ON
+    5,  // #1140, Reverb 1
+    5,  // #1141, Reverb 2
+    17,  // #1142, Add Pedal
+    33,  // #1143, Keyboard Split ON
+    18,  // #1144, Phasing Rotor
+    18,  // #1145, Phasing Rotor Ensemble
+    18,  // #1146, Phasing Rotor Celeste
+    18,  // #1147, Phasing Rotor Fading
+    18,  // #1148, Phasing Rotor Weak
+    18,  // #1149, Phasing Rotor Deep
+    18,  // #1150, Phasing Rotor Fast
+    18,  // #1151, Phasing Rotor Delay
+    1,  // #1152, TAB #24, H100 Mode
+    1,  // #1153, TAB #25, Envelope Generator (EG) Mode
+    1,  // #1154, TAB #26, EG Percussion Drawbar Mode
+    1,  // #1155, TAB #27, EG TimeBend Drawbar Mode
+    14,  // #1156, TAB #28, H100 2ndVoice (Perc Decay Bypass)
+    14,  // #1157, TAB #29, H100 Harp Sustain
+    14,  // #1158, TAB #30, EG Enables to Dry Channel
+    17,  // #1159, TAB #31, Equalizer Bypass
+    14,  // #1160, Upper Drawbar 16 to ADSR
+    14,  // #1161, Upper Drawbar 5 1/3 to ADSR
+    14,  // #1162, Upper Drawbar 8 to ADSR
+    14,  // #1163, Upper Drawbar 4 to ADSR
+    14,  // #1164, Upper Drawbar 2 2/3 to ADSR
+    14,  // #1165, Upper Drawbar 2 to ADSR
+    14,  // #1166, Upper Drawbar1 3/5 to ADSR
+    14,  // #1167, Upper Drawbar 1 1/3 to ADSR
+    14,  // #1168, Upper Drawbar 1 to ADSR
+    14,  // #1169, Upper Mixture Drawbar 10 to ADSR
+    14,  // #1170, Upper Mixture Drawbar 11 to ADSR
+    14,  // #1171, Upper Mixture Drawbar 12 to ADSR
+    17,  // #1172, Insert External Effects
+    46,  // #1173, (RFU)
+    33,  // #1174, Octave Downshift Upper
+    33,  // #1175, Octave Downshift Lower
+    40,  // #1176, Lower Drawbar 16 to ADSR
+    40,  // #1177, Lower Drawbar 5 1/3 to ADSR
+    40,  // #1178, Lower Drawbar 8 to ADSR
+    40,  // #1179, Lower Drawbar 4 to ADSR
+    40,  // #1180, Lower Drawbar 2 2/3 to ADSR
+    40,  // #1181, Lower Drawbar 2 to ADSR
+    40,  // #1182, Lower Drawbar1 3/5 to ADSR
+    40,  // #1183, Lower Drawbar 1 1/3 to ADSR
+    40,  // #1184, Lower Drawbar 1 to ADSR
+    40,  // #1185, Lower Mixture Drawbar 10 to ADSR
+    40,  // #1186, Lower Mixture Drawbar 11 to ADSR
+    40,  // #1187, Lower Mixture Drawbar 12 to ADSR
+    46,  // #1188, (RFU)
+    15,  // #1189, MIDI Upper Enable
+    15,  // #1190, MIDI Lower Enable
+    15,  // #1191, MIDI Pedal Enable
+    46,  // #1192, Dec Overall/Common Preset
+    46,  // #1193, Inc Overall/Common Preset
+    46,  // #1194, Dec Upper Voice
+    46,  // #1195, Inc Upper Voice
+    46,  // #1196, Dec Lower Voice
+    46,  // #1197, Inc Lower Voice
+    46,  // #1198, Dec Pedal Voice
+    46,  // #1199, Inc Pedal Voice
+    46,  // #1200, Dec OrganModel
+    46,  // #1201, Inc OrganModel
+    46,  // #1202, Dec SpeakerModel
+    46,  // #1203, Inc SpeakerModel
+    46,  // #1204, Dec Transpose
+    46,  // #1205, Inc Transpose
+    46,  // #1206, (RFU)
+    46,  // #1207, (RFU)
+    46,  // #1208, Hammond DB Upper Decode
+    46,  // #1209, Hammond DB Lower Decode
+    46,  // #1210, Hammond DB Pedal Decode
+    46,  // #1211, Hammond VibKnob Decode
+    3,  // #1212, 4 Btn V1
+    3,  // #1213, 4 Btn V2
+    3,  // #1214, 4 Btn V3
+    3,  // #1215, 4 Btn V/C, 6 Btn C1
+    3,  // #1216, 6 Btn C2
+    3,  // #1217, 6 Btn C3
+    46,  // #1218, Single DB Destination U/L/P Toggle
+    46,  // #1219, Single DB set to Upper
+    46,  // #1220, Single DB set to Lower
+    46,  // #1221, Single DB set to Pedal
+    46,  // #1222, (RFU)
+    46,  // #1223, (RFU)
+    30,  // #1224, Upper GM Layer 1 Voice
+    25,  // #1225, Upper GM Layer 1 Level
+    25,  // #1226, Upper GM Layer 1 Harmonic
+    31,  // #1227, Upper GM Layer 2 Voice
+    25,  // #1228, Upper GM Layer 2 Level
+    25,  // #1229, Upper GM Layer 2 Harmonic
+    25,  // #1230, Upper GM Layer 2 Detune
+    46,  // #1231, (RFU)
+    26,  // #1232, Lower GM Layer 1 Voice
+    23,  // #1233, Lower GM Layer 1 Level
+    23,  // #1234, Lower GM Layer 1 Harmonic
+    27,  // #1235, Lower GM Layer 2 Voice
+    23,  // #1236, Lower GM Layer 2 Level
+    23,  // #1237, Lower GM Layer 2 Harmonic
+    23,  // #1238, Lower GM Layer 2 Detune
+    46,  // #1239, (RFU)
+    28,  // #1240, Pedal GM Layer 1 Voice
+    24,  // #1241, Pedal GM Layer 1 Level
+    24,  // #1242, Pedal GM Layer 1 Harmonic
+    29,  // #1243, Pedal GM Layer 2 Voice
+    24,  // #1244, Pedal GM Layer 2 Level
+    24,  // #1245, Pedal GM Layer 2 Harmonic
+    24,  // #1246, Pedal GM Layer 2 Detune
+    46,  // #1247, Save Event Defaults
+    46,  // #1248, Save Event Organ
+    46,  // #1249, Save Event Speaker/Rotary
+    46,  // #1250, (RFU)
+    46,  // #1251, (RFU)
+    46,  // #1252, Save Event Common
+    46,  // #1253, Save Event Upper
+    46,  // #1254, Save Event Lower
+    46,  // #1255, Save Event Pedal
+    46,  // #1256,
+    46,  // #1257, (RFU)
+    46,  // #1258, (RFU)
+    46,  // #1259, (RFU)
+    46,  // #1260, (RFU)
+    0,  // #1261, Gating Mode Knob (MenuPanel)
+    6,  // #1262, Percussion Knob (MenuPanel)
+    4,  // #1263, Reverb Knob (MenuPanel)
+    2,  // #1264, Vibrato Knob
+    46,  // #1265, Organ Model
+    46,  // #1266, Rotary Speaker Model
+    46,  // #1267, Upper Preset Limit
+    46,  // #1268, Overall Preset (Temp)
+    8,  // #1269, Upper Voice
+    9,  // #1270, Lower Voice
+    10,  // #1271, Pedal Voice
+    14,  // #1272, Level Busbar 16
+    14,  // #1273, Level Busbar 5 1/3
+    14,  // #1274, Level Busbar 8
+    14,  // #1275, Level Busbar 4
+    14,  // #1276, Level Busbar 2 2/3
+    14,  // #1277, Level Busbar 2
+    14,  // #1278, Level Busbar 1 3/5
+    14,  // #1279, Level Busbar 1 1/3
+    14,  // #1280, Level Busbar 1
+    14,  // #1281, Level Busbar 10
+    14,  // #1282, Level Busbar 11
+    14,  // #1283, Level Busbar 12
+    14,  // #1284, Level Busbar 13
+    14,  // #1285, Level Busbar 14
+    14,  // #1286, Level Busbar 15
+    46,  // #1287, (RFU)
+    11,  // #1288, Note Offset Busbar 16
+    11,  // #1289, Note Offset Busbar 5 1/3
+    11,  // #1290, Note Offset Busbar 8
+    11,  // #1291, Note Offset Busbar 4
+    11,  // #1292, Note Offset Busbar 2 2/3
+    11,  // #1293, Note Offset Busbar 2
+    11,  // #1294, Note Offset Busbar 1 3/5
+    11,  // #1295, Note Offset Busbar 1 1/3
+    11,  // #1296, Note Offset Busbar 1
+    11,  // #1297, Note Offset Busbar 10
+    11,  // #1298, Note Offset Busbar 11
+    11,  // #1299, Note Offset Busbar 12
+    11,  // #1300, Note Offset Busbar 13
+    11,  // #1301, Note Offset Busbar 14
+    11,  // #1302, Note Offset Busbar 15
+    46,  // #1303, (RFU)
+    46,  // #1304, (RFU)
+    46,  // #1305, (RFU)
+    46,  // #1306, (RFU)
+    46,  // #1307, (RFU)
+    46,  // #1308, (RFU)
+    46,  // #1309, (RFU)
+    46,  // #1310, (RFU)
+    46,  // #1311, (RFU)
+    46,  // #1312, (RFU)
+    46,  // #1313, (RFU)
+    46,  // #1314, (RFU)
+    46,  // #1315, (RFU)
+    46,  // #1316, (RFU)
+    46,  // #1317, (RFU)
+    46,  // #1318, (RFU)
+    46,  // #1319, (RFU)
+    34,  // #1320, Pre-Emphasis (Treble Gain)
+    34,  // #1321, LC Line Age/AM Amplitude Modulation
+    34,  // #1322, LC Line Feedback
+    34,  // #1323, LC Line Reflection
+    34,  // #1324, LC Line Response Cutoff Frequency
+    34,  // #1325, LC PhaseLk/Line Cutoff Shelving Level
+    34,  // #1326, Scanner Gearing (Vib Frequ)
+    34,  // #1327, Chorus Dry (Bypass) Level
+    34,  // #1328, Chorus Wet (Scanner) Level
+    34,  // #1329, Modulation V1/C1
+    34,  // #1330, Modulation V2/C2
+    34,  // #1331, Modulation V3/C3
+    34,  // #1332, Modulation Chorus Enhance
+    34,  // #1333, Scanner Segment Flutter
+    34,  // #1334, Preemphasis Highpass Cutoff Frequ
+    34,  // #1335, Modulation Slope, Preemph HP Phase/Peak
+    46,  // #1336, PHR Speed Vari Slow (Temp)
+    46,  // #1337, PHR Speed Vari Fast (Temp)
+    19,  // #1338, PHR Speed Slow (Temp)
+    19,  // #1339, PHR Feedback (Temp)
+    19,  // #1340, PHR Level Ph1 (Temp)
+    19,  // #1341, PHR Level Ph2 (Temp)
+    19,  // #1342, PHR Level Ph3 (Temp)
+    19,  // #1343, PHR Level Dry (Temp)
+    19,  // #1344, PHR Feedback Invert (Temp)
+    19,  // #1345, PHR Ramp Delay (Temp)
+    19,  // #1346, PHR Mod Vari Ph1 (Temp)
+    19,  // #1347, PHR Mod Vari Ph2 (Temp)
+    19,  // #1348, PHR Mod Vari Ph3 (Temp)
+    19,  // #1349, PHR Mod Slow Ph1 (Temp)
+    19,  // #1350, PHR Mod Slow Ph2 (Temp)
+    19,  // #1351, PHR Mod Slow Ph3 (Temp)
+    46,  // #1352, (RFU)
+    33,  // #1353, Keyboard Split Point if ON
+    33,  // #1354, Keyboard Split Mode
+    15,  // #1355, Keyboard Transpose
+    15,  // #1356, Contact Early Action (Fatar Keybed only)
+    15,  // #1357, No 1' Drawbar when Perc ON
+    11,  // #1358, Drawbar 16' Foldback Mode
+    11,  // #1359, Higher Foldback
+    15,  // #1360, Contact Spring Flex
+    15,  // #1361, Contact Spring Damping
+    15,  // #1362, Percussion Enable On Live DB only
+    15,  // #1363, Fatar Velocity Factor
+    15,  // #1352, Lubed Contacts (less click amount if ON)
+    15,  // #1365, TG Ri (internal impedance) enable
+    15,  // #1366, (RFU)
+    15,  // #1367, (RFU)
+    15,  // #1368, MIDI Channel
+    15,  // #1369, MIDI Option
+    32,  // #1370, MIDI CC Set
+    15,  // #1371, MIDI Swell CC
+    15,  // #1372, MIDI Volume CC
+    22,  // #1373, MIDI Local Enable
+    46,  // #1374, MIDI Preset CC
+    46,  // #1375, MIDI Show CC
+    46,  // #1376, MIDI Disable Program Change
+    46,  // #1377, (RFU)
+    46,  // #1378, (RFU)
+    46,  // #1379, (RFU)
+    46,  // #1380, (RFU)
+    46,  // #1381, (RFU)
+    46,  // #1382, (RFU)
+    46,  // #1383, (RFU)
+    38,  // #1384, Preamp Swell Type
+    13,  // #1385, TG Tuning Set
+    11,  // #1386, TG Size
+    11,  // #1387, TG Fixed Taper Value
+    12,  // #1388, TG WaveSet
+    15,  // #1389, TG Flutter
+    15,  // #1390, TG Leakage
+    15,  // #1391, TG Tuning
+    11,  // #1392, TG Cap Set/Tapering
+    11,  // #1393, TG LC Filter Fac
+    11,  // #1394, TG Bottom 16' Octave Taper Val
+    15,  // #1395, Generator/MIDI IN Transpose
+    46,  // #1396, Generator Model Limit
+    38,  // #1397, Organ Upper Manual Enable
+    38,  // #1398, Organ Lower Manual Enable
+    38,  // #1399, Organ Pedal Enable
+    5,  // #1400, Reverb Level 1
+    5,  // #1401, Reverb Level 2
+    5,  // #1402, Reverb Level 3
+    46,  // #1403, (RFU)
+    46,  // #1404, (RFU)
+    46,  // #1405, (RFU)
+    46,  // #1406, (RFU)
+    46,  // #1407, (RFU)
+    46,  // #1408, (RFU)
+    46,  // #1409, (RFU)
+    46,  // #1410, (RFU)
+    46,  // #1411, (RFU)
+    46,  // #1412, (RFU)
+    46,  // #1413, (RFU)
+    46,  // #1414, (RFU)
+    46,  // #1415, (RFU)
+    14,  // #1416, Mixt DB 10, Level from Busbar 9
+    14,  // #1417, Mixt DB 10, Level from Busbar 10
+    14,  // #1418, Mixt DB 10, Level from Busbar 11
+    14,  // #1419, Mixt DB 10, Level from Busbar 12
+    14,  // #1420, Mixt DB 10, Level from Busbar 13
+    14,  // #1421, Mixt DB 10, Level from Busbar 14
+    14,  // #1422, (RFU)
+    14,  // #1423, (RFU)
+    14,  // #1424, Mixt DB 11, Level from Busbar 9
+    14,  // #1425, Mixt DB 11, Level from Busbar 10
+    14,  // #1426, Mixt DB 11, Level from Busbar 11
+    14,  // #1427, Mixt DB 11, Level from Busbar 12
+    14,  // #1428, Mixt DB 11, Level from Busbar 13
+    14,  // #1429, Mixt DB 11, Level from Busbar 14
+    14,  // #1430, (RFU)
+    14,  // #1431, (RFU)
+    14,  // #1432, Mixt DB 12, Level from Busbar 9
+    14,  // #1433, Mixt DB 12, Level from Busbar 10
+    14,  // #1434, Mixt DB 12, Level from Busbar 11
+    14,  // #1435, Mixt DB 12, Level from Busbar 12
+    14,  // #1436, Mixt DB 12, Level from Busbar 13
+    14,  // #1437, Mixt DB 12, Level from Busbar 14
+    46,  // #1438, (RFU)
+    46,  // #1439, (RFU)
+    46,  // #1440, (RFU)
+    46,  // #1441, (RFU)
+    46,  // #1442, (RFU)
+    46,  // #1443, (RFU)
+    46,  // #1444, (RFU)
+    46,  // #1445, (RFU)
+    46,  // #1446, (RFU)
+    46,  // #1447, (RFU)
+    20,  // #1448, Rotary Live Control, Horn Slow Time
+    20,  // #1449, Rotary Live Control, Rotor Slow Time
+    20,  // #1450, Rotary Live Control, Horn Fast Time
+    20,  // #1451, Rotary Live Control, Rotor Fast Time
+    20,  // #1452, Rotary Live Control, Horn Ramp Up Time
+    20,  // #1453, Rotary Live Control, Rotor Ramp Up Time
+    20,  // #1454, Rotary Live Control, Horn Ramp Down Time
+    20,  // #1455, Rotary Live Control, Rotor Ramp Down Time
+    20,  // #1456, Rotary Live Control, Speaker Throb Amount
+    20,  // #1457, Rotary Live Control, Speaker Spread
+    20,  // #1458, Rotary Live Control, Speaker Balance
+    46,  // #1459, (RFU)
+    37,  // #1460, Rotary Amp: Tube A, old 6550 .. new EL34
+    37,  // #1461, Rotary Amp: Tube B, old 6550 .. new EL34
+    46,  // #1462, (RFU)
+    46,  // #1463, (RFU)
+    45,  // #1464, ENA_CONT_BITS (LSB), Drawbar 7..0
+    45,  // #1465, ENA_CONT_BITS (MSB), Drawbar 11..8
+    45,  // #1466, ENA_ENV_DB_BITS (LSB), Drawbar 7..0
+    45,  // #1467, ENA_ENV_DB_BITS (MSB), Drawbar 11..8
+    45,  // #1468, ENA_ENV_FULL_BITS (LSB), Drawbar 7..0
+    45,  // #1469, ENA_ENV_FULL_BITS (MSB), Drawbar 11..8
+    45,  // #1470, ENV_TO_DRY_BITS (LSB), Drawbar 7..0
+    45,  // #1471, ENV_TO_DRY_BITS (MSB), Drawbar 11..8
+    45,  // #1472, ENA_CONT_PERC_BITS (LSB), Drawbar 7..0
+    45,  // #1473, ENA_CONT_PERC_BITS (MSB), Drawbar 11..8
+    45,  // #1474, ENA_ENV_PERCMODE_BITS (LSB), Drawbar 7..0
+    45,  // #1475, ENA_ENV_PERCMODE_BITS (MSB), Drawbar 11..8
+    45,  // #1476, ENA_ENV_ADSRMODE_BITS (LSB), Drawbar 7..0
+    45,  // #1477, ENA_ENV_ADSRMODE_BITS (MSB), Drawbar 11..8
+    46,  // #1478, (RFU)
+    46,  // #1479, (RFU)
+    16,  // #1480, Perc Norm Level
+    16,  // #1481, Perc Soft Level
+    16,  // #1482, Perc Long Time
+    16,  // #1483, Perc Short Time
+    16,  // #1484, Perc Muted Level
+    46,  // #1485, (RFU)
+    16,  // #1486, Perc Precharge Time
+    46,  // #1487, Perc Ena on Live DB only
+    46,  // #1488, (RFU)
+    46,  // #1489, (RFU)
+    22,  // #1490, GM Synth Output Mix Level
+    22,  // #1491, Organ Output Mix Level
+    16,  // #1492, H100 Harp Sustain Time
+    16,  // #1493, H100 2nd Voice Level
+    46,  // #1494, (RFU)
+    44  // #1495  LED Dimmer
+  );
+
+implementation
+
+end.

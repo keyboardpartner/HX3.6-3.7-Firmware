@@ -1,0 +1,1605 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// Switch Interface: Vibrato-Knob- und Extend16/Panel16/Preset16-Handling
+
+// |-----------------------------User Activity---------------------------------|
+// |--MenuSystem--|--SwitchIF--|--AnalogInputs--|--MIDI Dispatch--|---Parser---|
+// |---------------------------Event/Edit Array--------------------------------|
+// |----------------------------Apply Changes----------------------------------|
+// |---FPGA Hilevel---|---MIDI Send---|--Binary Send (WIFI)--|--Store/Recall---|
+// |-----------------------------Hardware-----------------------|-->-Events-^--|
+
+// Neue Routinen: Einzeltasten-Events, Load/Save-Events für Voice/Presets
+
+unit switch_if;
+
+uses const_def, var_def, edit_defaults, edit_offsets, edit_vals, twi_systimer,
+     events, avrco_compat, menu_entries, serial1, save_restore, nuts_bolts,
+     spi_rw, messages;
+
+var
+  PanelsPresent: Array[0..7] of Boolean;
+  MemorizeTimerPanel, MemorizeTimerXB2: Word;
+  PresetWasSaved: Boolean;
+  PreampPortPresent, VibKnobPortPresent, HalfmoonPresent,
+  MiniSwitchPresent6, MiniSwitchPresent7: Boolean;
+  Indicators9555present: Boolean;
+
+  // wird Cancel Key Voice Nummer wenn Cancel gedrückt, sonst 255:
+
+  SWI_CancelActive_upr: Boolean;
+  SWI_CancelActive_lwr: Boolean;
+
+  procedure SWI_SetLEDdimmer(led_pwm15: Word);
+  
+  procedure SWI_SetIndicators(manual, led_on: byte);
+  procedure SWI_BlinkIndicators(manual: byte);
+
+  procedure SWI_Init;
+  procedure SWI_InitButtons;  // falls Button Remap über Parser
+
+  procedure SWI_HandleVibratoKnob;
+  function SWI_GetSwitchHalfmoon: Byte;
+  procedure SWI_HandleHalfmoonSw(force_sw_reload: Boolean);
+  procedure SWI_HandleSwJacks(force_sw_reload: Boolean);
+
+  procedure SWI_ForceSwitchReload;
+
+  procedure SWI_HandlePanel(panel_nr: Byte; force_sw_reload: Boolean);
+  procedure SWI_HandleXB2panel;
+  procedure SWI_HandleSwitches(board_nr: Byte; force_sw_reload: Boolean);
+  procedure SWI_HandleOEMpreampCtrl;
+
+implementation
+
+const
+  c_found_str = ' found';
+
+  c_hw_btntable_size = 96;
+  c_hw_btntable_max = c_hw_btntable_size - 1;
+
+  // %00 = OFF, %01 = ON, %10 = PWM_0 (darker), %11= PWM_1 (brighter)
+  led_off:    Byte = 0;
+  led_on:     Byte = $40;
+  led_dark:   Byte = $80;
+  led_bright: Byte = $C0;
+
+  led_off_xb2: Byte = 0;
+  led_on_xb2: Byte =  1;
+  led_dark_xb2: Byte =    2;
+  led_bright_xb2: Byte =  3;
+
+  // %00 = OFF, %01 = ON, %10 = PWM_0 (darker), %11= PWM_1 (brighter)
+  c_XB2selects9532: Array[0..3] of word = (
+                         // INPUT LOW    P0.2   P0.3   P0.4   P0.5
+    %0100000000000000,   // ROW A P0.7   VIB    3RD    2ND    SOLO
+    %0001000000000000,   // ROW B P0.6   S/F    EDIT   REC    CANCEL
+    %0000000000000001,   // ROW C P0.0   PR4    PR3    PR2    PR1
+    %0000000000000100);  // ROW D P0.1   PR8    PR7    PR6    PR5
+
+  // offsets für xb2_hw_tabs
+  c_xb2_solo = 0;
+  c_xb2_2nd = 1;
+  c_xb2_3rd = 2;
+  c_xb2_vib = 3;
+
+  c_xb2_cancel = 4;
+  c_xb2_rec = 5;
+  c_xb2_edit = 6;
+  c_xb2_sf = 7;
+
+  c_xb2_pr1 = 8;
+  c_xb2_pr2 = 9;
+  c_xb2_pr3 = 10;
+  c_xb2_pr4 = 11;
+
+  c_xb2_pr5 = 12;
+  c_xb2_pr6 = 13;
+  c_xb2_pr7 = 14;
+  c_xb2_pr8 = 15;
+
+  c_xb2_edit_editmode = 6;
+  
+  c_xb2_present_idx = 7;
+  
+var
+  idx: Word;
+  temp_w, temp_n: Word;
+  temp_b: Byte;
+
+  blinktoggle_old,
+  swi_cancelsaverequ_upr, swi_cancelsaverequ_lwr,
+  swi_has_cancel_upr, swi_has_cancel_lwr: Boolean;
+  swi_cancel_idx_upr: Word;
+  swi_cancel_idx_lwr: Word;
+  
+  swi_minisw_port6, swi_minisw_port7: Byte;
+  swi_preamp_byte_old: Byte;
+
+  swi_minisw_states_old: Array[0..15] of Byte;
+
+  xb2_hw_btnstates_old: Array[0..15] of Byte;
+  xb2_hw_tabs: Array[0..15]  of Byte;
+  xb2_hw_tabs_editmode: Array[0..15]  of Byte;
+
+
+// %00 = OFF, %01 = ON, %10 = PWM_0 (darker), %11= PWM_1 (brighter)
+  // Letzter Port-Zustand, direkt gelesen
+  swi_hw_OldInputWords: Array[0..7] of Word at DigitalInputBytes;
+
+  swi_hw_btnstates: Array[0..c_hw_btntable_max] of Byte; // aktueller LED-Zustand
+  swi_hw_btnstates_old: Array[0..c_hw_btntable_max] of Boolean;
+  swi_hw_btnstates_collected: Array[0..c_hw_btntable_max] of Boolean;
+
+  // weitere Auswertung erforderlich bei Panels mit Preset-Buttons
+  // Erster Index: common_binarypreset, swi_lastbtns_common_preset,
+  // swi_lastbtns_upper_preset, swi_lastbtns_lower_preset, swi_lastbtns_pedal_preset
+  swi_firstbtns: Array[0..c_mapidx_max] of Byte;
+
+  swi_lastbtns: Array[0..c_mapidx_max] of Byte;
+  
+  temp_led_bytes: Array[0..3] of Byte; aligned 4;
+  temp_leds: DWord at temp_led_bytes;
+  
+  inp_word: Word; // damit Bit-Addressierung zulässig ist
+
+  temp_word_bytes: Array[0..1] of Byte; aligned 4;
+  temp_word: Word at temp_word_bytes; // damit Bit-Addressierung zulässig ist
+  temp_byte: Byte;
+  vibknob_old: Byte;
+
+
+  swi_inverse_organmodels: Array[0..15] of Byte; aligned 4;
+  swi_inverse_speakermodels: Array[0..15] of Byte; aligned 4;
+
+// -----------------------------------------------------------------------------
+
+procedure SWI_BlinkIndicators(manual: byte);
+var i2c_addr, i: Byte;
+begin
+  if Indicators9555present then 
+    for i:= 0 to 2 do begin
+      temp_word:= $FFF;
+      i2c_addr:= PCA9555_4 + manual;
+      TWI_WriteRegB(i2c_addr, 2, temp_word_bytes[0]);
+      TWI_WriteRegB(i2c_addr, 3, temp_word_bytes[1]);
+      mdelay(100);
+      temp_word:= 0;
+      i2c_addr:= PCA9555_4 + manual;
+      TWI_WriteRegB(i2c_addr, 2, temp_word_bytes[0]);
+      TWI_WriteRegB(i2c_addr, 3, temp_word_bytes[1]);
+      mdelay(100);
+    end;
+end;
+
+procedure SWI_SetIndicators(manual, led_on: byte);
+var i2c_addr: Byte;
+begin
+  if Indicators9555present then begin
+    temp_word:= 1 shl led_on;
+    i2c_addr:= PCA9555_4 + manual;
+    TWI_WriteRegB(i2c_addr, 2, temp_word_bytes[0]);
+    TWI_WriteRegB(i2c_addr, 3, temp_word_bytes[1]);
+  end;
+end;
+
+procedure SWI_InitPCA9532_dim(my_adr, my_dim: byte);
+// initialisiert PCA9532, LEDs aus
+// ACHTUNG: AutoInc funktioniert beim PCA9532 aus unbekannten Gründen
+// NICHT bei PSC- und PWM-Registern, deshalb hier "zu Fuß":
+// %00 = OFF, %01 = ON, %10 = PWM_0 (darker), %11= PWM_1 (brighter)
+var my_dim_2: Byte;
+begin
+  my_dim_2:= mulDivByte(my_dim, 15, 100) + 1;   // 15% Helligkeit von hell
+  TWI_WriteRegB(my_adr, 2, 0);   // PWM_0-Frequ hoch
+  TWI_WriteRegB(my_adr, 3, my_dim_2);   // PWM_0, darker
+  TWI_WriteRegB(my_adr, 4, 0);   // PWM_1-Frequ hoch
+  TWI_WriteRegB(my_adr, 5, my_dim); // PWM_1, brighter
+end;
+
+// #############################################################################
+// ####                         Vibrato-Knob Port                           ####
+// #############################################################################
+
+function SWI_GetSwitchVibrato: Byte;
+var vib_port: Byte;
+begin
+  if VibKnobPortPresent then begin
+    // Port inversion eingeschaltet!
+    vib_port:= TWI_ReadRegB(PCA9554A_0, 0) and $1F; // Register 0 = Input Port
+    result:= vib_port and 3;  // 0 = V1, 1 = C1, 2 = V2
+    if (vib_port and 4) = 4 then  // C2
+      result:= 3
+    else if (vib_port and 8) = 8 then // V3
+      result:= 4
+    else if (vib_port and 16) = 16  then // C3
+      result:= 5;
+  end else
+    result:= edit_VibKnob;
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure SWI_HandleVibratoKnob;
+// Vibrato-Knopf-Port holen und bei Änderung edit_VibKnob neu setzen
+// liefert TRUE wenn geändert
+var vibknob: Byte;
+begin
+  if VibKnobPortPresent and (edit_VibKnobMode = 0) then begin
+    vibknob:= SWI_GetSwitchVibrato;
+    if vibknob <> vibknob_old then begin
+      vibknob_old:= vibknob;
+      NewEditIdxEvent(c_VibKnob, vibknob, c_control_event_source);
+      // Änderung wird in apply_changes behandelt
+      NB_VibknobToVCbits;
+    end;
+  end;
+end;
+
+// #############################################################################
+// ####                  Standard-Panels und Extend16                       ####
+// #############################################################################
+
+// #############################################################################
+// ####                  Hilfsroutinen für Panel-Handling                   ####
+// #############################################################################
+
+function swi_search_group(btn_type: Byte; var start_btn, end_btn: Byte): Boolean;
+// Sucht in Remaps ersten und letzten Button vom Remap-Typ btn_type
+// innerhalb von start_btn bis end_btn
+// liefert Ergebnis in start_btn, end_btn zurück, falls gefunden
+var my_idx: Word;
+begin
+  result:= false;
+  for my_idx:= start_btn to end_btn do begin
+    if (PanelsPresent[my_idx div 16]) and (btn_type = eep_ButtonRemaps[my_idx]) then begin
+      result:= true;
+      break;
+    end;
+  end;
+  if result then begin
+    start_btn:= my_idx;
+    for my_idx:= end_btn downto start_btn do
+      if (PanelsPresent[my_idx div 16]) and  (btn_type = eep_ButtonRemaps[my_idx]) then
+        break;
+    end_btn:= my_idx;
+  end;
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+function swi_CollectBinaryPresetButtons(const map_idx: Byte): Byte;
+// addiert gedrückte Binary-Preset-Buttons binär, +1 +2 +4 +8 usw.
+// swi_hw_btnstates und swi_hw_btnstates_collected sind bereits gesetzt
+var preset_nr, adder: Word;
+  first_preset_btn, last_preset_btn: Byte;
+begin
+  first_preset_btn:= swi_firstbtns[map_idx];
+  last_preset_btn:= swi_lastbtns[map_idx];
+  preset_nr:= 0;
+  adder:= 1;
+  for idx:= first_preset_btn to last_preset_btn do begin
+    if swi_hw_btnstates_collected[idx] then
+      preset_nr:= preset_nr + adder;
+    adder:= adder * 2;
+  end;
+  result:= Lo(preset_nr);
+end;
+
+// #############################################################################
+// ############################# XB2-Panel #####################################
+// #############################################################################
+// ###       Spezielle Button- und Anzeigefunktionen für XB2-Panel           ###
+// #############################################################################
+
+// LED-Zuordnung XB2:
+// P1.0 = EDIT
+// P1.1 =
+// P1.2 =
+// P1.3 = Solo
+// P1.4 = Perc 2nd
+// P1.5 = Perc 3rd
+// P1.6 = Vibrato ON
+// P1.7 = Slow/Fast
+
+// LEDs 9532 MSB: FF VV 33 22, F = Fast, V = Vibrato, 2/3 =Perc 2nd/3rd
+// LED-Belegung:
+// XB2:    SOLO (0)    2nd (1)     3rd (2)     VIBRATO (3)    FAST  (7)
+// --------------------------------------------------------------------------
+// Upper   OFF         ON/OFF      ON/OFF      ON/OFF (U)     SpeedBlink/OFF
+// Lower   ON          DARK/OFF    DARK/OFF    ON/OFF (L)     SpeedBlink/OFF
+// Pedal   BLINK       DARK/OFF    DARK/OFF    ON/OFF (L)     SpeedBlink/OFF
+
+// Button-Belegung:
+// XB2:    SOLO (0)    2nd (1)     3rd (2)     VIBRATO (3)    FAST  (7)
+// --------------------------------------------------------------------------
+// Upper   U->L        ON/OFF      ON/OFF      ON/OFF Upper   SpeedBlink/OFF
+// Lower   L->P        ------      ------      ON/OFF Lower   SpeedBlink/OFF
+// Pedal   P->U        ------      ------      ON/OFF Lower   SpeedBlink/OFF
+
+function swi_get_TabLED_bits(const btn_idx: Byte;
+         const xb2_mode: Boolean): Byte; forward;
+
+// --------------------------------------------------------------------------
+
+procedure xb2_PresetLoadOrDisplayToggle(preset_nr: Byte);
+// Wenn zweimal gedrückt, Anzeige nur toggeln DB/Preset
+begin
+  if edit_CommonPreset = preset_nr then begin
+    if MenuIndex = 0 then
+      MenuIndex_Requested:= 1; // auf DB-Menü
+    if MenuIndex >= 1 then
+      MenuIndex_Requested:= 0; // auf Preset-Menü
+  end else
+    NewEditIdxEvent(c_CommonPreset, preset_nr, c_control_event_source);
+  SingleDBsetSelect:= 0;
+end;
+
+ // --------------------------------------------------------------------------
+
+procedure xb2_UpdateLEDs;
+// LEDs 9532 MSB: FF VV 33 22, F = Fast, V = Vibrato, 2/3 =Perc 2nd/3rd
+// LEDs 9532 LSB: SS 00 00 EE, S = Solo, E = Edit
+var
+  btn_idx, temp_solo, temp_perc, temp_vib, temp_speed, btn_remap: Byte;
+begin
+  // Remap-Tabs wieder in xb2_hw_tabs übertragen
+  temp_word:= 0;
+  if xb2_hw_tabs[c_xb2_edit] then begin
+    // Nur bei Zweitfunktion, Edit ON, zugewiesene Buttons
+    // in editmode-Tabelle übertragen
+    for btn_idx:= 0 to 15 do begin
+      btn_remap:= eep_ButtonRemaps_XB2[btn_idx];
+      if btn_remap < c_hw_btntable_size then         // Zuweisung Zweitfunktion
+        xb2_hw_tabs_editmode[btn_idx]:= edit_LogicalTabs[btn_remap]; // beginnt bei xb2_hw_tab_pr1
+    end;
+    lo(temp_word):= byte(xb2_hw_tabs[c_xb2_edit]) and (led_on shr 6); // EDIT !!!
+    lo(temp_word):= lo(temp_word) or swi_get_TabLED_bits(0, true); // SOLO
+
+    hi(temp_word):= (swi_get_TabLED_bits(1, true) shr 6)     // 2ND
+                  or (swi_get_TabLED_bits(2, true) shr 4)  // 3RD LED
+                  or (swi_get_TabLED_bits(3, true) shr 2)  // VIBRATO LED
+                  or swi_get_TabLED_bits(7, true); // FAST LED
+  end else begin
+
+    // Feste Tabs in xb2_hw_tabs übertragen
+    xb2_hw_tabs[c_xb2_2nd]:= edit_LogicalTab_PercOn and (edit_LogicalTab_Perc3rd = 0);
+    xb2_hw_tabs[c_xb2_3rd]:= edit_LogicalTab_PercOn and edit_LogicalTab_Perc3rd;
+    xb2_hw_tabs[c_xb2_sf]:= edit_LogicalTab_LeslieFast;
+    if SingleDBsetSelect = 0 then
+      xb2_hw_tabs[c_xb2_vib]:= edit_LogicalTab_VibOnUpper
+    else
+      xb2_hw_tabs[c_xb2_vib]:= edit_LogicalTab_VibOnLower;
+
+    xb2_hw_tabs[c_xb2_solo]:= 0;
+    xb2_hw_tabs[c_xb2_rec]:= edit_LogicalTab_LeslieRun; // Zweitfunktion aus
+
+    temp_perc:= (Byte(xb2_hw_tabs[c_xb2_3rd]) and (led_on_xb2 shl 2))
+                or (Byte(xb2_hw_tabs[c_xb2_2nd]) and (led_on_xb2));
+    if SingleDBsetSelect > 0 then
+      temp_perc:= (temp_perc shl 1);     // PERC-LED bei Lower, Pedal dunkel
+
+    case SingleDBsetSelect of
+    0:
+      temp_solo:= 0;
+    1:
+      temp_solo:= led_on_xb2 shl 6;
+    2:
+      if ToggleLEDstate then  // DBSEL PEDAL blinkt hell/dunkel
+        temp_solo:= led_dark_xb2 shl 6
+      else
+        temp_solo:= led_on_xb2 shl 6;
+    end;
+
+    temp_vib:= xb2_hw_tabs[c_xb2_vib] and (led_on_xb2 shl 4);
+
+    if edit_LogicalTab_RotarySpkrBypass = 0 then begin // S/F aus wenn Bypass
+      // S/F blinkt hell/dunkel mit Leslie-Geschwindigkeit
+      if SpeedBlinkToggle and edit_LogicalTab_LeslieRun then
+        temp_speed:= led_on_xb2 shl 6
+      else
+        temp_speed:= led_dark_xb2 shl 6;
+    end;
+
+    // LEDs 9532 MSB: FF VV 33 22, F = Fast, V = Vibrato, 2/3 =Perc 2nd/3rd
+    hi(temp_word):= temp_vib or temp_perc or temp_speed;
+    // LEDs 9532 LSB: SS 00 00 EE, S = Solo, E = Edit
+    lo(temp_word):= temp_solo or (led_on_xb2 and xb2_hw_tabs[c_xb2_edit]);  // EDIT
+  end;
+  TWI_WriteRegW(PCA9532_7, $18, temp_word);   // 8 LEDs auf neuen Zustand
+end;
+
+// --------------------------------------------------------------------------
+
+procedure xb2_BtnReleasedEvent(const btn: Byte);
+// Cancel- und Preset-Buttons werden mit LOSLASSEN aktiv
+begin
+  MemorizeTimerXB2:= 0;
+  if xb2_hw_tabs[c_xb2_edit] = 0 then begin // keine Zweitfunktion?
+    if btn = 4 then
+      xb2_PresetLoadOrDisplayToggle(0)
+    else if ValueInRange(btn, 8, 15) then // Preset Buttons
+      xb2_PresetLoadOrDisplayToggle(btn - 7);
+  end;
+end;
+
+// --------------------------------------------------------------------------
+
+procedure xb2_RemapSetBtn(xb2_remap_idx: Byte; new_state: boolean);
+var tab_remap: Byte;
+begin
+  tab_remap:= eep_ButtonRemaps_XB2[xb2_remap_idx];
+  if tab_remap < c_hw_btntable_size then
+    NewEditIdxEvent(c_LogicalTabs + tab_remap, new_state, c_control_event_source);
+    // Versuche, ein passendes Menü anzuzeigen
+end;
+
+// --------------------------------------------------------------------------
+
+procedure xb2_BtnPressedEvent(btn: Byte; new_state: Boolean);
+// tab_state enthält NEUEN Tab/LED-Zustand nach Invertierung
+// Btn Idx  0      1      2      3
+// +0       SOLO   2ND    3RD    VIB    - xb2_hw_tabs[0..3]
+// +4       CANCEL REC    EDIT   S/F    - xb2_hw_tabs[4..7]
+// +8       PR1    PR2    PR3    PR4    - xb2_hw_tabs[8..11]
+// +12      PR5    PR6    PR7    PR5    - xb2_hw_tabs[12..15]
+var
+  tab_remap: Byte;
+  old_split_on: Boolean;
+begin
+  if xb2_hw_tabs[c_xb2_edit] then begin // Edit-LED on
+    old_split_on:= edit_LogicalTab_SplitOn;
+    xb2_RemapSetBtn(btn, new_state);
+    if (not old_split_on) and edit_LogicalTab_SplitOn then
+      ForceSplitRequest:= true;
+  end else  // Edit-LED off, hardwired Button-Funktion
+    case btn of
+    0:  // SOLO Btn
+      begin
+        inc(SingleDBsetSelect);
+        if SingleDBsetSelect > 2 then
+          SingleDBsetSelect:= 0;
+        MenuIndex_Requested:= SingleDBsetSelect + 1; // auf DB-Menü
+      end;
+    1:  // PERC 2nd
+      if SingleDBsetSelect = 0 then begin
+        NewEditIdxEvent(c_LogicalTab_PercOn, new_state, c_control_event_source);
+        NewEditIdxEvent(c_LogicalTab_Perc3rd, 0, c_control_event_source);
+        NB_TabsToPercKnob;
+        NewEditIdxEvent(c_PercKnob, edit_PercKnob, c_control_event_source);
+      end;
+    2:  // PERC 3rd
+      if SingleDBsetSelect = 0 then begin
+        NewEditIdxEvent(c_LogicalTab_PercOn, new_state, c_control_event_source);
+        NewEditIdxEvent(c_LogicalTab_Perc3rd, 255, c_control_event_source);
+        NB_TabsToPercKnob;
+        NewEditIdxEvent(c_PercKnob, edit_PercKnob, c_control_event_source);
+      end;
+    3:  // VIBRATO
+      if SingleDBsetSelect = 0 then
+        NewEditIdxEvent(c_LogicalTab_VibOnUpper, new_state, c_control_event_source)
+      else
+        NewEditIdxEvent(c_LogicalTab_VibOnLower, new_state, c_control_event_source);
+//  4:  // CANCEL
+    5:  // RECORD Btn
+      NewEditIdxEvent(c_LogicalTab_LeslieRun, new_state, c_control_event_source);
+//  6:  // EDIT
+    7:  // S/F Button
+      begin
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_control_event_source);
+        NewEditIdxEvent(c_LogicalTab_LeslieFast, new_state, c_control_event_source);
+        MenuIndex_SplashIfEnabled:= c_RotaryFastMenu;
+      end;
+    end;
+end;
+
+// --------------------------------------------------------------------------
+
+procedure xb2_CheckPresetTimeout(btn: Byte);
+// Prüft, ob Button min. 2 Sekunden gedrückt wurde
+// Wenn ja, Abspeichern des Presets
+var
+  blinks: Word;
+begin
+  if (not xb2_hw_tabs[c_xb2_edit]) then begin  // Cancel und Preset Buttons
+    if not inctolimW(MemorizeTimerXB2, 100) then begin
+      // Timer abgelaufen, Preset speichern
+      edit_CommonPreset:= 0;     // Default Btn 4, Cancel
+      if (btn >= 8) then         // Preset-Buttons
+        edit_CommonPreset:= btn - 7;   // beginnen mit 1!
+      NewEditIdxEvent(c_SaveEventPreset, edit_CommonPreset, c_control_event_source);
+      MSG_SaveDone;
+      for blinks:= 0 to 3 do begin
+        temp_word:= $5555;
+        TWI_WriteRegW(PCA9532_7, $18, temp_word);   // 8 LEDs auf neuen Zustand
+        mdelay(100);
+        temp_word:= 0;
+        TWI_WriteRegW(PCA9532_7, $18, temp_word);   // 8 LEDs auf neuen Zustand
+        mdelay(100);
+      end;
+      MemorizeTimerXB2:= 0;
+    end;
+    xb2_hw_tabs[btn]:= false;
+  end else
+    MemorizeTimerXB2:= 0;
+end;
+
+// --------------------------------------------------------------------------
+
+procedure SWI_HandleXB2panel;
+// Übersetzt Tastermatrix...
+// INPUT        P0.2   P0.3   P0.4   P0.5
+// ROW A P0.7   VIB    3RD    2ND    SOLO
+// ROW B P0.6   S/F    EDIT   REC    CANCEL
+// ROW C P0.0   PR4    PR3    PR2    PR1
+// ROW D P0.1   PR8    PR7    PR6    PR5
+// ...in diese Tabellen-Reihenfolge:
+// mapidx  0      1      2      3
+// +0      SOLO   2ND    3RD    VIB    - xb2_hw_tabs[0..3]
+// +4      CANCEL REC    EDIT   S/F    - xb2_hw_tabs[4..7]
+// +8      PR1    PR2    PR3    PR4    - xb2_hw_tabs[8..11]
+// +12     PR5    PR6    PR7    PR5    - xb2_hw_tabs[12..15]
+var btn, btn_row, btn_col: Byte;
+  btn_state, tab_state: Boolean;
+  old_split_on: Byte;
+  fpga_resp: DWord;
+begin
+  if edit_ADCconfig = 5 then begin // Single Drawbar mode, Auto Switch
+    fpga_resp:= SPI_fpga_xfer_32(0, 0, false); // STATUS anfordern
+    fpga_resp:= fpga_resp and %11000000;
+    if fpga_resp = %11000000 then begin
+      SingleDBsetSelect:= 2;  // Pedal gespielt
+      if valueInRange(MenuIndex, 1, 3) then
+        MenuIndex_Requested:= 3; // auf DB-Menü Pedal
+    end else if fpga_resp = %01000000 then begin
+      SingleDBsetSelect:= 0;  // Upper gespielt, KEYS_ON_UPR-Bit 6
+      if valueInRange(MenuIndex, 1, 3) then
+        MenuIndex_Requested:= 1; // auf DB-Menü Upper
+    end else if fpga_resp = %10000000 then begin
+      SingleDBsetSelect:= 1;  // Lower gespielt, KEYS_ON_LWR-Bit 7
+      if valueInRange(MenuIndex, 1, 3) then
+        MenuIndex_Requested:= 2; // auf DB-Menü Lower
+    end;
+  end;
+
+  if PanelsPresent[c_xb2_present_idx] then begin
+    if edit_ADCconfig < 4 then
+      SingleDBsetSelect:= 0;
+    old_split_on:= edit_LogicalTab_SplitOn;
+    xb2_UpdateLEDs;
+    for btn_row:= 0 to 3 do begin
+      temp_word:= c_XB2selects9532[btn_row];
+      TWI_WriteRegW(PCA9532_7, $16, temp_word); // Select-Ausgänge setzen
+      // Einer der Select-Ausgänge ist jetzt auf 0 (ON), der Rest 1
+      Delay_us(50);
+      temp_byte:= TWI_ReadRegB(PCA9532_7, 0);    // Lesen Port 0
+      temp_byte:= (not temp_byte) and %00111100;  // invertiert, 0 = Taster gedrückt
+      for btn_col:= 0 to 3 do begin
+        btn:= btn_col + (btn_row * 4);
+        btn_state:= temp_byte.(5 - btn_col); // Umgekehrte Bit-Reihenfolge!
+        if btn_state then begin
+          if ((btn = 4) or (btn >= 8)) and (xb2_hw_tabs[c_xb2_edit] = 0) then
+            // Preset-Buttons Timeout nur wenn nicht Edit ON
+            xb2_CheckPresetTimeout(btn)
+          else if (xb2_hw_btnstates_old[btn] = 0) then begin
+            // Erstmals "gedrückt" festgestellt?
+            if xb2_hw_tabs[c_xb2_edit] then begin
+              tab_state:= xb2_hw_tabs_editmode[btn] = 0;  // einmalig invertieren
+              xb2_hw_tabs_editmode[btn]:= Byte(tab_state);
+              xb2_hw_tabs[c_xb2_edit]:= xb2_hw_tabs_editmode[c_xb2_edit];    // beide mitführen
+            end else begin
+              tab_state:= xb2_hw_tabs[btn] = 0;      // einmalig invertieren
+              xb2_hw_tabs[btn]:= Byte(tab_state);
+              xb2_hw_tabs_editmode[c_xb2_edit]:= xb2_hw_tabs[c_xb2_edit];
+            end;
+            xb2_BtnPressedEvent(btn, Byte(tab_state));
+          end;
+        end else
+          if (xb2_hw_btnstates_old[btn]) then
+            // Preset-Taster erstmals "losgelassen" festgestellt?
+            xb2_BtnReleasedEvent(btn);
+        xb2_hw_btnstates_old[btn]:= Byte(btn_state);
+      end;
+    end;
+    TWI_WriteRegW(PCA9532_7, $16, 0); // Select-Ausgänge setzen
+  end;
+end;
+
+// #############################################################################
+// ############################ HX3.5 PANEL16 ##################################
+// #############################################################################
+// ####                  Standard-Panels und Extend16                       ####
+// #############################################################################
+
+// #############################################################################
+// ###                          LED-Routinen                                 ###
+// #############################################################################
+
+procedure swi_set_simple_PresetLEDs(first_btn, btn_count, led_number: Byte; invalid: Boolean);
+var led_state: Byte;
+begin
+  if invalid then
+    led_state:= led_dark and Byte(IRQ_Toggle)
+  else
+    led_state:= led_bright;
+  FillBlock(@swi_hw_btnstates + first_btn, btn_count + 1, led_off);
+  swi_hw_btnstates[first_btn + led_number]:= led_state;
+end;
+
+procedure swi_set_organ_PresetLEDs(first_btn, btn_count, led_number: Byte);
+// zu Model passendes Button-Assgnment suchen
+var model_idx: Word;
+begin
+  model_idx:= swi_inverse_organmodels[led_number];
+  FillBlock(@swi_hw_btnstates + first_btn, btn_count + 1, led_off);
+  if model_idx <= btn_count then
+    swi_hw_btnstates[first_btn + model_idx]:= led_bright;
+end;
+
+procedure swi_set_speaker_PresetLEDs(first_btn, btn_count, led_number: Byte);
+// zu Model passendes Button-Assgnment suchen
+var model_idx: Word;
+begin
+  model_idx:= swi_inverse_speakermodels[led_number];
+  FillBlock(@swi_hw_btnstates + first_btn, btn_count + 1, led_off);
+  if model_idx <= btn_count then
+    swi_hw_btnstates[first_btn + model_idx]:= led_bright;
+end;
+
+procedure swi_set_binary_PresetLEDs(first_btn, btn_count, bin_value: Byte; invalid: Boolean);
+var led_state: Byte;
+begin
+  if invalid then
+    led_state:= led_dark and Byte(IRQ_Toggle)
+  else
+    led_state:= led_bright;
+  temp_b:= bin_value; // Bits müssen indiziert werden können
+  for idx:= 0 to btn_count do
+    if temp_b.idx then
+      swi_hw_btnstates[first_btn + idx]:= led_state
+    else
+      swi_hw_btnstates[first_btn + idx]:= led_off; // = 0
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure swi_set_PresetLEDs;
+// setzt LED-Zustand in swi_tabs anhand Preset-Nummern, sofern zugewiesen
+// ca. 15µs
+var
+  first_btn, btn_count, btn_type_idx: Word;
+begin
+  for btn_type_idx:= c_mapidx_firsttype to c_mapidx_lasttype do begin
+    // Index 0..10
+    first_btn:= swi_firstbtns[btn_type_idx];
+    if first_btn < c_hw_btntable_size then begin // vorhanden?
+      btn_count:= swi_lastbtns[btn_type_idx] - first_btn;
+      case btn_type_idx of
+      // normale (einzelne) Voice-LEDs einstellen, so vorhanden
+      c_mapidx_preset: //
+        swi_set_simple_PresetLEDs(first_btn, btn_count, edit_CommonPreset, PresetInvalids[0]);
+      c_mapidx_voice_upr: //
+        swi_set_simple_PresetLEDs(first_btn, btn_count, edit_UpperVoice, PresetInvalids[1] or SWI_CancelActive_upr);
+      c_mapidx_voice_lwr: //
+        swi_set_simple_PresetLEDs(first_btn, btn_count, edit_LowerVoice, PresetInvalids[2] or SWI_CancelActive_lwr);
+      c_mapidx_voice_ped: //
+        swi_set_simple_PresetLEDs(first_btn, btn_count, edit_PedalVoice, PresetInvalids[3]);
+      c_mapidx_organmodel: //
+        swi_set_organ_PresetLEDs(first_btn, btn_count, edit_OrganModel);
+      c_mapidx_speakermodel: //
+        swi_set_speaker_PresetLEDs(first_btn, btn_count, edit_RotaryModel);
+      // Binary-LEDs einstellen, so vorhanden
+      c_mapidx_binary_preset: //
+        swi_set_binary_PresetLEDs(first_btn, btn_count, edit_CommonPreset, PresetInvalids[0]);
+      c_mapidx_binary_voice_upr, c_mapidx_binary_voice_ul,
+      c_mapidx_binary_voice_ulp: //
+        swi_set_binary_PresetLEDs(first_btn, btn_count, edit_UpperVoice, PresetInvalids[1]);
+      c_mapidx_binary_voice_lwr, c_mapidx_binary_voice_lp: //
+        swi_set_binary_PresetLEDs(first_btn, btn_count, edit_LowerVoice, PresetInvalids[2]);
+      c_mapidx_binary_voice_ped: //
+        swi_set_binary_PresetLEDs(first_btn, btn_count, edit_PedalVoice, PresetInvalids[3]);
+      end;
+    end;
+  end;
+  // Cancel-Buttons unabhängig vom Panel setzen
+  if swi_has_cancel_upr then
+    // Upper Cancel, Cancel-LED zusätzlich zu Voice anzeigen
+    swi_hw_btnstates[swi_cancel_idx_upr]:= led_bright and byte(SWI_CancelActive_upr);
+    
+  if swi_has_cancel_lwr then
+    // Lower Cancel, Cancel-LED zusätzlich zu  Voice anzeigen
+    swi_hw_btnstates[swi_cancel_idx_lwr]:= led_bright and byte(SWI_CancelActive_lwr);
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+function swi_get_TabLED_bits(const btn_idx: Byte; const xb2_mode: Boolean): Byte;
+// holt einzelnen LED-Zustand aus Logical Tabs,
+// sofern als Remap zugewiesen,
+// sonst aus swi_hw_btnstates (z.B. vorbereitete  Preset-Leds)
+// Sonderbehandlung spezielle Taster: Percussion, Leslie RUN-Blink
+var dim_bits: Byte;
+    btn_remap: Byte;
+begin
+  if xb2_mode then
+    btn_remap:= eep_ButtonRemaps_XB2[btn_idx]
+  else
+    btn_remap:= eep_ButtonRemaps[btn_idx];
+// setze zur LED gehörigen Tab-Wert, falls zugeordnet
+  if btn_remap < c_hw_btntable_size then begin
+    // aktueller Tab-Zustand in LED-Bit bei zugewiesenen Buttons
+    dim_bits:= byte(edit_LogicalTabs[btn_remap]) and led_bright;
+    if not xb2_mode then
+      swi_hw_btnstates[btn_idx]:= dim_bits;
+  end else begin
+    // bei nicht zugewiesenen Buttons, z.B. Presets
+    if xb2_mode then
+      dim_bits:= 0
+    else
+      dim_bits:= swi_hw_btnstates[btn_idx];
+  end;
+  // Sonderbehandlung LEDs spezielle Taster anhand aktuellem Remap:
+  // Percussion, Leslie RUN-Blink
+  // Default: led_bright wenn ON
+  if (dim_bits <> led_off)
+  or (btn_remap >= c_map_incdec_firstbtn) then
+    case btn_remap of
+    c_map_percon:   // Percussion ON Btn
+      if DisablePercussion then begin
+        dim_bits:= led_dark;
+        if IRQ_Toggle then
+          dim_bits:= led_dark
+        else
+          dim_bits:= led_off;
+      end;
+    c_map_percsoft, c_map_percfast, c_map_perc3rd:  // Percussion
+      if DisablePercussion or (edit_LogicalTab_PercOn = 0) then
+        dim_bits:= led_dark;
+    c_map_leslierun:  // Leslie RUN
+      if SpeedBlinkToggle then
+        dim_bits:= led_dark;
+    c_map_dectranspose: // Transpose DOWN
+      if (edit_GenTranspose > 128) then begin
+        if IRQ_Toggle then
+          dim_bits:= led_dark
+        else
+          dim_bits:= led_on;
+      end else
+        dim_bits:= led_off;
+    c_map_inctranspose: // Transpose UP
+      if valueInRange(edit_GenTranspose, 1, 127) then begin
+        if IRQ_Toggle then
+          dim_bits:= led_dark
+        else
+          dim_bits:= led_on;
+      end else
+        dim_bits:= led_off;
+    c_map_singledb_toggle: // SingleDBsetSelect Toggle
+      case SingleDBsetSelect of
+      0:
+        dim_bits:= led_off;
+      1:
+        dim_bits:= led_on;
+      2:
+        if IRQ_Toggle then
+          dim_bits:= led_dark
+        else
+          dim_bits:= led_on;
+      end;
+    end;
+  result:= dim_bits;
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+function swi_setLEDs_getInPort(const panel_nr: Byte): Word;
+// setzt LED-Zustand anhand Presets/Voices, Logical Tabs
+// Liefert aktuellen Port-Wert vom PCA9532 zurück (16 Bit)
+// benötigt etwa 700µs
+var
+  btn, btn_idx, i2c_addr, dim_bits: Byte;
+  swap_rows: Boolean;
+begin
+  // bereitet LED-Bits in swi_hw_btnstates vor, falls dort Voices oder Presets liegen
+  swi_set_PresetLEDs;
+
+  i2c_addr:= PCA9532_0 + panel_nr;
+  temp_leds:= 0;
+  TWI_WriteRegDW(i2c_addr, $16, temp_leds); // 16 LEDs abschalten, 4 Bytes - 72µs!
+
+  // LED-Zustand ermitteln und in temp_leds einschieben
+  btn_idx:= panel_nr * 16;          // btn_idx wird über inc() mitgeführt
+  for btn:= 0 to 15 do begin
+    dim_bits:= swi_get_TabLED_bits(btn_idx, false);
+    // LED-Longword vorbereiten, 32 Bits
+    temp_leds:= temp_leds shr 2; // 2 Nullen einschieben = led_off
+    highest(temp_leds):= highest(temp_leds) or dim_bits;
+    inc(btn_idx);
+  end;
+  
+  swap_rows:= (panel_nr = 0) and edit_ConfBits1.0
+              or (panel_nr = 1) and edit_ConfBits1.1;
+  if swap_rows then begin
+    // alte Reihenfolge der Preset-Buttons, unten links = 0/Live
+    // LED-Word berechnet, Ports lesen und neuen LED-Wert senden
+    // In-Ports müssen beim 9532 einzeln gelesen werden!
+    lo(temp_word):= TWI_ReadRegB(i2c_addr, 0);    // Lesen Port 0
+    hi(temp_word):= TWI_ReadRegB(i2c_addr, 1);    // Lesen Port 1
+  end else begin
+    // neue Reihenfolge der Buttons
+    // Words vertauschen wg. Port-Reihenfolge der Register
+    temp_word:= hiWord(temp_leds);
+    hiWord(temp_leds):= Word(temp_leds);
+    loWord(temp_leds):= temp_word;
+    // LED-Word berechnet, Ports lesen und neuen LED-Wert senden
+    // In-Ports müssen beim 9532 einzeln gelesen werden!
+    lo(temp_word):= TWI_ReadRegB(i2c_addr, 1);    // Lesen Port 1
+    hi(temp_word):= TWI_ReadRegB(i2c_addr, 0);    // Lesen Port 0
+  end;
+
+  TWI_WriteRegDW(i2c_addr, $16, temp_leds);   // neuer LED-Wert, 4 Bytes
+  result:= not temp_word;  // invertiert!
+end;
+
+// #############################################################################
+// ###                          Button-Events                                ###
+// #############################################################################
+
+procedure swi_panel_blink(panel_nr: Byte);
+var
+  i2c_addr: Byte;
+begin
+  i2c_addr:= PCA9532_0 + panel_nr;
+  for idx:= 0 to 2 do begin
+    temp_leds:= $55555555;
+    TWI_WriteRegDW(i2c_addr, $16, temp_leds);   // 16 LEDs auf neuen Zustand
+    mDelay(100);
+    temp_leds:= 0;
+    TWI_WriteRegDW(i2c_addr, $16, temp_leds);   // 16 LEDs auf neuen Zustand
+    mDelay(100);
+  end;
+end;
+
+procedure swi_BtnReleasedEvent(panel_nr, hw_btn_idx: Byte; save_preset: Boolean);
+// Physikalischer Panel-Button in btn (0..63) wurde erstmals als
+// "losgelassen" registriert, liefert ggf. preset_nr zurück
+var
+  btn_remap, first_preset_btn, preset_nr: Word;
+
+begin
+  btn_remap:= eep_ButtonRemaps[hw_btn_idx];
+  preset_nr:= 0;
+  // Cancel-Buttons gehören zwar zu einer Voice-Gruppe, bewirken aber
+  // nur das Abschalten der Drawbars, wenn kürzer als 2sec. gedrückt
+  if not PresetWasSaved then 
+    case btn_remap of
+    c_map_cancel_upr: //
+      begin
+        if not save_preset then begin
+          for idx:= 0 to 15 do
+            NewEditIdxEvent(idx + c_UpperDBs, 0, c_control_event_source);
+          SWI_CancelActive_upr:= true;
+        end;
+        swi_cancelsaverequ_upr:= false;
+        exit;
+      end;
+    c_map_cancel_lwr: //
+      begin
+        if not save_preset then begin
+          for idx:= 0 to 15 do
+            NewEditIdxEvent(idx + c_LowerDBs, 0, c_control_event_source);
+          SWI_CancelActive_lwr:= true;
+        end;
+        swi_cancelsaverequ_lwr:= false;
+        exit;
+      end;
+    end;
+  
+  if valueInRange(btn_remap, c_map_preset, c_map_voice_ped)
+  or valueInRange(btn_remap, c_map_organmodel, c_map_speakermodel) then begin
+    // NICHT bei c_map_binary_preset!
+    first_preset_btn:= swi_firstbtns[btn_remap - c_map_preset];
+    if first_preset_btn <= hw_btn_idx then begin
+      preset_nr:= valueTrimLimit(hw_btn_idx - first_preset_btn, 0, 15);
+      case btn_remap of
+      c_map_preset: //
+        if save_preset then begin
+          edit_CommonPreset:= preset_nr;
+          NewEditIdxEvent(c_SaveEventPreset, preset_nr, c_control_event_source);
+        end else
+          NewEditIdxEvent(c_CommonPreset, preset_nr, c_control_event_source);
+      c_map_voice_upr: //
+        begin
+          if save_preset then begin
+            edit_UpperVoice:= preset_nr;
+            NewEditIdxEvent(c_SaveEventUpper, preset_nr, c_control_event_source);
+          end else
+            NewEditIdxEvent(c_UpperVoice, preset_nr, c_control_event_source);
+          SWI_CancelActive_upr:= false; // kein Cancel mehr
+        end;
+      c_map_voice_lwr:  //
+        begin
+          if save_preset then begin
+            edit_LowerVoice:= preset_nr;
+            NewEditIdxEvent(c_SaveEventLower, preset_nr, c_control_event_source);
+          end else
+            NewEditIdxEvent(c_LowerVoice, preset_nr, c_control_event_source);
+          SWI_CancelActive_lwr:= false; // kein Cancel mehr
+        end;
+      c_map_voice_ped:  //
+        if save_preset then begin
+          edit_PedalVoice:= preset_nr;
+          NewEditIdxEvent(c_SaveEventPedal, preset_nr, c_control_event_source);
+        end else
+          NewEditIdxEvent(c_PedalVoice, preset_nr, c_control_event_source);
+      c_map_organmodel:  //
+        NewEditIdxEvent(c_OrganModel, eep_OrganModelAssignments[preset_nr], c_control_event_source);
+      c_map_speakermodel:  //
+        NewEditIdxEvent(c_RotaryModel, eep_SpeakerModelAssignments[preset_nr], c_control_event_source);
+      end;
+      swi_set_PresetLEDs;
+    end;
+  end;
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+procedure swi_BtnPressedEvent(hw_btn_idx: Word);
+// Physikalischer Panel-Button in btn_idx (0..63) wurde erstmals als
+// "betätigt" registriert
+var
+  btn_remap, panel_nr, first_btn, btn_count: Word;
+  tab_state, old_split_on: Boolean;
+begin
+  btn_remap:= eep_ButtonRemaps[hw_btn_idx];
+  // normale Buttons invertieren, ON/OFF
+  if btn_remap < c_map_firsttype then begin
+    // keine Presets und Voices!
+    old_split_on:= edit_LogicalTab_SplitOn;
+    tab_state:= swi_hw_btnstates[hw_btn_idx] = led_off;  // invertieren wenn Button
+    swi_hw_btnstates[hw_btn_idx]:= byte(tab_state) and led_bright;
+    NewEditIdxEvent(c_LogicalTabs + btn_remap, tab_state, c_control_event_source);
+//    MenuIndex_SplashIfEnabled:= EditIdx2MenuInverseArray[c_LogicalTabs + btn_remap];
+    // Split Request, geändert?
+    if edit_LogicalTab_SplitOn and (not old_split_on) then
+      ForceSplitRequest:= true;
+  end;
+  if not edit_ConfBits2.B4 then begin  // kein Delayed Cancel Save?
+    if btn_remap = c_map_cancel_upr then
+      swi_cancelsaverequ_upr:= true;
+    if btn_remap = c_map_cancel_lwr then
+      swi_cancelsaverequ_lwr:= true;
+  end;
+
+{$IFDEF DEBUG_SWI}
+  Serial1_sendstring('/ SWI Pressed Btn: ' + ByteToStrTrim(hw_btn_idx));
+  Serial1_sendstring(', Remap to: ' + ByteToStrTrim(btn_remap));
+  Serial1_sendstringCRLF(', Menu Idx: ' + ByteToStrTrim(MenuIndex_SplashIfEnabled));
+{$ENDIF}
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+procedure swi_voice_released(btn_remap, voice_idx, panel_nr: Byte);
+var preset_temp: Byte;
+begin
+  // 100..109
+  preset_temp:= swi_CollectBinaryPresetButtons(btn_remap - c_map_firsttype);
+  // wenn kein Save-Timeout und gleiche Tasten nochmal gedrückt
+  if (not PresetWasSaved) and (edit_voices[voice_idx] = preset_temp) then
+    NewEditIdxEvent(c_voices, 0, c_control_event_source) // Dann auf 0
+  else
+    NewEditIdxEvent(c_voices, preset_temp, c_control_event_source);
+  swi_set_PresetLEDs;
+{$IFDEF DEBUG_SWI}
+    Serial1_sendstringCRLF('/ SWI Binary Preset Btns released: ' + ByteToStrTrim(edit_CommonPreset));
+{$ENDIF}
+end;
+
+procedure swi_PanelAllBtnsReleasedEvent(panel_nr, last_btn_released: Byte);
+// Alle Tasten von panel_nr wurden erstmalig losgelassen,
+// für Binary Presets
+var btn_remap, preset_temp: Word;
+begin
+  // War es ein Binary Common Preset Button?
+  btn_remap:= eep_ButtonRemaps[last_btn_released];
+  case btn_remap of
+  c_map_binary_preset: //
+    swi_voice_released(btn_remap, 0, panel_nr);
+  c_map_binary_voice_upr: //
+    swi_voice_released(btn_remap, 1, panel_nr);
+  c_map_binary_voice_lwr: //
+    swi_voice_released(btn_remap, 2, panel_nr);
+  c_map_binary_voice_ped: //
+    swi_voice_released(btn_remap, 3, panel_nr);
+  c_map_binary_voice_ul: //
+    begin
+      swi_voice_released(btn_remap, 1, panel_nr);
+      edit_LowerVoice:= edit_UpperVoice;
+      NewEditIdxEvent(c_LowerVoice, edit_UpperVoice, c_control_event_source);
+    end;
+  c_map_binary_voice_ulp: //
+    begin
+      swi_voice_released(btn_remap, 1, panel_nr); // speichert edit_UpperVoice
+      NewEditIdxEvent(c_LowerVoice, edit_UpperVoice, c_control_event_source);
+      NewEditIdxEvent(c_PedalVoice, edit_UpperVoice, c_control_event_source);
+    end;
+  c_map_binary_voice_lp: //
+    begin
+      swi_voice_released(btn_remap, 2, panel_nr); // speichert edit_LowerVoice
+      NewEditIdxEvent(c_PedalVoice, edit_LowerVoice, c_control_event_source);
+    end;
+  end;
+  MemorizeTimerPanel:= 0;
+  swi_cancelsaverequ_upr:= false;
+  swi_cancelsaverequ_lwr:= false;
+  PresetWasSaved:= false;
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+procedure swi_SwitchChangedEvent(panel_nr, hw_btn_idx: Byte; switch_state: Boolean);
+// Physikalischer Panel-Button in btn (0..63) wurde erstmals als
+// "eingeschaltet" oder "ausgeschaltet" registriert
+// wird niemals für Cancel-Buttons aufgerufen, da immer auf Button gesetzt
+var
+  btn_remap, first_preset_btn, preset_nr: Word;
+  old_split_on: Boolean;
+begin
+  btn_remap:= eep_ButtonRemaps[hw_btn_idx];
+  // Schalter direkt übernehmen
+  if btn_remap < c_hw_btntable_size then begin
+    old_split_on:= edit_LogicalTab_SplitOn;
+    swi_hw_btnstates[hw_btn_idx]:= byte(switch_state) and led_bright;
+    NewEditIdxEvent(c_LogicalTabs + btn_remap, byte(switch_state), c_control_event_source);
+    MenuIndex_SplashIfEnabled:= EditIdx2MenuInverseArray[btn_remap + 128];
+    // Split Request, geändert?
+    if edit_LogicalTab_SplitOn and (not old_split_on) then
+      ForceSplitRequest:= true;
+  end else if switch_state and valueInRange(btn_remap, c_map_preset, c_map_voice_ped) then begin
+    // Latched Preset Keys, Preset sofort nach Drücken aufrufen 
+    // oder abspeichern, wenn zugehöriges Cancel gedrückt war
+    first_preset_btn:= swi_firstbtns[btn_remap - c_map_preset];
+    preset_nr:= valueTrimLimit(hw_btn_idx - first_preset_btn, 0, 15);
+    if (btn_remap = c_map_voice_upr) and swi_cancelsaverequ_upr then begin
+      PresetWasSaved:= true;
+      edit_UpperVoice:= preset_nr;
+      NewEditIdxEvent(c_SaveEventUpper, preset_nr, c_control_event_source);
+      swi_panel_blink(panel_nr);
+    end else if (btn_remap = c_map_voice_lwr) and swi_cancelsaverequ_lwr then begin
+      PresetWasSaved:= true;
+      edit_LowerVoice:= preset_nr;
+      NewEditIdxEvent(c_SaveEventLower, preset_nr, c_control_event_source);
+      swi_panel_blink(panel_nr);
+    end else
+      swi_BtnReleasedEvent(panel_nr, hw_btn_idx, false);
+  end;
+{$IFDEF DEBUG_SWI}
+  Serial1_sendstring('/ SWI Switch Input: ' + ByteToStrTrim(hw_btn_idx));
+  Serial1_sendstring(', Remap: ' + ByteToStrTrim(btn_remap));
+  Serial1_sendstring(', Menu: ' + ByteToStrTrim(MenuIndex_SplashIfEnabled));
+  if switch_state then
+    Serial1_sendstringCRLF(', ON')
+  else
+    Serial1_sendstringCRLF(', OFF')
+{$ENDIF}
+end;
+
+procedure swi_MiniSwitchChangedEvent(pin_idx: Byte; switch_state: Boolean);
+// Physikalischer MiniSwitch-Eingang in btn (0..15) wurde geändert
+var
+  btn_remap: Word;
+begin
+  btn_remap:= eep_SwitchRemaps[pin_idx];
+  NewEditIdxEvent(c_LogicalTabs + btn_remap, byte(switch_state), c_control_event_source);
+  MenuIndex_SplashIfEnabled:= EditIdx2MenuInverseArray[btn_remap + 128];
+{$IFDEF DEBUG_SWI}
+  Serial1_sendstring('/ SWI MiniSwitch Pin: ' + ByteToStrTrim(pin_idx));
+  Serial1_sendstring(', Remap: ' + ByteToStrTrim(btn_remap));
+  Serial1_sendstring(', Menu: ' + ByteToStrTrim(MenuIndex_SplashIfEnabled));
+  if switch_state then
+    Serial1_sendstringCRLF(', ON')
+  else
+    Serial1_sendstringCRLF(', OFF')
+{$ENDIF}
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+procedure swi_CheckPresetTimeout(panel_nr, hw_btn_idx: Byte);
+// Physikalischer Panel-Button in btn (0..63)
+var
+  btn_remap, preset_nr, first_preset_btn, i2c_addr: Byte;
+begin
+  btn_remap:= eep_ButtonRemaps[hw_btn_idx];
+  if not inctolimW(MemorizeTimerPanel, 100) then // Timer abgelaufen, Preset neu setzen und speichern
+    case btn_remap of
+    c_map_binary_preset: //
+      begin
+        edit_CommonPreset:= swi_CollectBinaryPresetButtons(c_mapidx_binary_preset);
+        NewEditIdxEvent(c_SaveEventPreset, edit_CommonPreset, c_control_event_source);
+        PresetWasSaved:= true;    // für swi_PanelAllBtnsReleasedEvent
+      end;
+
+    c_map_cancel_upr: //
+      if edit_ConfBits2.B4 then  // Delayed Cancel Save
+        swi_cancelsaverequ_upr:= true; // Cancel als verzögerter Memory-Button
+    c_map_cancel_lwr: //
+      if edit_ConfBits2.B4 then  // Delayed Cancel Save
+        swi_cancelsaverequ_lwr:= true; // Cancel als verzögerter Memory-Button
+
+    c_map_binary_voice_ul: //
+      begin
+        edit_UpperVoice:= swi_CollectBinaryPresetButtons(c_mapidx_binary_voice_ul);
+        edit_LowerVoice:= edit_UpperVoice;
+        NewEditIdxEvent(c_SaveEventUpper, edit_UpperVoice, c_control_event_source);
+        NewEditIdxEvent(c_SaveEventLower, edit_LowerVoice, c_control_event_source);
+        PresetWasSaved:= true;    // für swi_PanelAllBtnsReleasedEvent
+      end;
+    c_map_binary_voice_ulp: //
+      begin
+        edit_UpperVoice:= swi_CollectBinaryPresetButtons(c_mapidx_binary_voice_ulp);
+        edit_LowerVoice:= edit_UpperVoice;
+        edit_PedalVoice:= edit_UpperVoice;
+        NewEditIdxEvent(c_SaveEventUpper, edit_UpperVoice, c_control_event_source);
+        NewEditIdxEvent(c_SaveEventLower, edit_LowerVoice, c_control_event_source);
+        NewEditIdxEvent(c_SaveEventPedal, edit_PedalVoice, c_control_event_source);
+        PresetWasSaved:= true;    // für swi_PanelAllBtnsReleasedEvent
+      end;
+    c_map_binary_voice_lp:  //
+      begin
+        edit_LowerVoice:= swi_CollectBinaryPresetButtons(c_mapidx_binary_voice_lp);
+        edit_PedalVoice:= edit_LowerVoice;
+        NewEditIdxEvent(c_SaveEventLower, edit_LowerVoice, c_control_event_source);
+        NewEditIdxEvent(c_SaveEventPedal, edit_PedalVoice, c_control_event_source);
+        PresetWasSaved:= true;    // für swi_PanelAllBtnsReleasedEvent
+      end;
+    c_map_voice_upr, c_map_voice_lwr, c_map_voice_ped,
+    c_map_preset:  //
+      begin
+        swi_BtnReleasedEvent(panel_nr, hw_btn_idx, true);
+        PresetWasSaved:= true;    // für swi_PanelAllBtnsReleasedEvent
+      end;
+    end;
+
+  if PresetWasSaved then begin
+    swi_panel_blink(panel_nr);
+    MemorizeTimerPanel:= 0;
+  end;
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+procedure SWI_HandlePanel(panel_nr: Byte; force_sw_reload: Boolean);
+// Fragt Panel mit PCA9532 ab, je nach BtnSwitchSelects Button oder Switch
+// Wenn force_sw_reload TRUE ist, werden alle SCHALTER neu eingelesen
+var
+  old_input_word: Word;
+  btn_state, btn_state_old: Boolean;
+  btn, btn_idx, last_btn_released: Word;
+  any_btn_on, any_btn_on_old: Boolean;
+begin
+  if not PanelsPresent[panel_nr] then
+    exit;
+  // LEDs setzen und 16-Bit-Port holen
+  inp_word:= swi_setLEDs_getInPort(panel_nr);
+  old_input_word:= swi_hw_OldInputWords[panel_nr];
+  // hat sich überhaupt etwas geändert?
+  any_btn_on:= false;
+  any_btn_on_old:= false;
+  if (inp_word <> 0) or (inp_word <> old_input_word) or force_sw_reload then begin
+    // btn_idx zeigt auf swi_hw_btnstates- und swi_hw_btnstates_old-Array
+    btn_idx:= panel_nr * 16;  // wird in Schleife inkrementiert!
+    for btn:= 0 to 15 do begin
+      btn_state:= inp_word.btn;  // 0 oder 1, nicht 0 oder TRUE!
+      if btn_state then
+        btn_state:= true;
+      btn_state_old:= swi_hw_btnstates_old[btn_idx];
+      if eep_ButtonModes[btn_idx] then begin
+        // Switch-Eingang
+        if (btn_state <> btn_state_old) or force_sw_reload then
+          swi_SwitchChangedEvent(panel_nr, btn_idx, btn_state);
+      end else begin
+        // Button-Eingang oder CANCEL key
+        if btn_state then begin
+          any_btn_on:= true;
+          swi_hw_btnstates_collected[btn_idx]:= true;
+          if not btn_state_old then
+            // Erstmals "gedrückt" festgestellt?
+            swi_BtnPressedEvent(btn_idx);   // neu ON oder OFF
+          swi_CheckPresetTimeout(panel_nr, btn_idx);
+        end else
+          if btn_state_old then begin
+            // Taster erstmals "losgelassen" festgestellt?
+            swi_BtnReleasedEvent(panel_nr, btn_idx, false);
+            last_btn_released:= btn_idx;
+            any_btn_on_old:= true;
+          end;
+      end;
+      swi_hw_btnstates_old[btn_idx]:= btn_state;
+      inc(btn_idx); // nächster Button
+    end;
+    swi_hw_OldInputWords[panel_nr]:= inp_word;
+  end;
+  if (not any_btn_on) and any_btn_on_old then begin
+    // berücksichtigt keine SCHALTER!
+    swi_PanelAllBtnsReleasedEvent(panel_nr, last_btn_released);
+    FillBlock(@swi_hw_btnstates_collected, sizeof(swi_hw_btnstates_collected), 0);
+  end;
+end;
+
+procedure SWI_HandleSwitches(board_nr: Byte; force_sw_reload: Boolean);
+// Fragt Switches an MiniSwitch-Board mit PCA9554 ab, 
+// Board Nr. 6 (PCA9554A_6, $3E) oder 7 (PCA9554A_7, $3F)
+// Wenn force_sw_reload TRUE ist, werden alle Schalter neu eingelesen
+var
+  pin_idx: Word;
+  port_state: Byte;
+  pin_state, pin_state_old: Boolean;
+begin
+  if MiniSwitchPresent6 and (board_nr = 6) then begin
+    port_state:= TWI_ReadRegB(PCA9554A_6, 0); // alter Port-Zustand
+    if (swi_minisw_port6 <> port_state) or force_sw_reload then
+      for pin_idx:= 0 to 7 do begin
+        pin_state:= port_state.pin_idx;
+        pin_state_old:= swi_minisw_states_old[pin_idx];
+        if (pin_state <> pin_state_old) or force_sw_reload then begin
+          swi_MiniSwitchChangedEvent(pin_idx, pin_state);
+        end;
+        swi_minisw_states_old[pin_idx]:= pin_state;
+      end;
+    swi_minisw_port6:= port_state;
+  end;
+  if MiniSwitchPresent7 and (board_nr = 7) then begin
+    port_state:= TWI_ReadRegB(PCA9554A_7, 0); // alter Port-Zustand
+    if (swi_minisw_port7 <> port_state) or force_sw_reload then
+      for pin_idx:= 0 to 7 do begin
+        pin_state:= port_state.pin_idx;
+        pin_state_old:= swi_minisw_states_old[pin_idx + 8];
+        if (pin_state <> pin_state_old) or force_sw_reload then begin
+          swi_MiniSwitchChangedEvent(pin_idx + 8, pin_state);
+        end;
+        swi_minisw_states_old[pin_idx + 8]:= pin_state;
+      end;
+    swi_minisw_port7:= port_state;
+  end;
+end;
+
+// #############################################################################
+
+function SWI_GetSwitchHalfmoon: Byte;
+begin
+  // Port inversion eingeschaltet!
+  // Bit 0 = Slow, Bit 1 = Fast
+  if HalfmoonPresent then
+    result:= TWI_ReadRegB(PCA9536, 0) and 3 // Register 0 = Input Port, invertiert!
+  else
+    result:= 0;
+end;
+
+procedure SWI_HandleHalfmoonSw(force_sw_reload: Boolean);
+// Schalter-Eingänge an PCA9536 (Halfmoon-Platine) behandeln
+begin
+  if HalfmoonPresent then begin // immer Schalter-Eingänge an PCA9536
+    HalfmoonSw:= SWI_GetSwitchHalfmoon;
+    if force_sw_reload or (HalfmoonSw <> HalfmoonSw_old) then begin
+      // Serial1_sendstringCRLF('/ Halfmoon set to ' + char(HalfmoonSw + 48));
+      HalfmoonSw_old:= HalfmoonSw;
+      if HalfmoonSw = 0 then // STOP
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, 0, c_board_event_source);
+      if HalfmoonSw = 1 then begin // SLOW
+        NewEditIdxEvent(c_LogicalTab_LeslieFast, 0, c_board_event_source);
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_board_event_source);
+      end;
+      if HalfmoonSw = 2 then begin // FAST
+        NewEditIdxEvent(c_LogicalTab_LeslieFast, 255, c_board_event_source);
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_board_event_source);
+      end;
+    end;
+  end;
+end;
+
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+procedure SWI_HandleSwJacks(force_sw_reload: Boolean);
+// Footswitch-Eingänge Mainboard behandeln
+begin
+  if edit_ADCconfig > 0 then begin
+    if edit_ConfBits2.B5 then begin
+      // Vertauschte Eingänge für Hammond-Halfmoon
+      FootSwFast:= FSW_RUN = 0;
+      FootSwRun:= FSW_FAST = 0;
+    end else begin
+      FootSwFast:= FSW_FAST = 0;
+      FootSwRun:= FSW_RUN = 0;
+    end;
+    if edit_ConfBits2.B0 then begin  // Klinkenbuchsen sind Schalter-Eingänge
+      // FootSwSlow:= FootSwRun and (not FootSwFast);
+      if force_sw_reload or (FootSwFast_old <> FootSwFast) then begin
+        NewEditIdxEvent(c_LogicalTab_LeslieFast, FootSwFast, c_control_event_source);
+        FootSwFast_old:= FootSwFast;
+        if edit_ConfBits2.B1 then begin // Slow/Stop/Fast-Schalter
+          if FootSwFast then
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, c_control_event_source)
+          else if (not FootSwRun) then
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, 0, c_control_event_source);
+        end;
+      end;
+
+      if force_sw_reload or (FootSwRun_old <> FootSwRun) then begin
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, FootSwRun, c_control_event_source);
+        FootSwRun_old:= FootSwRun;
+        if edit_ConfBits2.B1 then  // Slow/Stop/Fast-Schalter
+          if (not FootSwFast) and (not FootSwRun) then begin
+            NewEditIdxEvent(c_LogicalTab_LeslieRun, 0, c_control_event_source);
+            NewEditIdxEvent(c_LogicalTab_LeslieFast, 0, c_control_event_source);
+          end;
+      end;
+    end else begin   // Klinkenbuchsen sind Taster-Eingänge
+      if FootSwFast then
+        inctolimW(FootSwFast_debounce, 5)
+      else
+        dectolimW(FootSwFast_debounce, 0);
+      FootSwFast:= FootSwFast_debounce >= 5;
+      if force_sw_reload or (FootSwFast and (not FootSwFast_old)) then
+        NewEditIdxEvent(c_LogicalTab_LeslieFast, not edit_LogicalTab_LeslieFast, c_control_event_source);
+      FootSwFast_old:= FootSwFast;
+
+      if FootSwRun then
+        inctolimW(FootSwRun_debounce, 5)
+      else
+        dectolimW(FootSwRun_debounce, 0);
+      FootSwRun:= FootSwRun_debounce >= 5;
+      if force_sw_reload or (FootSwRun and (not FootSwRun_old)) then
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, not edit_LogicalTab_LeslieRun, c_control_event_source);
+      FootSwRun_old:= FootSwRun;
+    end;
+  end else begin
+    FootSwFast:= false;
+    FootSwRun:= false;
+  end;
+end;
+
+// #############################################################################
+
+procedure SWI_HandleOEMpreampCtrl;
+// OEM Control Output - TODO: make assignable to any logical tab
+var preamp_byte: Byte;
+begin
+  if PreampPortPresent then begin
+    preamp_byte:= 0;
+    preamp_byte.B0:= UpperSecondaryActive;
+    preamp_byte.B1:= LowerSecondaryActive;
+    preamp_byte.B2:= edit_LogicalTab_LeslieRun <> 0;
+    preamp_byte.B3:= edit_LogicalTab_LeslieFast <> 0;
+    preamp_byte.B4:= edit_LogicalTab_Reverb1 <> 0;
+    preamp_byte.B5:= edit_LogicalTab_Reverb2 <> 0;
+    preamp_byte.B7:= true;
+    if swi_preamp_byte_old <> preamp_byte then
+      TWI_WriteRegB(PCA9554A_1, 1, preamp_byte); // no Port Inversion
+    swi_preamp_byte_old:= preamp_byte;
+  end;
+end;
+// #############################################################################
+
+procedure SWI_ForceSwitchReload;
+var panel_nr: Byte;
+begin
+  for panel_nr:= 0 to 5 do
+    if PanelsPresent[panel_nr] then begin
+{$IFDEF DEBUG_SWI}
+      Serial1_sendstringCRLF('/ SWI Switch reload on panel #' + char(panel_nr + 48));
+{$ENDIF}
+      SWI_HandlePanel(panel_nr, true); // mit force_sw_reload = TRUE
+    end;
+  SWI_HandleSwitches(6, true);
+  SWI_HandleSwitches(7, true);
+  if edit_ConfBits2.B5 then begin
+    FootSwFast:= FSW_RUN = 0;  // Vertauschte Eingänge für Hammond-Halfmoon
+    FootSwRun:= FSW_FAST = 0;
+  end else begin
+    FootSwFast:= FSW_FAST = 0;
+    FootSwRun:= FSW_RUN = 0;
+  end;
+  SWI_HandleSwJacks(true);
+  SWI_HandleHalfmoonSw(true);
+end;
+
+procedure SWI_InitButtons;
+var start_btn, end_btn, btn_type_idx, remap_idx: Byte;
+  model_idx: Word;
+begin
+  SingleDBsetSelect:= 0;
+  FillBlock(@xb2_hw_tabs, sizeof(xb2_hw_tabs), 0);
+  FillBlock(@xb2_hw_btnstates_old, sizeof(xb2_hw_btnstates_old), 0);
+  
+  FillBlock(@swi_minisw_states_old, sizeof(swi_minisw_states_old), 0);
+
+  FillBlock(@swi_hw_btnstates, sizeof(swi_hw_btnstates), 0);
+  FillBlock(@swi_hw_btnstates_old, sizeof(swi_hw_btnstates_old), 0);
+  FillBlock(@PresetInvalids, sizeof(PresetInvalids), 0);
+  // Preset-Buttons in Tabellen eintragen für schnelleren Zugriff
+  FillBlock(@swi_firstbtns, sizeof(swi_firstbtns), 255); // Default "keiner"
+  FillBlock(@swi_lastbtns, sizeof(swi_lastbtns), 255);
+
+  SWI_CancelActive_upr:= false;
+  SWI_CancelActive_lwr:= false;
+
+  swi_cancel_idx_upr:= 255; // Default "keiner"
+  swi_cancel_idx_lwr:= 255;
+  swi_has_cancel_upr:= false;
+  swi_has_cancel_lwr:= false;
+
+  // Anzahl der verwendeten Organ-Model-Buttons feststellen und ggf.
+  // inverse Liste für Rückübersetzung edit_OrganModel -> Button-Offset anlegen
+  FillBlock(@swi_inverse_organmodels, sizeof(swi_inverse_organmodels), 255);
+  start_btn:= 0;
+  end_btn:= c_hw_btntable_max;
+  if swi_search_group(c_map_organmodel, start_btn, end_btn) then
+    for model_idx:= 0 to end_btn-start_btn do begin
+      remap_idx:= eep_OrganModelAssignments[model_idx];
+      if remap_idx <= 15 then
+        swi_inverse_organmodels[remap_idx]:= model_idx;
+    end;
+    
+  // Anzahl der verwendeten Speaker-Model-Buttons feststellen und ggf.
+  // inverse Liste für Rückübersetzung edit_RotaryModel -> Button-Offset anlegen
+  FillBlock(@swi_inverse_speakermodels, sizeof(swi_inverse_speakermodels), 255);
+  start_btn:= 0;
+  end_btn:= c_hw_btntable_max;
+  if swi_search_group(c_map_speakermodel, start_btn, end_btn) then
+    for model_idx:= 0 to end_btn-start_btn do begin
+      remap_idx:= eep_SpeakerModelAssignments[model_idx];
+      if remap_idx <= 15 then
+        swi_inverse_speakermodels[remap_idx]:= model_idx;
+    end;
+
+  // Preset- und Voice-Gruppen suchen
+  for btn_type_idx:= c_mapidx_firsttype to c_mapidx_lasttype do begin
+    start_btn:= 0;
+    end_btn:= c_hw_btntable_max;
+    if swi_search_group(btn_type_idx + c_map_firsttype, start_btn, end_btn) then begin
+      swi_firstbtns[btn_type_idx]:= start_btn;
+      swi_lastbtns[btn_type_idx]:= end_btn;
+    end;
+  end;
+
+  // Cancel-Buttons Upper suchen
+  swi_cancel_idx_upr:= 0;
+  end_btn:= c_hw_btntable_max;
+  swi_has_cancel_upr:= swi_search_group(c_map_cancel_upr, swi_cancel_idx_upr, end_btn);
+  if swi_has_cancel_upr then
+    eep_ButtonModes[swi_cancel_idx_upr]:= false;
+
+  // Cancel-Button Lower suchen
+  swi_cancel_idx_lwr:= 0;
+  end_btn:= c_hw_btntable_max;
+  swi_has_cancel_lwr:= swi_search_group(c_map_cancel_lwr, swi_cancel_idx_lwr, end_btn);
+  if swi_has_cancel_lwr then
+    eep_ButtonModes[swi_cancel_idx_lwr]:= false;
+  MemorizeTimerPanel:= 0;
+  PresetWasSaved:= false;
+end;
+
+procedure SWI_MessagePanel(panel_nr: Byte);
+const 
+  onboard_panel_str = '/ Onboard Panel16 #2';
+  preset_panel_str = '/ Preset16/Extend16 #';
+  xb2_str = '/ XB2 panel';
+begin
+  if panel_nr = 2 then
+    Serial1_sendstring(onboard_panel_str)
+  else if panel_nr = c_xb2_present_idx then
+    Serial1_sendstring(xb2_str)
+  else
+    Serial1_sendstring(preset_panel_str + char(panel_nr + 48));
+  Serial1_sendstringCRLF(c_found_str);
+end;
+
+procedure SWI_SetLEDdimmer(led_pwm15: Word);
+// %00 = OFF, %01 = ON, %10 = PWM_0 (darker), %11= PWM_1 (brighter)
+var my_dim: Word;
+begin
+  my_dim:= (led_pwm15 + 1) * led_pwm15 + 15;
+  for idx:= 0 to 5 do
+    if PanelsPresent[idx] then
+      SWI_InitPCA9532_dim(PCA9532_0 + idx, my_dim);
+  for idx:= 6 to 7 do         // XB2 LEDs
+    if PanelsPresent[idx] then
+      SWI_InitPCA9532_dim(PCA9532_0 + idx, 255);
+end;
+
+procedure SWI_Init;
+// Spezielle Initialisierung für jeweiliges User-Interface
+// Es sind noch keine Presets geladen!
+const
+  vibknob_str = '/ VibKnob Port 0 ($38)';
+  preamp_str = '/ OEM Ctrl Port 1 ($39)';
+  halfmoon_str = '/ HalfmoonSwitch ($41)';
+  miniswitch_str = '/ MiniSwitch Port ';
+  indicators_str = '/ LED Indicators9555 ($24)';
+begin
+{$IFDEF DEBUG_INITS}
+  Serial1_sendstringCRLF('/ SWI Init');
+{$ENDIF}
+  ForceSplitRequest:= false;
+  VibKnobPortPresent:= TWI_Stat(PCA9554A_0);   // I2C $38
+  if VibKnobPortPresent then begin
+    TWI_WriteRegB(PCA9554A_0, 2, $1F); // Port Inversion on VibKnob Bits
+    TWI_WriteRegB(PCA9554A_0, 3, $1F); // DDR, 5 inputs
+    Serial1_sendstring(vibknob_str);
+    Serial1_sendstringCRLF(c_found_str);
+    vibknob_old:= 255;  // Switch_vibrato_old ungültig, neu lesen
+  end;
+  
+  PreampPortPresent:= TWI_Stat(PCA9554A_1);   // I2C $39
+  if PreampPortPresent then begin
+    TWI_WriteRegB(PCA9554A_1, 2, $00); // no Port Inversion
+    TWI_WriteRegB(PCA9554A_1, 3, $00); // DDR, all outputs
+    TWI_WriteRegB(PCA9554A_1, 1, $00); // port value
+    swi_preamp_byte_old:= 0;
+    Serial1_sendstring(preamp_str);
+    Serial1_sendstringCRLF(c_found_str);
+  end;
+  
+  MiniSwitchPresent6:= TWI_Stat(PCA9554A_6);   // I2C $3F
+  if MiniSwitchPresent6 then begin
+    TWI_WriteRegB(PCA9554A_6, 2, $FF); // all Port Inversion
+    TWI_WriteRegB(PCA9554A_6, 3, $FF); // DDR, all inputs
+    Serial1_sendstring(miniswitch_str);
+    Serial1_sendstring('6 ($3E)');
+    Serial1_sendstringCRLF(c_found_str);
+    swi_minisw_port6:= TWI_ReadRegB(PCA9554A_6, 0); // alter Port-Zustand
+  end;
+
+  MiniSwitchPresent7:= TWI_Stat(PCA9554A_7);   // I2C $3F
+  if MiniSwitchPresent7 then begin
+    TWI_WriteRegB(PCA9554A_7, 2, $FF); // all Port Inversion
+    TWI_WriteRegB(PCA9554A_7, 3, $FF); // DDR, all inputs
+    Serial1_sendstring(miniswitch_str);
+    Serial1_sendstring('7 ($3F)');
+    Serial1_sendstringCRLF(c_found_str);
+    swi_minisw_port7:= TWI_ReadRegB(PCA9554A_7, 0); // alter Port-Zustand
+  end;
+
+  HalfmoonPresent:= TWI_Stat(PCA9536);
+  if HalfmoonPresent then begin
+    TWI_WriteRegB(PCA9536, 2, $0F); // Port Inversion on input Bits
+    TWI_WriteRegB(PCA9536, 3, $0F); // DDR, all inputs
+    Serial1_sendstring(halfmoon_str);
+    Serial1_sendstringCRLF(c_found_str);
+  end;
+  
+  Indicators9555present:= TWI_Stat(PCA9555_4);
+  if Indicators9555present then begin
+    TWI_WriteRegB(PCA9555_4, 6, 0);  // all outputs
+    TWI_WriteRegB(PCA9555_4, 7, 0);  // all outputs
+    TWI_WriteRegB(PCA9555_5, 6, 0);
+    TWI_WriteRegB(PCA9555_5, 7, 0);
+    SWI_SetIndicators(0, edit_1stDBselect);  // Upper LED 0 ON
+    SWI_SetIndicators(1, edit_1stDBselect);  // Lower LED 0 ON
+    Serial1_sendstring(indicators_str);
+    Serial1_sendstringCRLF(c_found_str);
+  end;
+
+  // Panels überprüfen
+  for idx:= 0 to 7 do begin
+    if TWI_Stat(PCA9532_0 + idx) then begin
+      PanelsPresent[idx]:= true;
+      SWI_MessagePanel(idx);
+    end else
+      PanelsPresent[idx]:= false;
+  end;
+  SWI_SetLEDdimmer(15);
+end;
+
+end.

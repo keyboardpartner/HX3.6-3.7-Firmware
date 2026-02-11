@@ -1,0 +1,4954 @@
+unit HX36_TFT_objects;
+
+uses HX36_TFT_types, HX36_TFT_resources, HX36_TFT_events_code;
+
+{$I HX36_TFT_driver.inc}
+
+
+const ScreenVol_Buttons_Round: array[008] of TButton_RoundPtr;  code; forward;
+const ScreenVol_Labels:        array[011] of TLabelPtr;         code; forward;
+const ScreenVol_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenVol_Boxes:         array[002] of TBoxPtr;           code; forward;
+const ScreenVol_CBoxes:        array[002] of TCBoxPtr;          code; forward;
+const ScreenVol_Lines:         array[001] of TLinePtr;          code; forward;
+const ScreenVol_CLines:        array[003] of TCLinePtr;         code; forward;
+const ScreenVol_EveScrollBars: array[011] of TEveScrollbarPtr;  code; forward;
+
+var   ScreenVol: TScreen;
+
+
+var   Box22: TBox;
+
+var   ButtonRound159_Caption: string[4];    
+var   ButtonRound159_OnDown:  TEvent;       
+var   ButtonRound159:         TButton_Round;
+
+var   ButtonRound23_Caption: string[8];    
+var   ButtonRound23_OnDown:  TEvent;       
+var   ButtonRound23:         TButton_Round;
+
+var   ButtonRound22_Caption: string[7];    
+var   ButtonRound22_OnDown:  TEvent;       
+var   ButtonRound22:         TButton_Round;
+
+var   ButtonRound21_Caption: string[8];    
+var   ButtonRound21_OnDown:  TEvent;       
+var   ButtonRound21:         TButton_Round;
+
+var   ButtonRound20_Caption: string[4];    
+var   ButtonRound20_OnDown:  TEvent;       
+var   ButtonRound20:         TButton_Round;
+
+var   ButtonRound19_Caption: string[7];    
+var   ButtonRound19_OnDown:  TEvent;       
+var   ButtonRound19:         TButton_Round;
+
+const Label1_Caption: string[7] = 'Volumes'; code;
+const Label1:         TCLabel   = (
+  @ScreenVol,      // Label1.OwnerScreen
+  7,               // Label1.Order
+  1,               // Label1.Visible
+  255,             // Label1.Opacity
+  255,             // Label1.Tag
+  8,               // Label1.Left
+  6,               // Label1.Top
+  70,              // Label1.Width
+  21,              // Label1.Height
+  @Label1_Caption, // Label1.Caption
+  28,              // Label1.FontName
+  0x0000,          // Label1.Font_Color
+  28,              // Label1.FontHandle
+  -1,              // Label1.Source
+  1,               // Label1.Active
+  0,               // Label1.OnUp
+  0,               // Label1.OnDown
+  0,               // Label1.OnClick
+  0                // Label1.OnPress
+); code;
+
+var   EveScrollBar3_OnPress: TEvent;       
+var   EveScrollBar3:         TEveScrollbar;
+
+var   Label14_Caption: string[10];
+var   Label14:         TLabel;    
+
+var   EveScrollBar4_OnPress: TEvent;       
+var   EveScrollBar4:         TEveScrollbar;
+
+var   Label15_Caption: string[8];
+var   Label15:         TLabel;   
+
+var   EveScrollBar5_OnPress: TEvent;       
+var   EveScrollBar5:         TEveScrollbar;
+
+var   Label16_Caption: string[13];
+var   Label16:         TLabel;    
+
+var   EveScrollBar6_OnPress: TEvent;       
+var   EveScrollBar6:         TEveScrollbar;
+
+var   Label17_Caption: string[13];
+var   Label17:         TLabel;    
+
+var   EveScrollBar7_OnPress: TEvent;       
+var   EveScrollBar7:         TEveScrollbar;
+
+var   Label18_Caption: string[13];
+var   Label18:         TLabel;    
+
+var   EveScrollBar8_OnPress: TEvent;       
+var   EveScrollBar8:         TEveScrollbar;
+
+var   Label19_Caption: string[14];
+var   Label19:         TLabel;    
+
+var   EveScrollBar9_OnPress: TEvent;       
+var   EveScrollBar9:         TEveScrollbar;
+
+var   Label20_Caption: string[11];
+var   Label20:         TLabel;    
+
+var   EveScrollBar10_OnPress: TEvent;       
+var   EveScrollBar10:         TEveScrollbar;
+
+var   Label21_Caption: string[11];
+var   Label21:         TLabel;    
+
+var   EveScrollBar11_OnPress: TEvent;       
+var   EveScrollBar11:         TEveScrollbar;
+
+var   Label23_Caption: string[11];
+var   Label23:         TLabel;    
+
+var   EveScrollBar12_OnPress: TEvent;       
+var   EveScrollBar12:         TEveScrollbar;
+
+var   Label24_Caption: string[12];
+var   Label24:         TLabel;    
+
+var   EveScrollBar14_OnPress: TEvent;       
+var   EveScrollBar14:         TEveScrollbar;
+
+var   Label26_Caption: string[13];
+var   Label26:         TLabel;    
+
+var   Line9: TLine;
+
+const Box3: TCBox = (
+  @ScreenVol,           // Box3.OwnerScreen
+  31,                   // Box3.Order
+  1,                    // Box3.Visible
+  255,                  // Box3.Opacity
+  255,                  // Box3.Tag
+  394,                  // Box3.Left
+  0,                    // Box3.Top
+  9,                    // Box3.Width
+  272,                  // Box3.Height
+  0,                    // Box3.Pen_Width
+  0xCE79,               // Box3.Pen_Color
+  0xCE79,               // Box3.Color
+  0xCE79,               // Box3.Press_Color
+  0xCE79,               // Box3.ColorTo
+  0xCE79,               // Box3.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box3.Gradient
+  1,                    // Box3.Active
+  0,                    // Box3.OnUp
+  0,                    // Box3.OnDown
+  0,                    // Box3.OnClick
+  0                     // Box3.OnPress
+); code;
+
+const Line5: TCLine = (
+  @ScreenVol,      // Line5.OwnerScreen
+  32,              // Line5.Order
+  1,               // Line5.Visible
+  255,             // Line5.Opacity
+  255,             // Line5.Tag
+  403,             // Line5.First_Point_X
+  180,             // Line5.First_Point_Y
+  403,             // Line5.Second_Point_X
+  271,             // Line5.Second_Point_Y
+  1,               // Line5.Pen_Width
+  0x0000           // Line5.Pen_Color
+); code;
+
+const Line4: TCLine = (
+  @ScreenVol,      // Line4.OwnerScreen
+  33,              // Line4.Order
+  1,               // Line4.Visible
+  255,             // Line4.Opacity
+  255,             // Line4.Tag
+  403,             // Line4.First_Point_X
+  0,               // Line4.First_Point_Y
+  403,             // Line4.Second_Point_X
+  135,             // Line4.Second_Point_Y
+  1,               // Line4.Pen_Width
+  0x0000           // Line4.Pen_Color
+); code;
+
+var   Box18: TBox;
+
+var   ButtonRound56_Caption: string[7];    
+var   ButtonRound56_OnDown:  TEvent;       
+var   ButtonRound56:         TButton_Round;
+
+var   ButtonRound102_Caption: string[9];    
+var   ButtonRound102_OnDown:  TEvent;       
+var   ButtonRound102:         TButton_Round;
+
+const Box19: TCBox = (
+  @ScreenVol,           // Box19.OwnerScreen
+  37,                   // Box19.Order
+  1,                    // Box19.Visible
+  255,                  // Box19.Opacity
+  255,                  // Box19.Tag
+  1,                    // Box19.Left
+  238,                  // Box19.Top
+  401,                  // Box19.Width
+  7,                    // Box19.Height
+  0,                    // Box19.Pen_Width
+  0xCE79,               // Box19.Pen_Color
+  0xCE79,               // Box19.Color
+  0xCE79,               // Box19.Press_Color
+  0xCE79,               // Box19.ColorTo
+  0xCE79,               // Box19.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box19.Gradient
+  1,                    // Box19.Active
+  0,                    // Box19.OnUp
+  0,                    // Box19.OnDown
+  0,                    // Box19.OnClick
+  0                     // Box19.OnPress
+); code;
+
+const Line10: TCLine = (
+  @ScreenVol,      // Line10.OwnerScreen
+  38,              // Line10.Order
+  1,               // Line10.Visible
+  255,             // Line10.Opacity
+  255,             // Line10.Tag
+  76,              // Line10.First_Point_X
+  245,             // Line10.First_Point_Y
+  403,             // Line10.Second_Point_X
+  245,             // Line10.Second_Point_Y
+  1,               // Line10.Pen_Width
+  0x0000           // Line10.Pen_Color
+); code;
+
+const ScreenVol_Buttons_Round: array[008] of TButton_RoundPtr  = (
+  @ButtonRound159,      
+  @ButtonRound23,       
+  @ButtonRound22,       
+  @ButtonRound21,       
+  @ButtonRound20,       
+  @ButtonRound19,       
+  @ButtonRound56,       
+  @ButtonRound102       
+); code;
+
+const ScreenVol_Labels:        array[011] of TLabelPtr         = (
+  @Label14,             
+  @Label15,             
+  @Label16,             
+  @Label17,             
+  @Label18,             
+  @Label19,             
+  @Label20,             
+  @Label21,             
+  @Label23,             
+  @Label24,             
+  @Label26              
+); code;
+
+const ScreenVol_CLabels:       array[001] of TCLabelPtr        = (
+  @Label1               
+); code;
+
+const ScreenVol_Boxes:         array[002] of TBoxPtr           = (
+  @Box22,               
+  @Box18                
+); code;
+
+const ScreenVol_CBoxes:        array[002] of TCBoxPtr          = (
+  @Box3,                
+  @Box19                
+); code;
+
+const ScreenVol_Lines:         array[001] of TLinePtr          = (
+  @Line9                
+); code;
+
+const ScreenVol_CLines:        array[003] of TCLinePtr         = (
+  @Line5,               
+  @Line4,               
+  @Line10               
+); code;
+
+const ScreenVol_EveScrollBars: array[011] of TEveScrollbarPtr  = (
+  @EveScrollBar3,       
+  @EveScrollBar4,       
+  @EveScrollBar5,       
+  @EveScrollBar6,       
+  @EveScrollBar7,       
+  @EveScrollBar8,       
+  @EveScrollBar9,       
+  @EveScrollBar10,      
+  @EveScrollBar11,      
+  @EveScrollBar12,      
+  @EveScrollBar14       
+); code;
+
+
+const ScreenEqu_Buttons_Round: array[009] of TButton_RoundPtr;  code; forward;
+const ScreenEqu_Labels:        array[009] of TLabelPtr;         code; forward;
+const ScreenEqu_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenEqu_Boxes:         array[002] of TBoxPtr;           code; forward;
+const ScreenEqu_CBoxes:        array[002] of TCBoxPtr;          code; forward;
+const ScreenEqu_Boxes_Round:   array[001] of TBox_RoundPtr;     code; forward;
+const ScreenEqu_CLines:        array[004] of TCLinePtr;         code; forward;
+const ScreenEqu_EveScrollBars: array[009] of TEveScrollbarPtr;  code; forward;
+
+var   ScreenEqu: TScreen;
+
+
+var   Box4: TBox;
+
+var   ButtonRound160_Caption: string[7];    
+var   ButtonRound160_OnDown:  TEvent;       
+var   ButtonRound160:         TButton_Round;
+
+var   ButtonRound32_Caption: string[4];    
+var   ButtonRound32_OnDown:  TEvent;       
+var   ButtonRound32:         TButton_Round;
+
+var   ButtonRound31_Caption: string[8];    
+var   ButtonRound31_OnDown:  TEvent;       
+var   ButtonRound31:         TButton_Round;
+
+var   ButtonRound30_Caption: string[7];    
+var   ButtonRound30_OnDown:  TEvent;       
+var   ButtonRound30:         TButton_Round;
+
+var   ButtonRound29_Caption: string[8];    
+var   ButtonRound29_OnDown:  TEvent;       
+var   ButtonRound29:         TButton_Round;
+
+var   ButtonRound28_Caption: string[4];    
+var   ButtonRound28_OnDown:  TEvent;       
+var   ButtonRound28:         TButton_Round;
+
+var   BoxRound22: TBox_Round;
+
+var   ButtonRound54_Caption: string[10];   
+var   ButtonRound54_OnDown:  TEvent;       
+var   ButtonRound54:         TButton_Round;
+
+var   EveScrollBar13_OnPress: TEvent;       
+var   EveScrollBar13:         TEveScrollbar;
+
+var   Label25_Caption: string[8];
+var   Label25:         TLabel;   
+
+var   EveScrollBar15_OnPress: TEvent;       
+var   EveScrollBar15:         TEveScrollbar;
+
+var   Label27_Caption: string[9];
+var   Label27:         TLabel;   
+
+var   EveScrollBar16_OnPress: TEvent;       
+var   EveScrollBar16:         TEveScrollbar;
+
+var   Label28_Caption: string[10];
+var   Label28:         TLabel;    
+
+var   EveScrollBar25_OnPress: TEvent;       
+var   EveScrollBar25:         TEveScrollbar;
+
+var   Label29_Caption: string[9];
+var   Label29:         TLabel;   
+
+var   EveScrollBar26_OnPress: TEvent;       
+var   EveScrollBar26:         TEveScrollbar;
+
+var   Label30_Caption: string[8];
+var   Label30:         TLabel;   
+
+var   EveScrollBar27_OnPress: TEvent;       
+var   EveScrollBar27:         TEveScrollbar;
+
+var   Label31_Caption: string[11];
+var   Label31:         TLabel;    
+
+var   EveScrollBar28_OnPress: TEvent;       
+var   EveScrollBar28:         TEveScrollbar;
+
+var   Label41_Caption: string[12];
+var   Label41:         TLabel;    
+
+var   EveScrollBar33_OnPress: TEvent;       
+var   EveScrollBar33:         TEveScrollbar;
+
+var   Label43_Caption: string[11];
+var   Label43:         TLabel;    
+
+var   EveScrollBar34_OnPress: TEvent;       
+var   EveScrollBar34:         TEveScrollbar;
+
+var   Label44_Caption: string[9];
+var   Label44:         TLabel;   
+
+const Label45_Caption: string[9] = 'Equalizer'; code;
+const Label45:         TCLabel   = (
+  @ScreenEqu,       // Label45.OwnerScreen
+  27,               // Label45.Order
+  1,                // Label45.Visible
+  255,              // Label45.Opacity
+  255,              // Label45.Tag
+  8,                // Label45.Left
+  6,                // Label45.Top
+  73,               // Label45.Width
+  21,               // Label45.Height
+  @Label45_Caption, // Label45.Caption
+  28,               // Label45.FontName
+  0x0000,           // Label45.Font_Color
+  28,               // Label45.FontHandle
+  -1,               // Label45.Source
+  1,                // Label45.Active
+  0,                // Label45.OnUp
+  0,                // Label45.OnDown
+  0,                // Label45.OnClick
+  0                 // Label45.OnPress
+); code;
+
+const Box21: TCBox = (
+  @ScreenEqu,           // Box21.OwnerScreen
+  28,                   // Box21.Order
+  1,                    // Box21.Visible
+  255,                  // Box21.Opacity
+  255,                  // Box21.Tag
+  394,                  // Box21.Left
+  0,                    // Box21.Top
+  9,                    // Box21.Width
+  272,                  // Box21.Height
+  0,                    // Box21.Pen_Width
+  0xCE79,               // Box21.Pen_Color
+  0xCE79,               // Box21.Color
+  0xCE79,               // Box21.Press_Color
+  0xCE79,               // Box21.ColorTo
+  0xCE79,               // Box21.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box21.Gradient
+  1,                    // Box21.Active
+  0,                    // Box21.OnUp
+  0,                    // Box21.OnDown
+  0,                    // Box21.OnClick
+  0                     // Box21.OnPress
+); code;
+
+const Line6: TCLine = (
+  @ScreenEqu,      // Line6.OwnerScreen
+  29,              // Line6.Order
+  1,               // Line6.Visible
+  255,             // Line6.Opacity
+  255,             // Line6.Tag
+  403,             // Line6.First_Point_X
+  180,             // Line6.First_Point_Y
+  403,             // Line6.Second_Point_X
+  271,             // Line6.Second_Point_Y
+  1,               // Line6.Pen_Width
+  0x0000           // Line6.Pen_Color
+); code;
+
+const Line7: TCLine = (
+  @ScreenEqu,      // Line7.OwnerScreen
+  30,              // Line7.Order
+  1,               // Line7.Visible
+  255,             // Line7.Opacity
+  255,             // Line7.Tag
+  403,             // Line7.First_Point_X
+  0,               // Line7.First_Point_Y
+  403,             // Line7.Second_Point_X
+  135,             // Line7.Second_Point_Y
+  1,               // Line7.Pen_Width
+  0x0000           // Line7.Pen_Color
+); code;
+
+var   Box2: TBox;
+
+var   ButtonRound24_Caption: string[7];    
+var   ButtonRound24_OnDown:  TEvent;       
+var   ButtonRound24:         TButton_Round;
+
+var   ButtonRound25_Caption: string[9];    
+var   ButtonRound25_OnDown:  TEvent;       
+var   ButtonRound25:         TButton_Round;
+
+const Box6: TCBox = (
+  @ScreenEqu,           // Box6.OwnerScreen
+  34,                   // Box6.Order
+  1,                    // Box6.Visible
+  255,                  // Box6.Opacity
+  255,                  // Box6.Tag
+  1,                    // Box6.Left
+  238,                  // Box6.Top
+  401,                  // Box6.Width
+  7,                    // Box6.Height
+  0,                    // Box6.Pen_Width
+  0xCE79,               // Box6.Pen_Color
+  0xCE79,               // Box6.Color
+  0xCE79,               // Box6.Press_Color
+  0xCE79,               // Box6.ColorTo
+  0xCE79,               // Box6.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box6.Gradient
+  1,                    // Box6.Active
+  0,                    // Box6.OnUp
+  0,                    // Box6.OnDown
+  0,                    // Box6.OnClick
+  0                     // Box6.OnPress
+); code;
+
+const Line3: TCLine = (
+  @ScreenEqu,      // Line3.OwnerScreen
+  35,              // Line3.Order
+  1,               // Line3.Visible
+  255,             // Line3.Opacity
+  255,             // Line3.Tag
+  151,             // Line3.First_Point_X
+  245,             // Line3.First_Point_Y
+  403,             // Line3.Second_Point_X
+  245,             // Line3.Second_Point_Y
+  1,               // Line3.Pen_Width
+  0x0000           // Line3.Pen_Color
+); code;
+
+const Line2: TCLine = (
+  @ScreenEqu,      // Line2.OwnerScreen
+  36,              // Line2.Order
+  1,               // Line2.Visible
+  255,             // Line2.Opacity
+  255,             // Line2.Tag
+  0,               // Line2.First_Point_X
+  245,             // Line2.First_Point_Y
+  76,              // Line2.Second_Point_X
+  245,             // Line2.Second_Point_Y
+  1,               // Line2.Pen_Width
+  0x0000           // Line2.Pen_Color
+); code;
+
+const ScreenEqu_Buttons_Round: array[009] of TButton_RoundPtr  = (
+  @ButtonRound160,      
+  @ButtonRound32,       
+  @ButtonRound31,       
+  @ButtonRound30,       
+  @ButtonRound29,       
+  @ButtonRound28,       
+  @ButtonRound54,       
+  @ButtonRound24,       
+  @ButtonRound25        
+); code;
+
+const ScreenEqu_Labels:        array[009] of TLabelPtr         = (
+  @Label25,             
+  @Label27,             
+  @Label28,             
+  @Label29,             
+  @Label30,             
+  @Label31,             
+  @Label41,             
+  @Label43,             
+  @Label44              
+); code;
+
+const ScreenEqu_CLabels:       array[001] of TCLabelPtr        = (
+  @Label45              
+); code;
+
+const ScreenEqu_Boxes:         array[002] of TBoxPtr           = (
+  @Box4,                
+  @Box2                 
+); code;
+
+const ScreenEqu_CBoxes:        array[002] of TCBoxPtr          = (
+  @Box21,               
+  @Box6                 
+); code;
+
+const ScreenEqu_Boxes_Round:   array[001] of TBox_RoundPtr     = (
+  @BoxRound22           
+); code;
+
+const ScreenEqu_CLines:        array[004] of TCLinePtr         = (
+  @Line6,               
+  @Line7,               
+  @Line3,               
+  @Line2                
+); code;
+
+const ScreenEqu_EveScrollBars: array[009] of TEveScrollbarPtr  = (
+  @EveScrollBar13,      
+  @EveScrollBar15,      
+  @EveScrollBar16,      
+  @EveScrollBar25,      
+  @EveScrollBar26,      
+  @EveScrollBar27,      
+  @EveScrollBar28,      
+  @EveScrollBar33,      
+  @EveScrollBar34       
+); code;
+
+
+const ScreenEdit_Buttons_Round: array[006] of TButton_RoundPtr;  code; forward;
+const ScreenEdit_CLabels:       array[002] of TCLabelPtr;        code; forward;
+const ScreenEdit_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenEdit_CBoxes:        array[001] of TCBoxPtr;          code; forward;
+const ScreenEdit_Boxes_Round:   array[001] of TBox_RoundPtr;     code; forward;
+const ScreenEdit_CBoxes_Round:  array[001] of TCBox_RoundPtr;    code; forward;
+const ScreenEdit_CLines:        array[001] of TCLinePtr;         code; forward;
+const ScreenEdit_EveKeys:       array[004] of TEveKeysPtr;       code; forward;
+const ScreenEdit_EveTexts:      array[002] of TEveTextPtr;       code; forward;
+
+var   ScreenEdit: TScreen;
+
+
+var   Box20: TBox;
+
+var   ButtonRound158_Caption: string[7];    
+var   ButtonRound158_OnDown:  TEvent;       
+var   ButtonRound158:         TButton_Round;
+
+const BoxRound2: TCBox_Round = (
+  @ScreenEdit,     // BoxRound2.OwnerScreen
+  2,               // BoxRound2.Order
+  1,               // BoxRound2.Visible
+  255,             // BoxRound2.Opacity
+  255,             // BoxRound2.Tag
+  57,              // BoxRound2.Left
+  23,              // BoxRound2.Top
+  199,             // BoxRound2.Width
+  37,              // BoxRound2.Height
+  1,               // BoxRound2.Pen_Width
+  0x0000,          // BoxRound2.Pen_Color
+  0xDEFB,          // BoxRound2.Color
+  0xDEFB,          // BoxRound2.Press_Color
+  3,               // BoxRound2.Corner_Radius
+  1,               // BoxRound2.Active
+  0,               // BoxRound2.OnUp
+  0,               // BoxRound2.OnDown
+  0,               // BoxRound2.OnClick
+  0                // BoxRound2.OnPress
+); code;
+
+var   ButtonRound33_Caption: string[4];    
+var   ButtonRound33_OnDown:  TEvent;       
+var   ButtonRound33:         TButton_Round;
+
+var   ButtonRound34_Caption: string[8];    
+var   ButtonRound34_OnDown:  TEvent;       
+var   ButtonRound34:         TButton_Round;
+
+var   ButtonRound35_Caption: string[7];    
+var   ButtonRound35_OnDown:  TEvent;       
+var   ButtonRound35:         TButton_Round;
+
+var   ButtonRound36_Caption: string[8];    
+var   ButtonRound36_OnDown:  TEvent;       
+var   ButtonRound36:         TButton_Round;
+
+var   ButtonRound37_Caption: string[4];    
+var   ButtonRound37_OnDown:  TEvent;       
+var   ButtonRound37:         TButton_Round;
+
+const Box5: TCBox = (
+  @ScreenEdit,          // Box5.OwnerScreen
+  8,                    // Box5.Order
+  1,                    // Box5.Visible
+  255,                  // Box5.Opacity
+  255,                  // Box5.Tag
+  394,                  // Box5.Left
+  0,                    // Box5.Top
+  9,                    // Box5.Width
+  272,                  // Box5.Height
+  0,                    // Box5.Pen_Width
+  0xCE79,               // Box5.Pen_Color
+  0xCE79,               // Box5.Color
+  0xCE79,               // Box5.Press_Color
+  0xCE79,               // Box5.ColorTo
+  0xCE79,               // Box5.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box5.Gradient
+  1,                    // Box5.Active
+  0,                    // Box5.OnUp
+  0,                    // Box5.OnDown
+  0,                    // Box5.OnClick
+  0                     // Box5.OnPress
+); code;
+
+const Line8: TCLine = (
+  @ScreenEdit,     // Line8.OwnerScreen
+  9,               // Line8.Order
+  1,               // Line8.Visible
+  255,             // Line8.Opacity
+  255,             // Line8.Tag
+  403,             // Line8.First_Point_X
+  1,               // Line8.First_Point_Y
+  403,             // Line8.Second_Point_X
+  225,             // Line8.Second_Point_Y
+  1,               // Line8.Pen_Width
+  0x0000           // Line8.Pen_Color
+); code;
+
+var   EveKeysRow3_Caption: string[3];
+var   EveKeysRow3_OnDown:  TEvent;   
+var   EveKeysRow3:         TEveKeys; 
+
+var   EveKeysRow2_Caption: string[3];
+var   EveKeysRow2_OnDown:  TEvent;   
+var   EveKeysRow2:         TEveKeys; 
+
+var   EveKeysRow1_Caption: string[5];
+var   EveKeysRow1_OnDown:  TEvent;   
+var   EveKeysRow1:         TEveKeys; 
+
+var   EveKeysRow4_Caption: string[4];
+var   EveKeysRow4_OnDown:  TEvent;   
+var   EveKeysRow4:         TEveKeys; 
+
+var   EveTextCommand_Caption: string[15];
+var   EveTextCommand:         TEveText;  
+
+const Label72_Caption: string[7] = 'Command'; code;
+const Label72:         TCLabel   = (
+  @ScreenEdit,      // Label72.OwnerScreen
+  15,               // Label72.Order
+  1,                // Label72.Visible
+  255,              // Label72.Opacity
+  255,              // Label72.Tag
+  56,               // Label72.Left
+  5,                // Label72.Top
+  56,               // Label72.Width
+  15,               // Label72.Height
+  @Label72_Caption, // Label72.Caption
+  26,               // Label72.FontName
+  0x0000,           // Label72.Font_Color
+  26,               // Label72.FontHandle
+  -1,               // Label72.Source
+  1,                // Label72.Active
+  0,                // Label72.OnUp
+  0,                // Label72.OnDown
+  0,                // Label72.OnClick
+  0                 // Label72.OnPress
+); code;
+
+var   BoxRoundResult: TBox_Round;
+
+var   EveTextResult_Caption: string[7];
+var   EveTextResult:         TEveText; 
+
+const Label73_Caption: string[6] = 'Result'; code;
+const Label73:         TCLabel   = (
+  @ScreenEdit,      // Label73.OwnerScreen
+  18,               // Label73.Order
+  1,                // Label73.Visible
+  255,              // Label73.Opacity
+  255,              // Label73.Tag
+  261,              // Label73.Left
+  5,                // Label73.Top
+  36,               // Label73.Width
+  15,               // Label73.Height
+  @Label73_Caption, // Label73.Caption
+  26,               // Label73.FontName
+  0x0000,           // Label73.Font_Color
+  26,               // Label73.FontHandle
+  -1,               // Label73.Source
+  1,                // Label73.Active
+  0,                // Label73.OnUp
+  0,                // Label73.OnDown
+  0,                // Label73.OnClick
+  0                 // Label73.OnPress
+); code;
+
+const ScreenEdit_Buttons_Round: array[006] of TButton_RoundPtr  = (
+  @ButtonRound158,      
+  @ButtonRound33,       
+  @ButtonRound34,       
+  @ButtonRound35,       
+  @ButtonRound36,       
+  @ButtonRound37        
+); code;
+
+const ScreenEdit_CLabels:       array[002] of TCLabelPtr        = (
+  @Label72,             
+  @Label73              
+); code;
+
+const ScreenEdit_Boxes:         array[001] of TBoxPtr           = (
+  @Box20                
+); code;
+
+const ScreenEdit_CBoxes:        array[001] of TCBoxPtr          = (
+  @Box5                 
+); code;
+
+const ScreenEdit_Boxes_Round:   array[001] of TBox_RoundPtr     = (
+  @BoxRoundResult       
+); code;
+
+const ScreenEdit_CBoxes_Round:  array[001] of TCBox_RoundPtr    = (
+  @BoxRound2            
+); code;
+
+const ScreenEdit_CLines:        array[001] of TCLinePtr         = (
+  @Line8                
+); code;
+
+const ScreenEdit_EveKeys:       array[004] of TEveKeysPtr       = (
+  @EveKeysRow3,         
+  @EveKeysRow2,         
+  @EveKeysRow1,         
+  @EveKeysRow4          
+); code;
+
+const ScreenEdit_EveTexts:      array[002] of TEveTextPtr       = (
+  @EveTextCommand,      
+  @EveTextResult        
+); code;
+
+
+const ScreenOrg_Buttons_Round: array[017] of TButton_RoundPtr;  code; forward;
+const ScreenOrg_CLabels:       array[004] of TCLabelPtr;        code; forward;
+const ScreenOrg_CCircles:      array[001] of TCCirclePtr;       code; forward;
+const ScreenOrg_CircleButtons: array[006] of TCircleButtonPtr;  code; forward;
+const ScreenOrg_Boxes:         array[002] of TBoxPtr;           code; forward;
+const ScreenOrg_CBoxes:        array[002] of TCBoxPtr;          code; forward;
+const ScreenOrg_Boxes_Round:   array[008] of TBox_RoundPtr;     code; forward;
+const ScreenOrg_Lines:         array[001] of TLinePtr;          code; forward;
+const ScreenOrg_CLines:        array[003] of TCLinePtr;         code; forward;
+const ScreenOrg_EveDials:      array[001] of TEveDialPtr;       code; forward;
+const ScreenOrg_EveSliders:    array[001] of TEveSliderPtr;     code; forward;
+
+var   ScreenOrg: TScreen;
+
+
+var   Box15: TBox;
+
+var   ButtonRound161_Caption: string[7];    
+var   ButtonRound161_OnDown:  TEvent;       
+var   ButtonRound161:         TButton_Round;
+
+var   ButtonRound64_Caption: string[4];    
+var   ButtonRound64_OnDown:  TEvent;       
+var   ButtonRound64:         TButton_Round;
+
+var   ButtonRound63_Caption: string[8];    
+var   ButtonRound63_OnDown:  TEvent;       
+var   ButtonRound63:         TButton_Round;
+
+var   ButtonRound62_Caption: string[7];    
+var   ButtonRound62_OnDown:  TEvent;       
+var   ButtonRound62:         TButton_Round;
+
+var   ButtonRound61_Caption: string[8];    
+var   ButtonRound61_OnDown:  TEvent;       
+var   ButtonRound61:         TButton_Round;
+
+var   ButtonRound60_Caption: string[4];    
+var   ButtonRound60_OnDown:  TEvent;       
+var   ButtonRound60:         TButton_Round;
+
+const Circle1: TCCircle = (
+  @ScreenOrg,      // Circle1.OwnerScreen
+  7,               // Circle1.Order
+  1,               // Circle1.Visible
+  255,             // Circle1.Opacity
+  255,             // Circle1.Tag
+  19,              // Circle1.Left
+  70,              // Circle1.Top
+  82,              // Circle1.Radius
+  1,               // Circle1.Pen_Width
+  0x4228,          // Circle1.Pen_Color
+  0x632C,          // Circle1.Color
+  0xE71C,          // Circle1.Press_Color
+  0,               // Circle1.Active
+  0,               // Circle1.OnUp
+  0,               // Circle1.OnDown
+  0,               // Circle1.OnClick
+  0                // Circle1.OnPress
+); code;
+
+var   Box11: TBox;
+
+var   ButtonRound65_Caption: string[5];    
+var   ButtonRound65_OnDown:  TEvent;       
+var   ButtonRound65:         TButton_Round;
+
+var   ButtonRound66_Caption: string[7];    
+var   ButtonRound66_OnDown:  TEvent;       
+var   ButtonRound66:         TButton_Round;
+
+var   ButtonRound67_Caption: string[7];    
+var   ButtonRound67_OnDown:  TEvent;       
+var   ButtonRound67:         TButton_Round;
+
+const Box10: TCBox = (
+  @ScreenOrg,           // Box10.OwnerScreen
+  12,                   // Box10.Order
+  1,                    // Box10.Visible
+  255,                  // Box10.Opacity
+  255,                  // Box10.Tag
+  1,                    // Box10.Left
+  238,                  // Box10.Top
+  401,                  // Box10.Width
+  7,                    // Box10.Height
+  0,                    // Box10.Pen_Width
+  0xCE79,               // Box10.Pen_Color
+  0xCE79,               // Box10.Color
+  0xCE79,               // Box10.Press_Color
+  0xCE79,               // Box10.ColorTo
+  0xCE79,               // Box10.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box10.Gradient
+  1,                    // Box10.Active
+  0,                    // Box10.OnUp
+  0,                    // Box10.OnDown
+  0,                    // Box10.OnClick
+  0                     // Box10.OnPress
+); code;
+
+var   EveSlider1_OnPress: TEvent;    
+var   EveSlider1:         TEveSlider;
+
+var   BoxRound24: TBox_Round;
+
+var   BoxRound27: TBox_Round;
+
+var   ButtonRound70_Caption: string[3];    
+var   ButtonRound70_OnDown:  TEvent;       
+var   ButtonRound70:         TButton_Round;
+
+var   ButtonRound71_Caption: string[4];    
+var   ButtonRound71_OnDown:  TEvent;       
+var   ButtonRound71:         TButton_Round;
+
+var   CircleButton13_Caption: string[2];    
+var   CircleButton13_OnDown:  TEvent;       
+var   CircleButton13:         TCircleButton;
+
+var   CircleButton14_Caption: string[2];    
+var   CircleButton14_OnDown:  TEvent;       
+var   CircleButton14:         TCircleButton;
+
+var   CircleButton15_Caption: string[2];    
+var   CircleButton15_OnDown:  TEvent;       
+var   CircleButton15:         TCircleButton;
+
+var   CircleButton16_Caption: string[2];    
+var   CircleButton16_OnDown:  TEvent;       
+var   CircleButton16:         TCircleButton;
+
+var   CircleButton17_Caption: string[2];    
+var   CircleButton17_OnDown:  TEvent;       
+var   CircleButton17:         TCircleButton;
+
+var   CircleButton18_Caption: string[2];    
+var   CircleButton18_OnDown:  TEvent;       
+var   CircleButton18:         TCircleButton;
+
+var   Line17: TLine;
+
+const Line18: TCLine = (
+  @ScreenOrg,      // Line18.OwnerScreen
+  25,              // Line18.Order
+  1,               // Line18.Visible
+  255,             // Line18.Opacity
+  255,             // Line18.Tag
+  76,              // Line18.First_Point_X
+  245,             // Line18.First_Point_Y
+  403,             // Line18.Second_Point_X
+  245,             // Line18.Second_Point_Y
+  1,               // Line18.Pen_Width
+  0x0000           // Line18.Pen_Color
+); code;
+
+const Box12: TCBox = (
+  @ScreenOrg,           // Box12.OwnerScreen
+  26,                   // Box12.Order
+  1,                    // Box12.Visible
+  255,                  // Box12.Opacity
+  255,                  // Box12.Tag
+  396,                  // Box12.Left
+  0,                    // Box12.Top
+  7,                    // Box12.Width
+  244,                  // Box12.Height
+  0,                    // Box12.Pen_Width
+  0xCE79,               // Box12.Pen_Color
+  0xCE79,               // Box12.Color
+  0xCE79,               // Box12.Press_Color
+  0xCE79,               // Box12.ColorTo
+  0xCE79,               // Box12.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box12.Gradient
+  1,                    // Box12.Active
+  0,                    // Box12.OnUp
+  0,                    // Box12.OnDown
+  0,                    // Box12.OnClick
+  0                     // Box12.OnPress
+); code;
+
+var   BoxRound4: TBox_Round;
+
+var   BoxRound13: TBox_Round;
+
+var   ButtonRound38_Caption: string[9];    
+var   ButtonRound38_OnDown:  TEvent;       
+var   ButtonRound38:         TButton_Round;
+
+var   ButtonRound39_Caption: string[9];    
+var   ButtonRound39_OnDown:  TEvent;       
+var   ButtonRound39:         TButton_Round;
+
+const Line16: TCLine = (
+  @ScreenOrg,      // Line16.OwnerScreen
+  31,              // Line16.Order
+  1,               // Line16.Visible
+  255,             // Line16.Opacity
+  255,             // Line16.Tag
+  403,             // Line16.First_Point_X
+  90,              // Line16.First_Point_Y
+  403,             // Line16.Second_Point_X
+  271,             // Line16.Second_Point_Y
+  1,               // Line16.Pen_Width
+  0x0000           // Line16.Pen_Color
+); code;
+
+const Label2_Caption: string[2] = 'B3'; code;
+const Label2:         TCLabel   = (
+  @ScreenOrg,      // Label2.OwnerScreen
+  32,              // Label2.Order
+  1,               // Label2.Visible
+  255,             // Label2.Opacity
+  255,             // Label2.Tag
+  217,             // Label2.Left
+  213,             // Label2.Top
+  20,              // Label2.Width
+  17,              // Label2.Height
+  @Label2_Caption, // Label2.Caption
+  27,              // Label2.FontName
+  0x0000,          // Label2.Font_Color
+  27,              // Label2.FontHandle
+  -1,              // Label2.Source
+  1,               // Label2.Active
+  0,               // Label2.OnUp
+  0,               // Label2.OnDown
+  0,               // Label2.OnClick
+  0                // Label2.OnPress
+); code;
+
+const Label3_Caption: string[4] = 'H100'; code;
+const Label3:         TCLabel   = (
+  @ScreenOrg,      // Label3.OwnerScreen
+  33,              // Label3.Order
+  1,               // Label3.Visible
+  255,             // Label3.Opacity
+  255,             // Label3.Tag
+  254,             // Label3.Left
+  213,             // Label3.Top
+  36,              // Label3.Width
+  17,              // Label3.Height
+  @Label3_Caption, // Label3.Caption
+  27,              // Label3.FontName
+  0x0000,          // Label3.Font_Color
+  27,              // Label3.FontHandle
+  -1,              // Label3.Source
+  1,               // Label3.Active
+  0,               // Label3.OnUp
+  0,               // Label3.OnDown
+  0,               // Label3.OnClick
+  0                // Label3.OnPress
+); code;
+
+const Label4_Caption: string[3] = 'EGP'; code;
+const Label4:         TCLabel   = (
+  @ScreenOrg,      // Label4.OwnerScreen
+  34,              // Label4.Order
+  1,               // Label4.Visible
+  255,             // Label4.Opacity
+  255,             // Label4.Tag
+  307,             // Label4.Left
+  213,             // Label4.Top
+  29,              // Label4.Width
+  17,              // Label4.Height
+  @Label4_Caption, // Label4.Caption
+  27,              // Label4.FontName
+  0x0000,          // Label4.Font_Color
+  27,              // Label4.FontHandle
+  -1,              // Label4.Source
+  1,               // Label4.Active
+  0,               // Label4.OnUp
+  0,               // Label4.OnDown
+  0,               // Label4.OnClick
+  0                // Label4.OnPress
+); code;
+
+const Label5_Caption: string[3] = 'EGT'; code;
+const Label5:         TCLabel   = (
+  @ScreenOrg,      // Label5.OwnerScreen
+  35,              // Label5.Order
+  1,               // Label5.Visible
+  255,             // Label5.Opacity
+  255,             // Label5.Tag
+  352,             // Label5.Left
+  213,             // Label5.Top
+  29,              // Label5.Width
+  17,              // Label5.Height
+  @Label5_Caption, // Label5.Caption
+  27,              // Label5.FontName
+  0x0000,          // Label5.Font_Color
+  27,              // Label5.FontHandle
+  -1,              // Label5.Source
+  1,               // Label5.Active
+  0,               // Label5.OnUp
+  0,               // Label5.OnDown
+  0,               // Label5.OnClick
+  0                // Label5.OnPress
+); code;
+
+var   BoxRound26: TBox_Round;
+
+var   BoxRound32: TBox_Round;
+
+var   BoxRound33: TBox_Round;
+
+var   BoxRound39: TBox_Round;
+
+var   ButtonRound154_Caption: string[4];    
+var   ButtonRound154_OnDown:  TEvent;       
+var   ButtonRound154:         TButton_Round;
+
+var   ButtonRound155_Caption: string[4];    
+var   ButtonRound155_OnDown:  TEvent;       
+var   ButtonRound155:         TButton_Round;
+
+var   ButtonRound156_Caption: string[4];    
+var   ButtonRound156_OnDown:  TEvent;       
+var   ButtonRound156:         TButton_Round;
+
+var   ButtonRound157_Caption: string[5];    
+var   ButtonRound157_OnDown:  TEvent;       
+var   ButtonRound157:         TButton_Round;
+
+var   EveDial1: TEveDial;
+
+const Line51: TCLine = (
+  @ScreenOrg,      // Line51.OwnerScreen
+  45,              // Line51.Order
+  1,               // Line51.Visible
+  255,             // Line51.Opacity
+  255,             // Line51.Tag
+  403,             // Line51.First_Point_X
+  0,               // Line51.First_Point_Y
+  403,             // Line51.Second_Point_X
+  45,              // Line51.Second_Point_Y
+  1,               // Line51.Pen_Width
+  0x0000           // Line51.Pen_Color
+); code;
+
+const ScreenOrg_Buttons_Round: array[017] of TButton_RoundPtr  = (
+  @ButtonRound161,      
+  @ButtonRound64,       
+  @ButtonRound63,       
+  @ButtonRound62,       
+  @ButtonRound61,       
+  @ButtonRound60,       
+  @ButtonRound65,       
+  @ButtonRound66,       
+  @ButtonRound67,       
+  @ButtonRound70,       
+  @ButtonRound71,       
+  @ButtonRound38,       
+  @ButtonRound39,       
+  @ButtonRound154,      
+  @ButtonRound155,      
+  @ButtonRound156,      
+  @ButtonRound157       
+); code;
+
+const ScreenOrg_CLabels:       array[004] of TCLabelPtr        = (
+  @Label2,              
+  @Label3,              
+  @Label4,              
+  @Label5               
+); code;
+
+const ScreenOrg_CCircles:      array[001] of TCCirclePtr       = (
+  @Circle1              
+); code;
+
+const ScreenOrg_CircleButtons: array[006] of TCircleButtonPtr  = (
+  @CircleButton13,      
+  @CircleButton14,      
+  @CircleButton15,      
+  @CircleButton16,      
+  @CircleButton17,      
+  @CircleButton18       
+); code;
+
+const ScreenOrg_Boxes:         array[002] of TBoxPtr           = (
+  @Box15,               
+  @Box11                
+); code;
+
+const ScreenOrg_CBoxes:        array[002] of TCBoxPtr          = (
+  @Box10,               
+  @Box12                
+); code;
+
+const ScreenOrg_Boxes_Round:   array[008] of TBox_RoundPtr     = (
+  @BoxRound24,          
+  @BoxRound27,          
+  @BoxRound4,           
+  @BoxRound13,          
+  @BoxRound26,          
+  @BoxRound32,          
+  @BoxRound33,          
+  @BoxRound39           
+); code;
+
+const ScreenOrg_Lines:         array[001] of TLinePtr          = (
+  @Line17               
+); code;
+
+const ScreenOrg_CLines:        array[003] of TCLinePtr         = (
+  @Line18,              
+  @Line16,              
+  @Line51               
+); code;
+
+const ScreenOrg_EveDials:      array[001] of TEveDialPtr       = (
+  @EveDial1             
+); code;
+
+const ScreenOrg_EveSliders:    array[001] of TEveSliderPtr     = (
+  @EveSlider1           
+); code;
+
+
+const ScreenEfx_Buttons_Round: array[023] of TButton_RoundPtr;  code; forward;
+const ScreenEfx_CLabels:       array[003] of TCLabelPtr;        code; forward;
+const ScreenEfx_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenEfx_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenEfx_Boxes_Round:   array[014] of TBox_RoundPtr;     code; forward;
+const ScreenEfx_CLines:        array[004] of TCLinePtr;         code; forward;
+
+var   ScreenEfx: TScreen;
+
+
+var   Box16: TBox;
+
+var   ButtonRound162_Caption: string[4];    
+var   ButtonRound162_OnDown:  TEvent;       
+var   ButtonRound162:         TButton_Round;
+
+const Box1: TCBox = (
+  @ScreenEfx,           // Box1.OwnerScreen
+  2,                    // Box1.Order
+  1,                    // Box1.Visible
+  255,                  // Box1.Opacity
+  255,                  // Box1.Tag
+  0,                    // Box1.Left
+  246,                  // Box1.Top
+  403,                  // Box1.Width
+  26,                   // Box1.Height
+  1,                    // Box1.Pen_Width
+  0x5AEB,               // Box1.Pen_Color
+  0x5AEB,               // Box1.Color
+  0x5AEB,               // Box1.Press_Color
+  0xFFFF,               // Box1.ColorTo
+  0x9CD3,               // Box1.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box1.Gradient
+  1,                    // Box1.Active
+  0,                    // Box1.OnUp
+  0,                    // Box1.OnDown
+  0,                    // Box1.OnClick
+  0                     // Box1.OnPress
+); code;
+
+var   ButtonRound5_Caption: string[8];    
+var   ButtonRound5_OnDown:  TEvent;       
+var   ButtonRound5:         TButton_Round;
+
+var   ButtonRound4_Caption: string[7];    
+var   ButtonRound4_OnDown:  TEvent;       
+var   ButtonRound4:         TButton_Round;
+
+var   ButtonRound3_Caption: string[8];    
+var   ButtonRound3_OnDown:  TEvent;       
+var   ButtonRound3:         TButton_Round;
+
+var   ButtonRound2_Caption: string[4];    
+var   ButtonRound2_OnDown:  TEvent;       
+var   ButtonRound2:         TButton_Round;
+
+var   ButtonRound1_Caption: string[7];    
+var   ButtonRound1_OnDown:  TEvent;       
+var   ButtonRound1:         TButton_Round;
+
+var   ButtonRound6_Caption: string[5];    
+var   ButtonRound6_OnDown:  TEvent;       
+var   ButtonRound6:         TButton_Round;
+
+var   ButtonRound7_Caption: string[7];    
+var   ButtonRound7_OnDown:  TEvent;       
+var   ButtonRound7:         TButton_Round;
+
+var   ButtonRound8_Caption: string[7];    
+var   ButtonRound8_OnDown:  TEvent;       
+var   ButtonRound8:         TButton_Round;
+
+const Box7: TCBox = (
+  @ScreenEfx,           // Box7.OwnerScreen
+  11,                   // Box7.Order
+  1,                    // Box7.Visible
+  255,                  // Box7.Opacity
+  255,                  // Box7.Tag
+  1,                    // Box7.Left
+  238,                  // Box7.Top
+  401,                  // Box7.Width
+  7,                    // Box7.Height
+  0,                    // Box7.Pen_Width
+  0xCE79,               // Box7.Pen_Color
+  0xCE79,               // Box7.Color
+  0xCE79,               // Box7.Press_Color
+  0xCE79,               // Box7.ColorTo
+  0xCE79,               // Box7.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box7.Gradient
+  1,                    // Box7.Active
+  0,                    // Box7.OnUp
+  0,                    // Box7.OnDown
+  0,                    // Box7.OnClick
+  0                     // Box7.OnPress
+); code;
+
+const Line11: TCLine = (
+  @ScreenEfx,      // Line11.OwnerScreen
+  12,              // Line11.Order
+  1,               // Line11.Visible
+  255,             // Line11.Opacity
+  255,             // Line11.Tag
+  0,               // Line11.First_Point_X
+  245,             // Line11.First_Point_Y
+  76,              // Line11.Second_Point_X
+  245,             // Line11.Second_Point_Y
+  1,               // Line11.Pen_Width
+  0x0000           // Line11.Pen_Color
+); code;
+
+const Line12: TCLine = (
+  @ScreenEfx,      // Line12.OwnerScreen
+  13,              // Line12.Order
+  1,               // Line12.Visible
+  255,             // Line12.Opacity
+  255,             // Line12.Tag
+  151,             // Line12.First_Point_X
+  245,             // Line12.First_Point_Y
+  403,             // Line12.Second_Point_X
+  245,             // Line12.Second_Point_Y
+  1,               // Line12.Pen_Width
+  0x0000           // Line12.Pen_Color
+); code;
+
+const Box8: TCBox = (
+  @ScreenEfx,           // Box8.OwnerScreen
+  14,                   // Box8.Order
+  1,                    // Box8.Visible
+  255,                  // Box8.Opacity
+  255,                  // Box8.Tag
+  396,                  // Box8.Left
+  0,                    // Box8.Top
+  7,                    // Box8.Width
+  244,                  // Box8.Height
+  0,                    // Box8.Pen_Width
+  0xCE79,               // Box8.Pen_Color
+  0xCE79,               // Box8.Color
+  0xCE79,               // Box8.Press_Color
+  0xCE79,               // Box8.ColorTo
+  0xCE79,               // Box8.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box8.Gradient
+  1,                    // Box8.Active
+  0,                    // Box8.OnUp
+  0,                    // Box8.OnDown
+  0,                    // Box8.OnClick
+  0                     // Box8.OnPress
+); code;
+
+var   BoxRound11: TBox_Round;
+
+var   ButtonRound27_Caption: string[3];    
+var   ButtonRound27_OnDown:  TEvent;       
+var   ButtonRound27:         TButton_Round;
+
+var   BoxRound5: TBox_Round;
+
+var   ButtonRound9_Caption: string[8];    
+var   ButtonRound9_OnDown:  TEvent;       
+var   ButtonRound9:         TButton_Round;
+
+var   BoxRound6: TBox_Round;
+
+var   ButtonRound10_Caption: string[7];    
+var   ButtonRound10_OnDown:  TEvent;       
+var   ButtonRound10:         TButton_Round;
+
+var   BoxRound7: TBox_Round;
+
+var   ButtonRound11_Caption: string[6];    
+var   ButtonRound11_OnDown:  TEvent;       
+var   ButtonRound11:         TButton_Round;
+
+var   BoxRound9: TBox_Round;
+
+var   ButtonRound13_Caption: string[4];    
+var   ButtonRound13_OnDown:  TEvent;       
+var   ButtonRound13:         TButton_Round;
+
+var   BoxRound8: TBox_Round;
+
+var   ButtonRound12_Caption: string[4];    
+var   ButtonRound12_OnDown:  TEvent;       
+var   ButtonRound12:         TButton_Round;
+
+var   BoxRound10: TBox_Round;
+
+var   ButtonRound26_Caption: string[4];    
+var   ButtonRound26_OnDown:  TEvent;       
+var   ButtonRound26:         TButton_Round;
+
+var   BoxRound12: TBox_Round;
+
+var   ButtonRound40_Caption: string[5];    
+var   ButtonRound40_OnDown:  TEvent;       
+var   ButtonRound40:         TButton_Round;
+
+const Label10_Caption: string[19] = 'Phasing Rotor'; code;
+const Label10:         TCLabel    = (
+  @ScreenEfx,       // Label10.OwnerScreen
+  31,               // Label10.Order
+  1,                // Label10.Visible
+  255,              // Label10.Opacity
+  255,              // Label10.Tag
+  8,                // Label10.Left
+  26,               // Label10.Top
+  110,              // Label10.Width
+  21,               // Label10.Height
+  @Label10_Caption, // Label10.Caption
+  28,               // Label10.FontName
+  0x0000,           // Label10.Font_Color
+  28,               // Label10.FontHandle
+  -1,               // Label10.Source
+  1,                // Label10.Active
+  0,                // Label10.OnUp
+  0,                // Label10.OnDown
+  0,                // Label10.OnClick
+  0                 // Label10.OnPress
+); code;
+
+var   BoxRound28: TBox_Round;
+
+var   ButtonRound72_Caption: string[5];    
+var   ButtonRound72_OnDown:  TEvent;       
+var   ButtonRound72:         TButton_Round;
+
+var   BoxRound29: TBox_Round;
+
+var   ButtonRound73_Caption: string[6];    
+var   ButtonRound73_OnDown:  TEvent;       
+var   ButtonRound73:         TButton_Round;
+
+const Label7_Caption: string[19] = 'Reverb'; code;
+const Label7:         TCLabel    = (
+  @ScreenEfx,      // Label7.OwnerScreen
+  36,              // Label7.Order
+  1,               // Label7.Visible
+  255,             // Label7.Opacity
+  255,             // Label7.Tag
+  8,               // Label7.Left
+  149,             // Label7.Top
+  56,              // Label7.Width
+  21,              // Label7.Height
+  @Label7_Caption, // Label7.Caption
+  28,              // Label7.FontName
+  0x0000,          // Label7.Font_Color
+  28,              // Label7.FontHandle
+  -1,              // Label7.Source
+  1,               // Label7.Active
+  0,               // Label7.OnUp
+  0,               // Label7.OnDown
+  0,               // Label7.OnClick
+  0                // Label7.OnPress
+); code;
+
+var   BoxRound16: TBox_Round;
+
+var   ButtonRound17_Caption: string[7];    
+var   ButtonRound17_OnDown:  TEvent;       
+var   ButtonRound17:         TButton_Round;
+
+var   BoxRound17: TBox_Round;
+
+var   ButtonRound18_Caption: string[6];    
+var   ButtonRound18_OnDown:  TEvent;       
+var   ButtonRound18:         TButton_Round;
+
+const Label9_Caption: string[19] = 'Bypass'; code;
+const Label9:         TCLabel    = (
+  @ScreenEfx,      // Label9.OwnerScreen
+  41,              // Label9.Order
+  1,               // Label9.Visible
+  255,             // Label9.Opacity
+  255,             // Label9.Tag
+  200,             // Label9.Left
+  149,             // Label9.Top
+  60,              // Label9.Width
+  21,              // Label9.Height
+  @Label9_Caption, // Label9.Caption
+  28,              // Label9.FontName
+  0x0000,          // Label9.Font_Color
+  28,              // Label9.FontHandle
+  -1,              // Label9.Source
+  1,               // Label9.Active
+  0,               // Label9.OnUp
+  0,               // Label9.OnDown
+  0,               // Label9.OnClick
+  0                // Label9.OnPress
+); code;
+
+var   BoxRound18: TBox_Round;
+
+var   BoxRound19: TBox_Round;
+
+var   ButtonRound48_Caption: string[9];    
+var   ButtonRound48_OnDown:  TEvent;       
+var   ButtonRound48:         TButton_Round;
+
+var   ButtonRound49_Caption: string[9];    
+var   ButtonRound49_OnDown:  TEvent;       
+var   ButtonRound49:         TButton_Round;
+
+const Line52: TCLine = (
+  @ScreenEfx,      // Line52.OwnerScreen
+  46,              // Line52.Order
+  1,               // Line52.Visible
+  255,             // Line52.Opacity
+  255,             // Line52.Tag
+  403,             // Line52.First_Point_X
+  0,               // Line52.First_Point_Y
+  403,             // Line52.Second_Point_X
+  45,              // Line52.Second_Point_Y
+  1,               // Line52.Pen_Width
+  0x0000           // Line52.Pen_Color
+); code;
+
+const Line1: TCLine = (
+  @ScreenEfx,      // Line1.OwnerScreen
+  47,              // Line1.Order
+  1,               // Line1.Visible
+  255,             // Line1.Opacity
+  255,             // Line1.Tag
+  403,             // Line1.First_Point_X
+  90,              // Line1.First_Point_Y
+  403,             // Line1.Second_Point_X
+  271,             // Line1.Second_Point_Y
+  1,               // Line1.Pen_Width
+  0x0000           // Line1.Pen_Color
+); code;
+
+const ScreenEfx_Buttons_Round: array[023] of TButton_RoundPtr  = (
+  @ButtonRound162,      
+  @ButtonRound5,        
+  @ButtonRound4,        
+  @ButtonRound3,        
+  @ButtonRound2,        
+  @ButtonRound1,        
+  @ButtonRound6,        
+  @ButtonRound7,        
+  @ButtonRound8,        
+  @ButtonRound27,       
+  @ButtonRound9,        
+  @ButtonRound10,       
+  @ButtonRound11,       
+  @ButtonRound13,       
+  @ButtonRound12,       
+  @ButtonRound26,       
+  @ButtonRound40,       
+  @ButtonRound72,       
+  @ButtonRound73,       
+  @ButtonRound17,       
+  @ButtonRound18,       
+  @ButtonRound48,       
+  @ButtonRound49        
+); code;
+
+const ScreenEfx_CLabels:       array[003] of TCLabelPtr        = (
+  @Label10,             
+  @Label7,              
+  @Label9               
+); code;
+
+const ScreenEfx_Boxes:         array[001] of TBoxPtr           = (
+  @Box16                
+); code;
+
+const ScreenEfx_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box1,                
+  @Box7,                
+  @Box8                 
+); code;
+
+const ScreenEfx_Boxes_Round:   array[014] of TBox_RoundPtr     = (
+  @BoxRound11,          
+  @BoxRound5,           
+  @BoxRound6,           
+  @BoxRound7,           
+  @BoxRound9,           
+  @BoxRound8,           
+  @BoxRound10,          
+  @BoxRound12,          
+  @BoxRound28,          
+  @BoxRound29,          
+  @BoxRound16,          
+  @BoxRound17,          
+  @BoxRound18,          
+  @BoxRound19           
+); code;
+
+const ScreenEfx_CLines:        array[004] of TCLinePtr         = (
+  @Line11,              
+  @Line12,              
+  @Line52,              
+  @Line1                
+); code;
+
+
+const ScreenOpt_Buttons_Round: array[014] of TButton_RoundPtr;  code; forward;
+const ScreenOpt_CLabels:       array[002] of TCLabelPtr;        code; forward;
+const ScreenOpt_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenOpt_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenOpt_Boxes_Round:   array[005] of TBox_RoundPtr;     code; forward;
+const ScreenOpt_CLines:        array[004] of TCLinePtr;         code; forward;
+
+var   ScreenOpt: TScreen;
+
+
+var   Box17: TBox;
+
+var   ButtonRound163_Caption: string[7];    
+var   ButtonRound163_OnDown:  TEvent;       
+var   ButtonRound163:         TButton_Round;
+
+var   ButtonRound45_Caption: string[4];    
+var   ButtonRound45_OnDown:  TEvent;       
+var   ButtonRound45:         TButton_Round;
+
+var   ButtonRound44_Caption: string[8];    
+var   ButtonRound44_OnDown:  TEvent;       
+var   ButtonRound44:         TButton_Round;
+
+var   ButtonRound43_Caption: string[7];    
+var   ButtonRound43_OnDown:  TEvent;       
+var   ButtonRound43:         TButton_Round;
+
+var   ButtonRound42_Caption: string[8];    
+var   ButtonRound42_OnDown:  TEvent;       
+var   ButtonRound42:         TButton_Round;
+
+var   ButtonRound41_Caption: string[4];    
+var   ButtonRound41_OnDown:  TEvent;       
+var   ButtonRound41:         TButton_Round;
+
+const Box9: TCBox = (
+  @ScreenOpt,           // Box9.OwnerScreen
+  7,                    // Box9.Order
+  1,                    // Box9.Visible
+  255,                  // Box9.Opacity
+  255,                  // Box9.Tag
+  0,                    // Box9.Left
+  246,                  // Box9.Top
+  403,                  // Box9.Width
+  26,                   // Box9.Height
+  1,                    // Box9.Pen_Width
+  0x5AEB,               // Box9.Pen_Color
+  0x5AEB,               // Box9.Color
+  0x5AEB,               // Box9.Press_Color
+  0xFFFF,               // Box9.ColorTo
+  0x9CD3,               // Box9.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box9.Gradient
+  1,                    // Box9.Active
+  0,                    // Box9.OnUp
+  0,                    // Box9.OnDown
+  0,                    // Box9.OnClick
+  0                     // Box9.OnPress
+); code;
+
+var   ButtonRound46_Caption: string[5];    
+var   ButtonRound46_OnDown:  TEvent;       
+var   ButtonRound46:         TButton_Round;
+
+var   ButtonRound47_Caption: string[7];    
+var   ButtonRound47_OnDown:  TEvent;       
+var   ButtonRound47:         TButton_Round;
+
+var   ButtonRound53_Caption: string[7];    
+var   ButtonRound53_OnDown:  TEvent;       
+var   ButtonRound53:         TButton_Round;
+
+const Box14: TCBox = (
+  @ScreenOpt,           // Box14.OwnerScreen
+  11,                   // Box14.Order
+  1,                    // Box14.Visible
+  255,                  // Box14.Opacity
+  255,                  // Box14.Tag
+  396,                  // Box14.Left
+  0,                    // Box14.Top
+  7,                    // Box14.Width
+  244,                  // Box14.Height
+  0,                    // Box14.Pen_Width
+  0xCE79,               // Box14.Pen_Color
+  0xCE79,               // Box14.Color
+  0xCE79,               // Box14.Press_Color
+  0xCE79,               // Box14.ColorTo
+  0xCE79,               // Box14.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box14.Gradient
+  1,                    // Box14.Active
+  0,                    // Box14.OnUp
+  0,                    // Box14.OnDown
+  0,                    // Box14.OnClick
+  0                     // Box14.OnPress
+); code;
+
+const Box13: TCBox = (
+  @ScreenOpt,           // Box13.OwnerScreen
+  12,                   // Box13.Order
+  1,                    // Box13.Visible
+  255,                  // Box13.Opacity
+  255,                  // Box13.Tag
+  1,                    // Box13.Left
+  238,                  // Box13.Top
+  401,                  // Box13.Width
+  7,                    // Box13.Height
+  0,                    // Box13.Pen_Width
+  0xCE79,               // Box13.Pen_Color
+  0xCE79,               // Box13.Color
+  0xCE79,               // Box13.Press_Color
+  0xCE79,               // Box13.ColorTo
+  0xCE79,               // Box13.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box13.Gradient
+  1,                    // Box13.Active
+  0,                    // Box13.OnUp
+  0,                    // Box13.OnDown
+  0,                    // Box13.OnClick
+  0                     // Box13.OnPress
+); code;
+
+const Line14: TCLine = (
+  @ScreenOpt,      // Line14.OwnerScreen
+  13,              // Line14.Order
+  1,               // Line14.Visible
+  255,             // Line14.Opacity
+  255,             // Line14.Tag
+  151,             // Line14.First_Point_X
+  245,             // Line14.First_Point_Y
+  1,               // Line14.Second_Point_X
+  245,             // Line14.Second_Point_Y
+  1,               // Line14.Pen_Width
+  0x0000           // Line14.Pen_Color
+); code;
+
+const Line15: TCLine = (
+  @ScreenOpt,      // Line15.OwnerScreen
+  14,              // Line15.Order
+  1,               // Line15.Visible
+  255,             // Line15.Opacity
+  255,             // Line15.Tag
+  226,             // Line15.First_Point_X
+  245,             // Line15.First_Point_Y
+  403,             // Line15.Second_Point_X
+  245,             // Line15.Second_Point_Y
+  1,               // Line15.Pen_Width
+  0x0000           // Line15.Pen_Color
+); code;
+
+var   BoxRound1: TBox_Round;
+
+var   ButtonRound14_Caption: string[8];    
+var   ButtonRound14_OnDown:  TEvent;       
+var   ButtonRound14:         TButton_Round;
+
+const Label6_Caption: string[7] = 'Options'; code;
+const Label6:         TCLabel   = (
+  @ScreenOpt,      // Label6.OwnerScreen
+  17,              // Label6.Order
+  1,               // Label6.Visible
+  255,             // Label6.Opacity
+  255,             // Label6.Tag
+  8,               // Label6.Left
+  6,               // Label6.Top
+  63,              // Label6.Width
+  21,              // Label6.Height
+  @Label6_Caption, // Label6.Caption
+  28,              // Label6.FontName
+  0x0000,          // Label6.Font_Color
+  28,              // Label6.FontHandle
+  -1,              // Label6.Source
+  1,               // Label6.Active
+  0,               // Label6.OnUp
+  0,               // Label6.OnDown
+  0,               // Label6.OnClick
+  0                // Label6.OnPress
+); code;
+
+var   BoxRound14: TBox_Round;
+
+var   ButtonRound15_Caption: string[8];    
+var   ButtonRound15_OnDown:  TEvent;       
+var   ButtonRound15:         TButton_Round;
+
+var   BoxRound15: TBox_Round;
+
+var   ButtonRound16_Caption: string[8];    
+var   ButtonRound16_OnDown:  TEvent;       
+var   ButtonRound16:         TButton_Round;
+
+const Label8_Caption: string[12] = 'MIDI Enables'; code;
+const Label8:         TCLabel    = (
+  @ScreenOpt,      // Label8.OwnerScreen
+  22,              // Label8.Order
+  1,               // Label8.Visible
+  255,             // Label8.Opacity
+  255,             // Label8.Tag
+  8,               // Label8.Left
+  50,              // Label8.Top
+  102,             // Label8.Width
+  21,              // Label8.Height
+  @Label8_Caption, // Label8.Caption
+  28,              // Label8.FontName
+  0x0000,          // Label8.Font_Color
+  28,              // Label8.FontHandle
+  -1,              // Label8.Source
+  1,               // Label8.Active
+  0,               // Label8.OnUp
+  0,               // Label8.OnDown
+  0,               // Label8.OnClick
+  0                // Label8.OnPress
+); code;
+
+var   BoxRound30: TBox_Round;
+
+var   ButtonRound74_Caption: string[7];    
+var   ButtonRound74_OnDown:  TEvent;       
+var   ButtonRound74:         TButton_Round;
+
+var   BoxRound31: TBox_Round;
+
+var   ButtonRound75_Caption: string[8];    
+var   ButtonRound75_OnDown:  TEvent;       
+var   ButtonRound75:         TButton_Round;
+
+const Line13: TCLine = (
+  @ScreenOpt,      // Line13.OwnerScreen
+  27,              // Line13.Order
+  1,               // Line13.Visible
+  255,             // Line13.Opacity
+  255,             // Line13.Tag
+  403,             // Line13.First_Point_X
+  90,              // Line13.First_Point_Y
+  403,             // Line13.Second_Point_X
+  271,             // Line13.Second_Point_Y
+  1,               // Line13.Pen_Width
+  0x0000           // Line13.Pen_Color
+); code;
+
+const Line53: TCLine = (
+  @ScreenOpt,      // Line53.OwnerScreen
+  28,              // Line53.Order
+  1,               // Line53.Visible
+  255,             // Line53.Opacity
+  255,             // Line53.Tag
+  403,             // Line53.First_Point_X
+  0,               // Line53.First_Point_Y
+  403,             // Line53.Second_Point_X
+  45,              // Line53.Second_Point_Y
+  1,               // Line53.Pen_Width
+  0x0000           // Line53.Pen_Color
+); code;
+
+const ScreenOpt_Buttons_Round: array[014] of TButton_RoundPtr  = (
+  @ButtonRound163,      
+  @ButtonRound45,       
+  @ButtonRound44,       
+  @ButtonRound43,       
+  @ButtonRound42,       
+  @ButtonRound41,       
+  @ButtonRound46,       
+  @ButtonRound47,       
+  @ButtonRound53,       
+  @ButtonRound14,       
+  @ButtonRound15,       
+  @ButtonRound16,       
+  @ButtonRound74,       
+  @ButtonRound75        
+); code;
+
+const ScreenOpt_CLabels:       array[002] of TCLabelPtr        = (
+  @Label6,              
+  @Label8               
+); code;
+
+const ScreenOpt_Boxes:         array[001] of TBoxPtr           = (
+  @Box17                
+); code;
+
+const ScreenOpt_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box9,                
+  @Box14,               
+  @Box13                
+); code;
+
+const ScreenOpt_Boxes_Round:   array[005] of TBox_RoundPtr     = (
+  @BoxRound1,           
+  @BoxRound14,          
+  @BoxRound15,          
+  @BoxRound30,          
+  @BoxRound31           
+); code;
+
+const ScreenOpt_CLines:        array[004] of TCLinePtr         = (
+  @Line14,              
+  @Line15,              
+  @Line13,              
+  @Line53               
+); code;
+
+
+const ScreenDBupper_Buttons_Round: array[018] of TButton_RoundPtr;  code; forward;
+const ScreenDBupper_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenDBupper_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenDBupper_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenDBupper_Boxes_Round:   array[007] of TBox_RoundPtr;     code; forward;
+const ScreenDBupper_Lines:         array[001] of TLinePtr;          code; forward;
+const ScreenDBupper_CLines:        array[003] of TCLinePtr;         code; forward;
+const ScreenDBupper_EveScrollBars: array[012] of TEveScrollbarPtr;  code; forward;
+
+var   ScreenDBupper: TScreen;
+
+
+var   Box23: TBox;
+
+var   ButtonRound164_Caption: string[7];    
+var   ButtonRound164_OnDown:  TEvent;       
+var   ButtonRound164:         TButton_Round;
+
+var   ButtonRound84_Caption: string[4];    
+var   ButtonRound84_OnDown:  TEvent;       
+var   ButtonRound84:         TButton_Round;
+
+var   ButtonRound83_Caption: string[8];    
+var   ButtonRound83_OnDown:  TEvent;       
+var   ButtonRound83:         TButton_Round;
+
+var   ButtonRound82_Caption: string[7];    
+var   ButtonRound82_OnDown:  TEvent;       
+var   ButtonRound82:         TButton_Round;
+
+var   ButtonRound81_Caption: string[8];    
+var   ButtonRound81_OnDown:  TEvent;       
+var   ButtonRound81:         TButton_Round;
+
+var   ButtonRound52_Caption: string[4];    
+var   ButtonRound52_OnDown:  TEvent;       
+var   ButtonRound52:         TButton_Round;
+
+const Box24: TCBox = (
+  @ScreenDBupper,       // Box24.OwnerScreen
+  7,                    // Box24.Order
+  1,                    // Box24.Visible
+  255,                  // Box24.Opacity
+  255,                  // Box24.Tag
+  0,                    // Box24.Left
+  246,                  // Box24.Top
+  403,                  // Box24.Width
+  26,                   // Box24.Height
+  1,                    // Box24.Pen_Width
+  0x5AEB,               // Box24.Pen_Color
+  0x5AEB,               // Box24.Color
+  0x5AEB,               // Box24.Press_Color
+  0xFFFF,               // Box24.ColorTo
+  0x9CD3,               // Box24.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box24.Gradient
+  1,                    // Box24.Active
+  0,                    // Box24.OnUp
+  0,                    // Box24.OnDown
+  0,                    // Box24.OnClick
+  0                     // Box24.OnPress
+); code;
+
+var   ButtonRound76_Caption: string[4];    
+var   ButtonRound76_OnDown:  TEvent;       
+var   ButtonRound76:         TButton_Round;
+
+var   ButtonRound77_Caption: string[5];    
+var   ButtonRound77_OnDown:  TEvent;       
+var   ButtonRound77:         TButton_Round;
+
+var   ButtonRound78_Caption: string[5];    
+var   ButtonRound78_OnDown:  TEvent;       
+var   ButtonRound78:         TButton_Round;
+
+var   ButtonRound79_Caption: string[5];    
+var   ButtonRound79_OnDown:  TEvent;       
+var   ButtonRound79:         TButton_Round;
+
+var   ButtonRound80_Caption: string[8];    
+var   ButtonRound80_OnDown:  TEvent;       
+var   ButtonRound80:         TButton_Round;
+
+const Box25: TCBox = (
+  @ScreenDBupper,       // Box25.OwnerScreen
+  13,                   // Box25.Order
+  1,                    // Box25.Visible
+  255,                  // Box25.Opacity
+  255,                  // Box25.Tag
+  1,                    // Box25.Left
+  238,                  // Box25.Top
+  401,                  // Box25.Width
+  7,                    // Box25.Height
+  0,                    // Box25.Pen_Width
+  0xCE79,               // Box25.Pen_Color
+  0xCE79,               // Box25.Color
+  0xCE79,               // Box25.Press_Color
+  0xCE79,               // Box25.ColorTo
+  0xCE79,               // Box25.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box25.Gradient
+  1,                    // Box25.Active
+  0,                    // Box25.OnUp
+  0,                    // Box25.OnDown
+  0,                    // Box25.OnClick
+  0                     // Box25.OnPress
+); code;
+
+var   Line19: TLine;
+
+var   EveScrollBar17_OnPress: TEvent;       
+var   EveScrollBar17:         TEveScrollbar;
+
+var   EveScrollBar18_OnPress: TEvent;       
+var   EveScrollBar18:         TEveScrollbar;
+
+var   EveScrollBar19_OnPress: TEvent;       
+var   EveScrollBar19:         TEveScrollbar;
+
+var   EveScrollBar20_OnPress: TEvent;       
+var   EveScrollBar20:         TEveScrollbar;
+
+var   EveScrollBar21_OnPress: TEvent;       
+var   EveScrollBar21:         TEveScrollbar;
+
+var   EveScrollBar22_OnPress: TEvent;       
+var   EveScrollBar22:         TEveScrollbar;
+
+var   EveScrollBar23_OnPress: TEvent;       
+var   EveScrollBar23:         TEveScrollbar;
+
+var   EveScrollBar24_OnPress: TEvent;       
+var   EveScrollBar24:         TEveScrollbar;
+
+var   EveScrollBar29_OnPress: TEvent;       
+var   EveScrollBar29:         TEveScrollbar;
+
+var   EveScrollBar30_OnPress: TEvent;       
+var   EveScrollBar30:         TEveScrollbar;
+
+var   EveScrollBar31_OnPress: TEvent;       
+var   EveScrollBar31:         TEveScrollbar;
+
+var   EveScrollBar32_OnPress: TEvent;       
+var   EveScrollBar32:         TEveScrollbar;
+
+const Box26: TCBox = (
+  @ScreenDBupper,       // Box26.OwnerScreen
+  27,                   // Box26.Order
+  1,                    // Box26.Visible
+  255,                  // Box26.Opacity
+  255,                  // Box26.Tag
+  397,                  // Box26.Left
+  0,                    // Box26.Top
+  6,                    // Box26.Width
+  244,                  // Box26.Height
+  0,                    // Box26.Pen_Width
+  0xCE79,               // Box26.Pen_Color
+  0xCE79,               // Box26.Color
+  0xCE79,               // Box26.Press_Color
+  0xCE79,               // Box26.ColorTo
+  0xCE79,               // Box26.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box26.Gradient
+  1,                    // Box26.Active
+  0,                    // Box26.OnUp
+  0,                    // Box26.OnDown
+  0,                    // Box26.OnClick
+  0                     // Box26.OnPress
+); code;
+
+const Line20: TCLine = (
+  @ScreenDBupper,  // Line20.OwnerScreen
+  28,              // Line20.Order
+  1,               // Line20.Visible
+  255,             // Line20.Opacity
+  255,             // Line20.Tag
+  76,              // Line20.First_Point_X
+  245,             // Line20.First_Point_Y
+  403,             // Line20.Second_Point_X
+  245,             // Line20.Second_Point_Y
+  1,               // Line20.Pen_Width
+  0x0000           // Line20.Pen_Color
+); code;
+
+const Label12_Caption: string[5] = 'Upper'; code;
+const Label12:         TCLabel   = (
+  @ScreenDBupper,   // Label12.OwnerScreen
+  29,               // Label12.Order
+  1,                // Label12.Visible
+  255,              // Label12.Opacity
+  255,              // Label12.Tag
+  8,                // Label12.Left
+  6,                // Label12.Top
+  50,               // Label12.Width
+  21,               // Label12.Height
+  @Label12_Caption, // Label12.Caption
+  28,               // Label12.FontName
+  0x0000,           // Label12.Font_Color
+  28,               // Label12.FontHandle
+  -1,               // Label12.Source
+  1,                // Label12.Active
+  0,                // Label12.OnUp
+  0,                // Label12.OnDown
+  0,                // Label12.OnClick
+  0                 // Label12.OnPress
+); code;
+
+var   BoxRound34: TBox_Round;
+
+var   BoxRound35: TBox_Round;
+
+var   BoxRound36: TBox_Round;
+
+var   BoxRound37: TBox_Round;
+
+var   ButtonRound85_Caption: string[4];    
+var   ButtonRound85_OnDown:  TEvent;       
+var   ButtonRound85:         TButton_Round;
+
+var   ButtonRound86_Caption: string[4];    
+var   ButtonRound86_OnDown:  TEvent;       
+var   ButtonRound86:         TButton_Round;
+
+var   ButtonRound87_Caption: string[4];    
+var   ButtonRound87_OnDown:  TEvent;       
+var   ButtonRound87:         TButton_Round;
+
+var   ButtonRound88_Caption: string[5];    
+var   ButtonRound88_OnDown:  TEvent;       
+var   ButtonRound88:         TButton_Round;
+
+var   BoxRound38_OnDown: TEvent;    
+var   BoxRound38:        TBox_Round;
+
+var   ButtonRound89_Caption: string[7];    
+var   ButtonRound89_OnDown:  TEvent;       
+var   ButtonRound89:         TButton_Round;
+
+var   BoxRound20: TBox_Round;
+
+var   ButtonRound50_Caption: string[9];    
+var   ButtonRound50_OnDown:  TEvent;       
+var   ButtonRound50:         TButton_Round;
+
+var   BoxRound21: TBox_Round;
+
+var   ButtonRound51_Caption: string[9];    
+var   ButtonRound51_OnDown:  TEvent;       
+var   ButtonRound51:         TButton_Round;
+
+const Line22: TCLine = (
+  @ScreenDBupper,  // Line22.OwnerScreen
+  44,              // Line22.Order
+  1,               // Line22.Visible
+  255,             // Line22.Opacity
+  255,             // Line22.Tag
+  403,             // Line22.First_Point_X
+  0,               // Line22.First_Point_Y
+  403,             // Line22.Second_Point_X
+  90,              // Line22.Second_Point_Y
+  1,               // Line22.Pen_Width
+  0x0000           // Line22.Pen_Color
+); code;
+
+const Line21: TCLine = (
+  @ScreenDBupper,  // Line21.OwnerScreen
+  45,              // Line21.Order
+  1,               // Line21.Visible
+  255,             // Line21.Opacity
+  255,             // Line21.Tag
+  403,             // Line21.First_Point_X
+  135,             // Line21.First_Point_Y
+  403,             // Line21.Second_Point_X
+  271,             // Line21.Second_Point_Y
+  1,               // Line21.Pen_Width
+  0x0000           // Line21.Pen_Color
+); code;
+
+const ScreenDBupper_Buttons_Round: array[018] of TButton_RoundPtr  = (
+  @ButtonRound164,      
+  @ButtonRound84,       
+  @ButtonRound83,       
+  @ButtonRound82,       
+  @ButtonRound81,       
+  @ButtonRound52,       
+  @ButtonRound76,       
+  @ButtonRound77,       
+  @ButtonRound78,       
+  @ButtonRound79,       
+  @ButtonRound80,       
+  @ButtonRound85,       
+  @ButtonRound86,       
+  @ButtonRound87,       
+  @ButtonRound88,       
+  @ButtonRound89,       
+  @ButtonRound50,       
+  @ButtonRound51        
+); code;
+
+const ScreenDBupper_CLabels:       array[001] of TCLabelPtr        = (
+  @Label12              
+); code;
+
+const ScreenDBupper_Boxes:         array[001] of TBoxPtr           = (
+  @Box23                
+); code;
+
+const ScreenDBupper_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box24,               
+  @Box25,               
+  @Box26                
+); code;
+
+const ScreenDBupper_Boxes_Round:   array[007] of TBox_RoundPtr     = (
+  @BoxRound34,          
+  @BoxRound35,          
+  @BoxRound36,          
+  @BoxRound37,          
+  @BoxRound38,          
+  @BoxRound20,          
+  @BoxRound21           
+); code;
+
+const ScreenDBupper_Lines:         array[001] of TLinePtr          = (
+  @Line19               
+); code;
+
+const ScreenDBupper_CLines:        array[003] of TCLinePtr         = (
+  @Line20,              
+  @Line22,              
+  @Line21               
+); code;
+
+const ScreenDBupper_EveScrollBars: array[012] of TEveScrollbarPtr  = (
+  @EveScrollBar17,      
+  @EveScrollBar18,      
+  @EveScrollBar19,      
+  @EveScrollBar20,      
+  @EveScrollBar21,      
+  @EveScrollBar22,      
+  @EveScrollBar23,      
+  @EveScrollBar24,      
+  @EveScrollBar29,      
+  @EveScrollBar30,      
+  @EveScrollBar31,      
+  @EveScrollBar32       
+); code;
+
+
+const ScreenDBenvelope_Buttons_Round: array[014] of TButton_RoundPtr;  code; forward;
+const ScreenDBenvelope_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenDBenvelope_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenDBenvelope_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenDBenvelope_Boxes_Round:   array[003] of TBox_RoundPtr;     code; forward;
+const ScreenDBenvelope_CLines:        array[004] of TCLinePtr;         code; forward;
+const ScreenDBenvelope_CheckBoxes:    array[012] of TCheckBoxPtr;      code; forward;
+const ScreenDBenvelope_EveScrollBars: array[012] of TEveScrollbarPtr;  code; forward;
+
+var   ScreenDBenvelope: TScreen;
+
+
+var   Box27: TBox;
+
+var   ButtonRound165_Caption: string[4];    
+var   ButtonRound165_OnDown:  TEvent;       
+var   ButtonRound165:         TButton_Round;
+
+var   ButtonRound100_Caption: string[8];    
+var   ButtonRound100_OnDown:  TEvent;       
+var   ButtonRound100:         TButton_Round;
+
+var   ButtonRound99_Caption: string[7];    
+var   ButtonRound99_OnDown:  TEvent;       
+var   ButtonRound99:         TButton_Round;
+
+var   ButtonRound98_Caption: string[8];    
+var   ButtonRound98_OnDown:  TEvent;       
+var   ButtonRound98:         TButton_Round;
+
+var   ButtonRound97_Caption: string[4];    
+var   ButtonRound97_OnDown:  TEvent;       
+var   ButtonRound97:         TButton_Round;
+
+var   ButtonRound91_Caption: string[7];    
+var   ButtonRound91_OnDown:  TEvent;       
+var   ButtonRound91:         TButton_Round;
+
+const Box28: TCBox = (
+  @ScreenDBenvelope,    // Box28.OwnerScreen
+  7,                    // Box28.Order
+  1,                    // Box28.Visible
+  255,                  // Box28.Opacity
+  255,                  // Box28.Tag
+  0,                    // Box28.Left
+  246,                  // Box28.Top
+  403,                  // Box28.Width
+  26,                   // Box28.Height
+  1,                    // Box28.Pen_Width
+  0x5AEB,               // Box28.Pen_Color
+  0x5AEB,               // Box28.Color
+  0x5AEB,               // Box28.Press_Color
+  0xFFFF,               // Box28.ColorTo
+  0x9CD3,               // Box28.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box28.Gradient
+  1,                    // Box28.Active
+  0,                    // Box28.OnUp
+  0,                    // Box28.OnDown
+  0,                    // Box28.OnClick
+  0                     // Box28.OnPress
+); code;
+
+var   ButtonRound92_Caption: string[4];    
+var   ButtonRound92_OnDown:  TEvent;       
+var   ButtonRound92:         TButton_Round;
+
+var   ButtonRound93_Caption: string[5];    
+var   ButtonRound93_OnDown:  TEvent;       
+var   ButtonRound93:         TButton_Round;
+
+var   ButtonRound94_Caption: string[5];    
+var   ButtonRound94_OnDown:  TEvent;       
+var   ButtonRound94:         TButton_Round;
+
+var   ButtonRound95_Caption: string[5];    
+var   ButtonRound95_OnDown:  TEvent;       
+var   ButtonRound95:         TButton_Round;
+
+var   ButtonRound96_Caption: string[8];    
+var   ButtonRound96_OnDown:  TEvent;       
+var   ButtonRound96:         TButton_Round;
+
+const Box29: TCBox = (
+  @ScreenDBenvelope,    // Box29.OwnerScreen
+  13,                   // Box29.Order
+  1,                    // Box29.Visible
+  255,                  // Box29.Opacity
+  255,                  // Box29.Tag
+  1,                    // Box29.Left
+  238,                  // Box29.Top
+  401,                  // Box29.Width
+  7,                    // Box29.Height
+  0,                    // Box29.Pen_Width
+  0xCE79,               // Box29.Pen_Color
+  0xCE79,               // Box29.Color
+  0xCE79,               // Box29.Press_Color
+  0xCE79,               // Box29.ColorTo
+  0xCE79,               // Box29.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box29.Gradient
+  1,                    // Box29.Active
+  0,                    // Box29.OnUp
+  0,                    // Box29.OnDown
+  0,                    // Box29.OnClick
+  0                     // Box29.OnPress
+); code;
+
+const Line23: TCLine = (
+  @ScreenDBenvelope, // Line23.OwnerScreen
+  14,                // Line23.Order
+  1,                 // Line23.Visible
+  255,               // Line23.Opacity
+  255,               // Line23.Tag
+  0,                 // Line23.First_Point_X
+  245,               // Line23.First_Point_Y
+  76,                // Line23.Second_Point_X
+  245,               // Line23.Second_Point_Y
+  1,                 // Line23.Pen_Width
+  0x0000             // Line23.Pen_Color
+); code;
+
+var   EveScrollBar42_OnPress: TEvent;       
+var   EveScrollBar42:         TEveScrollbar;
+
+var   EveScrollBar43_OnPress: TEvent;       
+var   EveScrollBar43:         TEveScrollbar;
+
+var   EveScrollBar44_OnPress: TEvent;       
+var   EveScrollBar44:         TEveScrollbar;
+
+var   EveScrollBar45_OnPress: TEvent;       
+var   EveScrollBar45:         TEveScrollbar;
+
+var   EveScrollBar46_OnPress: TEvent;       
+var   EveScrollBar46:         TEveScrollbar;
+
+var   EveScrollBar47_OnPress: TEvent;       
+var   EveScrollBar47:         TEveScrollbar;
+
+var   EveScrollBar48_OnPress: TEvent;       
+var   EveScrollBar48:         TEveScrollbar;
+
+var   EveScrollBar49_OnPress: TEvent;       
+var   EveScrollBar49:         TEveScrollbar;
+
+var   EveScrollBar50_OnPress: TEvent;       
+var   EveScrollBar50:         TEveScrollbar;
+
+var   EveScrollBar51_OnPress: TEvent;       
+var   EveScrollBar51:         TEveScrollbar;
+
+var   EveScrollBar52_OnPress: TEvent;       
+var   EveScrollBar52:         TEveScrollbar;
+
+var   EveScrollBar53_OnPress: TEvent;       
+var   EveScrollBar53:         TEveScrollbar;
+
+const Line24: TCLine = (
+  @ScreenDBenvelope, // Line24.OwnerScreen
+  27,                // Line24.Order
+  1,                 // Line24.Visible
+  255,               // Line24.Opacity
+  255,               // Line24.Tag
+  151,               // Line24.First_Point_X
+  245,               // Line24.First_Point_Y
+  403,               // Line24.Second_Point_X
+  245,               // Line24.Second_Point_Y
+  1,                 // Line24.Pen_Width
+  0x0000             // Line24.Pen_Color
+); code;
+
+const Label22_Caption: string[14] = 'Upper Envelope'; code;
+const Label22:         TCLabel    = (
+  @ScreenDBenvelope, // Label22.OwnerScreen
+  28,                // Label22.Order
+  1,                 // Label22.Visible
+  255,               // Label22.Opacity
+  255,               // Label22.Tag
+  8,                 // Label22.Left
+  6,                 // Label22.Top
+  121,               // Label22.Width
+  21,                // Label22.Height
+  @Label22_Caption,  // Label22.Caption
+  28,                // Label22.FontName
+  0x0000,            // Label22.Font_Color
+  28,                // Label22.FontHandle
+  -1,                // Label22.Source
+  1,                 // Label22.Active
+  0,                 // Label22.OnUp
+  0,                 // Label22.OnDown
+  0,                 // Label22.OnClick
+  0                  // Label22.OnPress
+); code;
+
+var   BoxRound46_OnDown: TEvent;    
+var   BoxRound46:        TBox_Round;
+
+var   ButtonRound105_Caption: string[6];    
+var   ButtonRound105_OnDown:  TEvent;       
+var   ButtonRound105:         TButton_Round;
+
+var   CheckBox1_Caption: string[1];
+var   CheckBox1_OnDown:  TEvent;   
+var   CheckBox1:         TCheckBox;
+
+var   CheckBox2_Caption: string[1];
+var   CheckBox2_OnDown:  TEvent;   
+var   CheckBox2:         TCheckBox;
+
+var   CheckBox3_Caption: string[1];
+var   CheckBox3_OnDown:  TEvent;   
+var   CheckBox3:         TCheckBox;
+
+var   CheckBox4_Caption: string[1];
+var   CheckBox4_OnDown:  TEvent;   
+var   CheckBox4:         TCheckBox;
+
+var   CheckBox5_Caption: string[1];
+var   CheckBox5_OnDown:  TEvent;   
+var   CheckBox5:         TCheckBox;
+
+var   CheckBox6_Caption: string[1];
+var   CheckBox6_OnDown:  TEvent;   
+var   CheckBox6:         TCheckBox;
+
+var   CheckBox7_Caption: string[1];
+var   CheckBox7_OnDown:  TEvent;   
+var   CheckBox7:         TCheckBox;
+
+var   CheckBox8_Caption: string[1];
+var   CheckBox8_OnDown:  TEvent;   
+var   CheckBox8:         TCheckBox;
+
+var   CheckBox9_Caption: string[1];
+var   CheckBox9_OnDown:  TEvent;   
+var   CheckBox9:         TCheckBox;
+
+var   CheckBox10_Caption: string[1];
+var   CheckBox10_OnDown:  TEvent;   
+var   CheckBox10:         TCheckBox;
+
+var   CheckBox11_Caption: string[1];
+var   CheckBox11_OnDown:  TEvent;   
+var   CheckBox11:         TCheckBox;
+
+var   CheckBox12_Caption: string[1];
+var   CheckBox12_OnDown:  TEvent;   
+var   CheckBox12:         TCheckBox;
+
+var   BoxRound3: TBox_Round;
+
+var   ButtonRound152_Caption: string[9];    
+var   ButtonRound152_OnDown:  TEvent;       
+var   ButtonRound152:         TButton_Round;
+
+var   BoxRound25: TBox_Round;
+
+var   ButtonRound153_Caption: string[9];    
+var   ButtonRound153_OnDown:  TEvent;       
+var   ButtonRound153:         TButton_Round;
+
+const Box30: TCBox = (
+  @ScreenDBenvelope,    // Box30.OwnerScreen
+  47,                   // Box30.Order
+  1,                    // Box30.Visible
+  255,                  // Box30.Opacity
+  255,                  // Box30.Tag
+  397,                  // Box30.Left
+  0,                    // Box30.Top
+  6,                    // Box30.Width
+  244,                  // Box30.Height
+  0,                    // Box30.Pen_Width
+  0xCE79,               // Box30.Pen_Color
+  0xCE79,               // Box30.Color
+  0xCE79,               // Box30.Press_Color
+  0xCE79,               // Box30.ColorTo
+  0xCE79,               // Box30.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box30.Gradient
+  1,                    // Box30.Active
+  0,                    // Box30.OnUp
+  0,                    // Box30.OnDown
+  0,                    // Box30.OnClick
+  0                     // Box30.OnPress
+); code;
+
+const Line25: TCLine = (
+  @ScreenDBenvelope, // Line25.OwnerScreen
+  48,                // Line25.Order
+  1,                 // Line25.Visible
+  255,               // Line25.Opacity
+  255,               // Line25.Tag
+  403,               // Line25.First_Point_X
+  135,               // Line25.First_Point_Y
+  403,               // Line25.Second_Point_X
+  273,               // Line25.Second_Point_Y
+  1,                 // Line25.Pen_Width
+  0x0000             // Line25.Pen_Color
+); code;
+
+const Line26: TCLine = (
+  @ScreenDBenvelope, // Line26.OwnerScreen
+  49,                // Line26.Order
+  1,                 // Line26.Visible
+  255,               // Line26.Opacity
+  255,               // Line26.Tag
+  403,               // Line26.First_Point_X
+  0,                 // Line26.First_Point_Y
+  403,               // Line26.Second_Point_X
+  90,                // Line26.Second_Point_Y
+  1,                 // Line26.Pen_Width
+  0x0000             // Line26.Pen_Color
+); code;
+
+const ScreenDBenvelope_Buttons_Round: array[014] of TButton_RoundPtr  = (
+  @ButtonRound165,      
+  @ButtonRound100,      
+  @ButtonRound99,       
+  @ButtonRound98,       
+  @ButtonRound97,       
+  @ButtonRound91,       
+  @ButtonRound92,       
+  @ButtonRound93,       
+  @ButtonRound94,       
+  @ButtonRound95,       
+  @ButtonRound96,       
+  @ButtonRound105,      
+  @ButtonRound152,      
+  @ButtonRound153       
+); code;
+
+const ScreenDBenvelope_CLabels:       array[001] of TCLabelPtr        = (
+  @Label22              
+); code;
+
+const ScreenDBenvelope_Boxes:         array[001] of TBoxPtr           = (
+  @Box27                
+); code;
+
+const ScreenDBenvelope_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box28,               
+  @Box29,               
+  @Box30                
+); code;
+
+const ScreenDBenvelope_Boxes_Round:   array[003] of TBox_RoundPtr     = (
+  @BoxRound46,          
+  @BoxRound3,           
+  @BoxRound25           
+); code;
+
+const ScreenDBenvelope_CLines:        array[004] of TCLinePtr         = (
+  @Line23,              
+  @Line24,              
+  @Line25,              
+  @Line26               
+); code;
+
+const ScreenDBenvelope_CheckBoxes:    array[012] of TCheckBoxPtr      = (
+  @CheckBox1,           
+  @CheckBox2,           
+  @CheckBox3,           
+  @CheckBox4,           
+  @CheckBox5,           
+  @CheckBox6,           
+  @CheckBox7,           
+  @CheckBox8,           
+  @CheckBox9,           
+  @CheckBox10,          
+  @CheckBox11,          
+  @CheckBox12           
+); code;
+
+const ScreenDBenvelope_EveScrollBars: array[012] of TEveScrollbarPtr  = (
+  @EveScrollBar42,      
+  @EveScrollBar43,      
+  @EveScrollBar44,      
+  @EveScrollBar45,      
+  @EveScrollBar46,      
+  @EveScrollBar47,      
+  @EveScrollBar48,      
+  @EveScrollBar49,      
+  @EveScrollBar50,      
+  @EveScrollBar51,      
+  @EveScrollBar52,      
+  @EveScrollBar53       
+); code;
+
+
+const ScreenDBadsr_Buttons_Round: array[011] of TButton_RoundPtr;  code; forward;
+const ScreenDBadsr_Labels:        array[010] of TLabelPtr;         code; forward;
+const ScreenDBadsr_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenDBadsr_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenDBadsr_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenDBadsr_CLines:        array[004] of TCLinePtr;         code; forward;
+const ScreenDBadsr_EveScrollBars: array[010] of TEveScrollbarPtr;  code; forward;
+
+var   ScreenDBadsr: TScreen;
+
+
+var   Box31: TBox;
+
+var   ButtonRound166_Caption: string[7];    
+var   ButtonRound166_OnDown:  TEvent;       
+var   ButtonRound166:         TButton_Round;
+
+var   ButtonRound116_Caption: string[4];    
+var   ButtonRound116_OnDown:  TEvent;       
+var   ButtonRound116:         TButton_Round;
+
+var   ButtonRound115_Caption: string[8];    
+var   ButtonRound115_OnDown:  TEvent;       
+var   ButtonRound115:         TButton_Round;
+
+var   ButtonRound114_Caption: string[7];    
+var   ButtonRound114_OnDown:  TEvent;       
+var   ButtonRound114:         TButton_Round;
+
+var   ButtonRound113_Caption: string[8];    
+var   ButtonRound113_OnDown:  TEvent;       
+var   ButtonRound113:         TButton_Round;
+
+var   ButtonRound107_Caption: string[4];    
+var   ButtonRound107_OnDown:  TEvent;       
+var   ButtonRound107:         TButton_Round;
+
+const Box32: TCBox = (
+  @ScreenDBadsr,        // Box32.OwnerScreen
+  7,                    // Box32.Order
+  1,                    // Box32.Visible
+  255,                  // Box32.Opacity
+  255,                  // Box32.Tag
+  0,                    // Box32.Left
+  246,                  // Box32.Top
+  403,                  // Box32.Width
+  26,                   // Box32.Height
+  1,                    // Box32.Pen_Width
+  0x5AEB,               // Box32.Pen_Color
+  0x5AEB,               // Box32.Color
+  0x5AEB,               // Box32.Press_Color
+  0xFFFF,               // Box32.ColorTo
+  0x9CD3,               // Box32.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box32.Gradient
+  1,                    // Box32.Active
+  0,                    // Box32.OnUp
+  0,                    // Box32.OnDown
+  0,                    // Box32.OnClick
+  0                     // Box32.OnPress
+); code;
+
+var   ButtonRound108_Caption: string[4];    
+var   ButtonRound108_OnDown:  TEvent;       
+var   ButtonRound108:         TButton_Round;
+
+var   ButtonRound109_Caption: string[5];    
+var   ButtonRound109_OnDown:  TEvent;       
+var   ButtonRound109:         TButton_Round;
+
+var   ButtonRound110_Caption: string[5];    
+var   ButtonRound110_OnDown:  TEvent;       
+var   ButtonRound110:         TButton_Round;
+
+var   ButtonRound111_Caption: string[5];    
+var   ButtonRound111_OnDown:  TEvent;       
+var   ButtonRound111:         TButton_Round;
+
+var   ButtonRound112_Caption: string[8];    
+var   ButtonRound112_OnDown:  TEvent;       
+var   ButtonRound112:         TButton_Round;
+
+const Box33: TCBox = (
+  @ScreenDBadsr,        // Box33.OwnerScreen
+  13,                   // Box33.Order
+  1,                    // Box33.Visible
+  255,                  // Box33.Opacity
+  255,                  // Box33.Tag
+  1,                    // Box33.Left
+  238,                  // Box33.Top
+  401,                  // Box33.Width
+  7,                    // Box33.Height
+  0,                    // Box33.Pen_Width
+  0xCE79,               // Box33.Pen_Color
+  0xCE79,               // Box33.Color
+  0xCE79,               // Box33.Press_Color
+  0xCE79,               // Box33.ColorTo
+  0xCE79,               // Box33.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box33.Gradient
+  1,                    // Box33.Active
+  0,                    // Box33.OnUp
+  0,                    // Box33.OnDown
+  0,                    // Box33.OnClick
+  0                     // Box33.OnPress
+); code;
+
+const Line27: TCLine = (
+  @ScreenDBadsr,   // Line27.OwnerScreen
+  14,              // Line27.Order
+  1,               // Line27.Visible
+  255,             // Line27.Opacity
+  255,             // Line27.Tag
+  0,               // Line27.First_Point_X
+  245,             // Line27.First_Point_Y
+  151,             // Line27.Second_Point_X
+  245,             // Line27.Second_Point_Y
+  1,               // Line27.Pen_Width
+  0x0000           // Line27.Pen_Color
+); code;
+
+const Line28: TCLine = (
+  @ScreenDBadsr,   // Line28.OwnerScreen
+  15,              // Line28.Order
+  1,               // Line28.Visible
+  255,             // Line28.Opacity
+  255,             // Line28.Tag
+  226,             // Line28.First_Point_X
+  245,             // Line28.First_Point_Y
+  403,             // Line28.Second_Point_X
+  245,             // Line28.Second_Point_Y
+  1,               // Line28.Pen_Width
+  0x0000           // Line28.Pen_Color
+); code;
+
+const Label32_Caption: string[16] = 'ADSR Upper/Lower'; code;
+const Label32:         TCLabel    = (
+  @ScreenDBadsr,    // Label32.OwnerScreen
+  16,               // Label32.Order
+  1,                // Label32.Visible
+  255,              // Label32.Opacity
+  255,              // Label32.Tag
+  8,                // Label32.Left
+  6,                // Label32.Top
+  148,              // Label32.Width
+  21,               // Label32.Height
+  @Label32_Caption, // Label32.Caption
+  28,               // Label32.FontName
+  0x0000,           // Label32.Font_Color
+  28,               // Label32.FontHandle
+  -1,               // Label32.Source
+  1,                // Label32.Active
+  0,                // Label32.OnUp
+  0,                // Label32.OnDown
+  0,                // Label32.OnClick
+  0                 // Label32.OnPress
+); code;
+
+var   EveScrollBar76_OnPress: TEvent;       
+var   EveScrollBar76:         TEveScrollbar;
+
+var   Label33_Caption: string[13];
+var   Label33:         TLabel;    
+
+var   EveScrollBar77_OnPress: TEvent;       
+var   EveScrollBar77:         TEveScrollbar;
+
+var   Label34_Caption: string[13];
+var   Label34:         TLabel;    
+
+var   EveScrollBar78_OnPress: TEvent;       
+var   EveScrollBar78:         TEveScrollbar;
+
+var   Label35_Caption: string[11];
+var   Label35:         TLabel;    
+
+var   EveScrollBar79_OnPress: TEvent;       
+var   EveScrollBar79:         TEveScrollbar;
+
+var   Label36_Caption: string[12];
+var   Label36:         TLabel;    
+
+var   EveScrollBar80_OnPress: TEvent;       
+var   EveScrollBar80:         TEveScrollbar;
+
+var   Label37_Caption: string[13];
+var   Label37:         TLabel;    
+
+var   EveScrollBar81_OnPress: TEvent;       
+var   EveScrollBar81:         TEveScrollbar;
+
+var   Label38_Caption: string[13];
+var   Label38:         TLabel;    
+
+var   EveScrollBar82_OnPress: TEvent;       
+var   EveScrollBar82:         TEveScrollbar;
+
+var   Label39_Caption: string[11];
+var   Label39:         TLabel;    
+
+var   EveScrollBar83_OnPress: TEvent;       
+var   EveScrollBar83:         TEveScrollbar;
+
+var   Label40_Caption: string[12];
+var   Label40:         TLabel;    
+
+var   EveScrollBar1_OnPress: TEvent;       
+var   EveScrollBar1:         TEveScrollbar;
+
+var   Label11_Caption: string[15];
+var   Label11:         TLabel;    
+
+var   EveScrollBar2_OnPress: TEvent;       
+var   EveScrollBar2:         TEveScrollbar;
+
+var   Label13_Caption: string[15];
+var   Label13:         TLabel;    
+
+const Box34: TCBox = (
+  @ScreenDBadsr,        // Box34.OwnerScreen
+  37,                   // Box34.Order
+  1,                    // Box34.Visible
+  255,                  // Box34.Opacity
+  255,                  // Box34.Tag
+  397,                  // Box34.Left
+  0,                    // Box34.Top
+  6,                    // Box34.Width
+  244,                  // Box34.Height
+  0,                    // Box34.Pen_Width
+  0xCE79,               // Box34.Pen_Color
+  0xCE79,               // Box34.Color
+  0xCE79,               // Box34.Press_Color
+  0xCE79,               // Box34.ColorTo
+  0xCE79,               // Box34.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box34.Gradient
+  1,                    // Box34.Active
+  0,                    // Box34.OnUp
+  0,                    // Box34.OnDown
+  0,                    // Box34.OnClick
+  0                     // Box34.OnPress
+); code;
+
+const Line29: TCLine = (
+  @ScreenDBadsr,   // Line29.OwnerScreen
+  38,              // Line29.Order
+  1,               // Line29.Visible
+  255,             // Line29.Opacity
+  255,             // Line29.Tag
+  403,             // Line29.First_Point_X
+  135,             // Line29.First_Point_Y
+  403,             // Line29.Second_Point_X
+  273,             // Line29.Second_Point_Y
+  1,               // Line29.Pen_Width
+  0x0000           // Line29.Pen_Color
+); code;
+
+const Line30: TCLine = (
+  @ScreenDBadsr,   // Line30.OwnerScreen
+  39,              // Line30.Order
+  1,               // Line30.Visible
+  255,             // Line30.Opacity
+  255,             // Line30.Tag
+  403,             // Line30.First_Point_X
+  0,               // Line30.First_Point_Y
+  403,             // Line30.Second_Point_X
+  90,              // Line30.Second_Point_Y
+  1,               // Line30.Pen_Width
+  0x0000           // Line30.Pen_Color
+); code;
+
+const ScreenDBadsr_Buttons_Round: array[011] of TButton_RoundPtr  = (
+  @ButtonRound166,      
+  @ButtonRound116,      
+  @ButtonRound115,      
+  @ButtonRound114,      
+  @ButtonRound113,      
+  @ButtonRound107,      
+  @ButtonRound108,      
+  @ButtonRound109,      
+  @ButtonRound110,      
+  @ButtonRound111,      
+  @ButtonRound112       
+); code;
+
+const ScreenDBadsr_Labels:        array[010] of TLabelPtr         = (
+  @Label33,             
+  @Label34,             
+  @Label35,             
+  @Label36,             
+  @Label37,             
+  @Label38,             
+  @Label39,             
+  @Label40,             
+  @Label11,             
+  @Label13              
+); code;
+
+const ScreenDBadsr_CLabels:       array[001] of TCLabelPtr        = (
+  @Label32              
+); code;
+
+const ScreenDBadsr_Boxes:         array[001] of TBoxPtr           = (
+  @Box31                
+); code;
+
+const ScreenDBadsr_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box32,               
+  @Box33,               
+  @Box34                
+); code;
+
+const ScreenDBadsr_CLines:        array[004] of TCLinePtr         = (
+  @Line27,              
+  @Line28,              
+  @Line29,              
+  @Line30               
+); code;
+
+const ScreenDBadsr_EveScrollBars: array[010] of TEveScrollbarPtr  = (
+  @EveScrollBar76,      
+  @EveScrollBar77,      
+  @EveScrollBar78,      
+  @EveScrollBar79,      
+  @EveScrollBar80,      
+  @EveScrollBar81,      
+  @EveScrollBar82,      
+  @EveScrollBar83,      
+  @EveScrollBar1,       
+  @EveScrollBar2        
+); code;
+
+
+const ScreenDBlower_Buttons_Round: array[012] of TButton_RoundPtr;  code; forward;
+const ScreenDBlower_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenDBlower_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenDBlower_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenDBlower_Boxes_Round:   array[001] of TBox_RoundPtr;     code; forward;
+const ScreenDBlower_CLines:        array[004] of TCLinePtr;         code; forward;
+const ScreenDBlower_CheckBoxes:    array[012] of TCheckBoxPtr;      code; forward;
+const ScreenDBlower_EveScrollBars: array[012] of TEveScrollbarPtr;  code; forward;
+
+var   ScreenDBlower: TScreen;
+
+
+var   Box35: TBox;
+
+var   ButtonRound167_Caption: string[7];    
+var   ButtonRound167_OnDown:  TEvent;       
+var   ButtonRound167:         TButton_Round;
+
+var   ButtonRound132_Caption: string[4];    
+var   ButtonRound132_OnDown:  TEvent;       
+var   ButtonRound132:         TButton_Round;
+
+var   ButtonRound131_Caption: string[8];    
+var   ButtonRound131_OnDown:  TEvent;       
+var   ButtonRound131:         TButton_Round;
+
+var   ButtonRound130_Caption: string[7];    
+var   ButtonRound130_OnDown:  TEvent;       
+var   ButtonRound130:         TButton_Round;
+
+var   ButtonRound129_Caption: string[8];    
+var   ButtonRound129_OnDown:  TEvent;       
+var   ButtonRound129:         TButton_Round;
+
+var   ButtonRound123_Caption: string[4];    
+var   ButtonRound123_OnDown:  TEvent;       
+var   ButtonRound123:         TButton_Round;
+
+const Box36: TCBox = (
+  @ScreenDBlower,       // Box36.OwnerScreen
+  7,                    // Box36.Order
+  1,                    // Box36.Visible
+  255,                  // Box36.Opacity
+  255,                  // Box36.Tag
+  0,                    // Box36.Left
+  246,                  // Box36.Top
+  403,                  // Box36.Width
+  26,                   // Box36.Height
+  1,                    // Box36.Pen_Width
+  0x5AEB,               // Box36.Pen_Color
+  0x5AEB,               // Box36.Color
+  0x5AEB,               // Box36.Press_Color
+  0xFFFF,               // Box36.ColorTo
+  0x9CD3,               // Box36.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box36.Gradient
+  1,                    // Box36.Active
+  0,                    // Box36.OnUp
+  0,                    // Box36.OnDown
+  0,                    // Box36.OnClick
+  0                     // Box36.OnPress
+); code;
+
+var   ButtonRound124_Caption: string[4];    
+var   ButtonRound124_OnDown:  TEvent;       
+var   ButtonRound124:         TButton_Round;
+
+var   ButtonRound125_Caption: string[5];    
+var   ButtonRound125_OnDown:  TEvent;       
+var   ButtonRound125:         TButton_Round;
+
+var   ButtonRound126_Caption: string[5];    
+var   ButtonRound126_OnDown:  TEvent;       
+var   ButtonRound126:         TButton_Round;
+
+var   ButtonRound127_Caption: string[5];    
+var   ButtonRound127_OnDown:  TEvent;       
+var   ButtonRound127:         TButton_Round;
+
+var   ButtonRound128_Caption: string[8];    
+var   ButtonRound128_OnDown:  TEvent;       
+var   ButtonRound128:         TButton_Round;
+
+const Box37: TCBox = (
+  @ScreenDBlower,       // Box37.OwnerScreen
+  13,                   // Box37.Order
+  1,                    // Box37.Visible
+  255,                  // Box37.Opacity
+  255,                  // Box37.Tag
+  1,                    // Box37.Left
+  238,                  // Box37.Top
+  401,                  // Box37.Width
+  7,                    // Box37.Height
+  0,                    // Box37.Pen_Width
+  0xCE79,               // Box37.Pen_Color
+  0xCE79,               // Box37.Color
+  0xCE79,               // Box37.Press_Color
+  0xCE79,               // Box37.ColorTo
+  0xCE79,               // Box37.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box37.Gradient
+  1,                    // Box37.Active
+  0,                    // Box37.OnUp
+  0,                    // Box37.OnDown
+  0,                    // Box37.OnClick
+  0                     // Box37.OnPress
+); code;
+
+const Line31: TCLine = (
+  @ScreenDBlower,  // Line31.OwnerScreen
+  14,              // Line31.Order
+  1,               // Line31.Visible
+  255,             // Line31.Opacity
+  255,             // Line31.Tag
+  0,               // Line31.First_Point_X
+  245,             // Line31.First_Point_Y
+  226,             // Line31.Second_Point_X
+  245,             // Line31.Second_Point_Y
+  1,               // Line31.Pen_Width
+  0x0000           // Line31.Pen_Color
+); code;
+
+var   EveScrollBar84_OnPress: TEvent;       
+var   EveScrollBar84:         TEveScrollbar;
+
+var   EveScrollBar85_OnPress: TEvent;       
+var   EveScrollBar85:         TEveScrollbar;
+
+var   EveScrollBar86_OnPress: TEvent;       
+var   EveScrollBar86:         TEveScrollbar;
+
+var   EveScrollBar87_OnPress: TEvent;       
+var   EveScrollBar87:         TEveScrollbar;
+
+var   EveScrollBar88_OnPress: TEvent;       
+var   EveScrollBar88:         TEveScrollbar;
+
+var   EveScrollBar89_OnPress: TEvent;       
+var   EveScrollBar89:         TEveScrollbar;
+
+var   EveScrollBar90_OnPress: TEvent;       
+var   EveScrollBar90:         TEveScrollbar;
+
+var   EveScrollBar91_OnPress: TEvent;       
+var   EveScrollBar91:         TEveScrollbar;
+
+var   EveScrollBar92_OnPress: TEvent;       
+var   EveScrollBar92:         TEveScrollbar;
+
+var   EveScrollBar93_OnPress: TEvent;       
+var   EveScrollBar93:         TEveScrollbar;
+
+var   EveScrollBar94_OnPress: TEvent;       
+var   EveScrollBar94:         TEveScrollbar;
+
+var   EveScrollBar95_OnPress: TEvent;       
+var   EveScrollBar95:         TEveScrollbar;
+
+const Box38: TCBox = (
+  @ScreenDBlower,       // Box38.OwnerScreen
+  27,                   // Box38.Order
+  1,                    // Box38.Visible
+  255,                  // Box38.Opacity
+  255,                  // Box38.Tag
+  397,                  // Box38.Left
+  0,                    // Box38.Top
+  6,                    // Box38.Width
+  244,                  // Box38.Height
+  0,                    // Box38.Pen_Width
+  0xCE79,               // Box38.Pen_Color
+  0xCE79,               // Box38.Color
+  0xCE79,               // Box38.Press_Color
+  0xCE79,               // Box38.ColorTo
+  0xCE79,               // Box38.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box38.Gradient
+  1,                    // Box38.Active
+  0,                    // Box38.OnUp
+  0,                    // Box38.OnDown
+  0,                    // Box38.OnClick
+  0                     // Box38.OnPress
+); code;
+
+const Line32: TCLine = (
+  @ScreenDBlower,  // Line32.OwnerScreen
+  28,              // Line32.Order
+  1,               // Line32.Visible
+  255,             // Line32.Opacity
+  255,             // Line32.Tag
+  301,             // Line32.First_Point_X
+  245,             // Line32.First_Point_Y
+  403,             // Line32.Second_Point_X
+  245,             // Line32.Second_Point_Y
+  1,               // Line32.Pen_Width
+  0x0000           // Line32.Pen_Color
+); code;
+
+const Label42_Caption: string[5] = 'Lower'; code;
+const Label42:         TCLabel   = (
+  @ScreenDBlower,   // Label42.OwnerScreen
+  29,               // Label42.Order
+  1,                // Label42.Visible
+  255,              // Label42.Opacity
+  255,              // Label42.Tag
+  8,                // Label42.Left
+  6,                // Label42.Top
+  51,               // Label42.Width
+  21,               // Label42.Height
+  @Label42_Caption, // Label42.Caption
+  28,               // Label42.FontName
+  0x0000,           // Label42.Font_Color
+  28,               // Label42.FontHandle
+  -1,               // Label42.Source
+  1,                // Label42.Active
+  0,                // Label42.OnUp
+  0,                // Label42.OnDown
+  0,                // Label42.OnClick
+  0                 // Label42.OnPress
+); code;
+
+var   BoxRound63: TBox_Round;
+
+var   ButtonRound138_Caption: string[7];    
+var   ButtonRound138_OnDown:  TEvent;       
+var   ButtonRound138:         TButton_Round;
+
+var   CheckBox13_Caption: string[1];
+var   CheckBox13_OnDown:  TEvent;   
+var   CheckBox13:         TCheckBox;
+
+var   CheckBox14_Caption: string[1];
+var   CheckBox14_OnDown:  TEvent;   
+var   CheckBox14:         TCheckBox;
+
+var   CheckBox15_Caption: string[1];
+var   CheckBox15_OnDown:  TEvent;   
+var   CheckBox15:         TCheckBox;
+
+var   CheckBox16_Caption: string[1];
+var   CheckBox16_OnDown:  TEvent;   
+var   CheckBox16:         TCheckBox;
+
+var   CheckBox17_Caption: string[1];
+var   CheckBox17_OnDown:  TEvent;   
+var   CheckBox17:         TCheckBox;
+
+var   CheckBox18_Caption: string[1];
+var   CheckBox18_OnDown:  TEvent;   
+var   CheckBox18:         TCheckBox;
+
+var   CheckBox19_Caption: string[1];
+var   CheckBox19_OnDown:  TEvent;   
+var   CheckBox19:         TCheckBox;
+
+var   CheckBox20_Caption: string[1];
+var   CheckBox20_OnDown:  TEvent;   
+var   CheckBox20:         TCheckBox;
+
+var   CheckBox21_Caption: string[1];
+var   CheckBox21_OnDown:  TEvent;   
+var   CheckBox21:         TCheckBox;
+
+var   CheckBox22_Caption: string[1];
+var   CheckBox22_OnDown:  TEvent;   
+var   CheckBox22:         TCheckBox;
+
+var   CheckBox23_Caption: string[1];
+var   CheckBox23_OnDown:  TEvent;   
+var   CheckBox23:         TCheckBox;
+
+var   CheckBox24_Caption: string[1];
+var   CheckBox24_OnDown:  TEvent;   
+var   CheckBox24:         TCheckBox;
+
+const Line33: TCLine = (
+  @ScreenDBlower,  // Line33.OwnerScreen
+  44,              // Line33.Order
+  1,               // Line33.Visible
+  255,             // Line33.Opacity
+  255,             // Line33.Tag
+  403,             // Line33.First_Point_X
+  135,             // Line33.First_Point_Y
+  403,             // Line33.Second_Point_X
+  273,             // Line33.Second_Point_Y
+  1,               // Line33.Pen_Width
+  0x0000           // Line33.Pen_Color
+); code;
+
+const Line34: TCLine = (
+  @ScreenDBlower,  // Line34.OwnerScreen
+  45,              // Line34.Order
+  1,               // Line34.Visible
+  255,             // Line34.Opacity
+  255,             // Line34.Tag
+  403,             // Line34.First_Point_X
+  0,               // Line34.First_Point_Y
+  403,             // Line34.Second_Point_X
+  90,              // Line34.Second_Point_Y
+  1,               // Line34.Pen_Width
+  0x0000           // Line34.Pen_Color
+); code;
+
+const ScreenDBlower_Buttons_Round: array[012] of TButton_RoundPtr  = (
+  @ButtonRound167,      
+  @ButtonRound132,      
+  @ButtonRound131,      
+  @ButtonRound130,      
+  @ButtonRound129,      
+  @ButtonRound123,      
+  @ButtonRound124,      
+  @ButtonRound125,      
+  @ButtonRound126,      
+  @ButtonRound127,      
+  @ButtonRound128,      
+  @ButtonRound138       
+); code;
+
+const ScreenDBlower_CLabels:       array[001] of TCLabelPtr        = (
+  @Label42              
+); code;
+
+const ScreenDBlower_Boxes:         array[001] of TBoxPtr           = (
+  @Box35                
+); code;
+
+const ScreenDBlower_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box36,               
+  @Box37,               
+  @Box38                
+); code;
+
+const ScreenDBlower_Boxes_Round:   array[001] of TBox_RoundPtr     = (
+  @BoxRound63           
+); code;
+
+const ScreenDBlower_CLines:        array[004] of TCLinePtr         = (
+  @Line31,              
+  @Line32,              
+  @Line33,              
+  @Line34               
+); code;
+
+const ScreenDBlower_CheckBoxes:    array[012] of TCheckBoxPtr      = (
+  @CheckBox13,          
+  @CheckBox14,          
+  @CheckBox15,          
+  @CheckBox16,          
+  @CheckBox17,          
+  @CheckBox18,          
+  @CheckBox19,          
+  @CheckBox20,          
+  @CheckBox21,          
+  @CheckBox22,          
+  @CheckBox23,          
+  @CheckBox24           
+); code;
+
+const ScreenDBlower_EveScrollBars: array[012] of TEveScrollbarPtr  = (
+  @EveScrollBar84,      
+  @EveScrollBar85,      
+  @EveScrollBar86,      
+  @EveScrollBar87,      
+  @EveScrollBar88,      
+  @EveScrollBar89,      
+  @EveScrollBar90,      
+  @EveScrollBar91,      
+  @EveScrollBar92,      
+  @EveScrollBar93,      
+  @EveScrollBar94,      
+  @EveScrollBar95       
+); code;
+
+
+const ScreenDBpedal_Buttons_Round: array[012] of TButton_RoundPtr;  code; forward;
+const ScreenDBpedal_Labels:        array[005] of TLabelPtr;         code; forward;
+const ScreenDBpedal_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenDBpedal_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenDBpedal_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenDBpedal_Boxes_Round:   array[001] of TBox_RoundPtr;     code; forward;
+const ScreenDBpedal_CLines:        array[004] of TCLinePtr;         code; forward;
+const ScreenDBpedal_EveScrollBars: array[009] of TEveScrollbarPtr;  code; forward;
+
+var   ScreenDBpedal: TScreen;
+
+
+var   Box39: TBox;
+
+var   ButtonRound168_Caption: string[7];    
+var   ButtonRound168_OnDown:  TEvent;       
+var   ButtonRound168:         TButton_Round;
+
+var   ButtonRound148_Caption: string[4];    
+var   ButtonRound148_OnDown:  TEvent;       
+var   ButtonRound148:         TButton_Round;
+
+var   ButtonRound147_Caption: string[8];    
+var   ButtonRound147_OnDown:  TEvent;       
+var   ButtonRound147:         TButton_Round;
+
+var   ButtonRound146_Caption: string[7];    
+var   ButtonRound146_OnDown:  TEvent;       
+var   ButtonRound146:         TButton_Round;
+
+var   ButtonRound145_Caption: string[8];    
+var   ButtonRound145_OnDown:  TEvent;       
+var   ButtonRound145:         TButton_Round;
+
+var   ButtonRound139_Caption: string[4];    
+var   ButtonRound139_OnDown:  TEvent;       
+var   ButtonRound139:         TButton_Round;
+
+const Box40: TCBox = (
+  @ScreenDBpedal,       // Box40.OwnerScreen
+  7,                    // Box40.Order
+  1,                    // Box40.Visible
+  255,                  // Box40.Opacity
+  255,                  // Box40.Tag
+  0,                    // Box40.Left
+  246,                  // Box40.Top
+  403,                  // Box40.Width
+  26,                   // Box40.Height
+  1,                    // Box40.Pen_Width
+  0x5AEB,               // Box40.Pen_Color
+  0x5AEB,               // Box40.Color
+  0x5AEB,               // Box40.Press_Color
+  0xFFFF,               // Box40.ColorTo
+  0x9CD3,               // Box40.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box40.Gradient
+  1,                    // Box40.Active
+  0,                    // Box40.OnUp
+  0,                    // Box40.OnDown
+  0,                    // Box40.OnClick
+  0                     // Box40.OnPress
+); code;
+
+var   ButtonRound140_Caption: string[4];    
+var   ButtonRound140_OnDown:  TEvent;       
+var   ButtonRound140:         TButton_Round;
+
+var   ButtonRound141_Caption: string[5];    
+var   ButtonRound141_OnDown:  TEvent;       
+var   ButtonRound141:         TButton_Round;
+
+var   ButtonRound142_Caption: string[5];    
+var   ButtonRound142_OnDown:  TEvent;       
+var   ButtonRound142:         TButton_Round;
+
+var   ButtonRound143_Caption: string[5];    
+var   ButtonRound143_OnDown:  TEvent;       
+var   ButtonRound143:         TButton_Round;
+
+var   ButtonRound144_Caption: string[8];    
+var   ButtonRound144_OnDown:  TEvent;       
+var   ButtonRound144:         TButton_Round;
+
+const Box41: TCBox = (
+  @ScreenDBpedal,       // Box41.OwnerScreen
+  13,                   // Box41.Order
+  1,                    // Box41.Visible
+  255,                  // Box41.Opacity
+  255,                  // Box41.Tag
+  1,                    // Box41.Left
+  238,                  // Box41.Top
+  401,                  // Box41.Width
+  7,                    // Box41.Height
+  0,                    // Box41.Pen_Width
+  0xCE79,               // Box41.Pen_Color
+  0xCE79,               // Box41.Color
+  0xCE79,               // Box41.Press_Color
+  0xCE79,               // Box41.ColorTo
+  0xCE79,               // Box41.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box41.Gradient
+  1,                    // Box41.Active
+  0,                    // Box41.OnUp
+  0,                    // Box41.OnDown
+  0,                    // Box41.OnClick
+  0                     // Box41.OnPress
+); code;
+
+const Line35: TCLine = (
+  @ScreenDBpedal,  // Line35.OwnerScreen
+  14,              // Line35.Order
+  1,               // Line35.Visible
+  255,             // Line35.Opacity
+  255,             // Line35.Tag
+  0,               // Line35.First_Point_X
+  245,             // Line35.First_Point_Y
+  301,             // Line35.Second_Point_X
+  245,             // Line35.Second_Point_Y
+  1,               // Line35.Pen_Width
+  0x0000           // Line35.Pen_Color
+); code;
+
+var   EveScrollBar105_OnPress: TEvent;       
+var   EveScrollBar105:         TEveScrollbar;
+
+var   EveScrollBar106_OnPress: TEvent;       
+var   EveScrollBar106:         TEveScrollbar;
+
+var   EveScrollBar107_OnPress: TEvent;       
+var   EveScrollBar107:         TEveScrollbar;
+
+var   EveScrollBar108_OnPress: TEvent;       
+var   EveScrollBar108:         TEveScrollbar;
+
+const Box42: TCBox = (
+  @ScreenDBpedal,       // Box42.OwnerScreen
+  19,                   // Box42.Order
+  1,                    // Box42.Visible
+  255,                  // Box42.Opacity
+  255,                  // Box42.Tag
+  397,                  // Box42.Left
+  0,                    // Box42.Top
+  6,                    // Box42.Width
+  244,                  // Box42.Height
+  0,                    // Box42.Pen_Width
+  0xCE79,               // Box42.Pen_Color
+  0xCE79,               // Box42.Color
+  0xCE79,               // Box42.Press_Color
+  0xCE79,               // Box42.ColorTo
+  0xCE79,               // Box42.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box42.Gradient
+  1,                    // Box42.Active
+  0,                    // Box42.OnUp
+  0,                    // Box42.OnDown
+  0,                    // Box42.OnClick
+  0                     // Box42.OnPress
+); code;
+
+const Line36: TCLine = (
+  @ScreenDBpedal,  // Line36.OwnerScreen
+  20,              // Line36.Order
+  1,               // Line36.Visible
+  255,             // Line36.Opacity
+  255,             // Line36.Tag
+  376,             // Line36.First_Point_X
+  245,             // Line36.First_Point_Y
+  403,             // Line36.Second_Point_X
+  245,             // Line36.Second_Point_Y
+  1,               // Line36.Pen_Width
+  0x0000           // Line36.Pen_Color
+); code;
+
+const Label52_Caption: string[5] = 'Pedal'; code;
+const Label52:         TCLabel   = (
+  @ScreenDBpedal,   // Label52.OwnerScreen
+  21,               // Label52.Order
+  1,                // Label52.Visible
+  255,              // Label52.Opacity
+  255,              // Label52.Tag
+  8,                // Label52.Left
+  6,                // Label52.Top
+  56,               // Label52.Width
+  25,               // Label52.Height
+  @Label52_Caption, // Label52.Caption
+  29,               // Label52.FontName
+  0x0000,           // Label52.Font_Color
+  29,               // Label52.FontHandle
+  -1,               // Label52.Source
+  1,                // Label52.Active
+  0,                // Label52.OnUp
+  0,                // Label52.OnDown
+  0,                // Label52.OnClick
+  0                 // Label52.OnPress
+); code;
+
+var   EveScrollBar56_OnPress: TEvent;       
+var   EveScrollBar56:         TEveScrollbar;
+
+var   Label74_Caption: string[13];
+var   Label74:         TLabel;    
+
+var   EveScrollBar59_OnPress: TEvent;       
+var   EveScrollBar59:         TEveScrollbar;
+
+var   Label75_Caption: string[13];
+var   Label75:         TLabel;    
+
+var   EveScrollBar68_OnPress: TEvent;       
+var   EveScrollBar68:         TEveScrollbar;
+
+var   Label76_Caption: string[11];
+var   Label76:         TLabel;    
+
+var   EveScrollBar69_OnPress: TEvent;       
+var   EveScrollBar69:         TEveScrollbar;
+
+var   Label77_Caption: string[12];
+var   Label77:         TLabel;    
+
+var   EveScrollBar70_OnPress: TEvent;       
+var   EveScrollBar70:         TEveScrollbar;
+
+var   Label78_Caption: string[15];
+var   Label78:         TLabel;    
+
+var   BoxRound23_OnDown: TEvent;    
+var   BoxRound23:        TBox_Round;
+
+var   ButtonRound151_Caption: string[6];    
+var   ButtonRound151_OnDown:  TEvent;       
+var   ButtonRound151:         TButton_Round;
+
+const Line38: TCLine = (
+  @ScreenDBpedal,  // Line38.OwnerScreen
+  34,              // Line38.Order
+  1,               // Line38.Visible
+  255,             // Line38.Opacity
+  255,             // Line38.Tag
+  403,             // Line38.First_Point_X
+  0,               // Line38.First_Point_Y
+  403,             // Line38.Second_Point_X
+  90,              // Line38.Second_Point_Y
+  1,               // Line38.Pen_Width
+  0x0000           // Line38.Pen_Color
+); code;
+
+const Line37: TCLine = (
+  @ScreenDBpedal,  // Line37.OwnerScreen
+  35,              // Line37.Order
+  1,               // Line37.Visible
+  255,             // Line37.Opacity
+  255,             // Line37.Tag
+  403,             // Line37.First_Point_X
+  135,             // Line37.First_Point_Y
+  403,             // Line37.Second_Point_X
+  273,             // Line37.Second_Point_Y
+  1,               // Line37.Pen_Width
+  0x0000           // Line37.Pen_Color
+); code;
+
+const ScreenDBpedal_Buttons_Round: array[012] of TButton_RoundPtr  = (
+  @ButtonRound168,      
+  @ButtonRound148,      
+  @ButtonRound147,      
+  @ButtonRound146,      
+  @ButtonRound145,      
+  @ButtonRound139,      
+  @ButtonRound140,      
+  @ButtonRound141,      
+  @ButtonRound142,      
+  @ButtonRound143,      
+  @ButtonRound144,      
+  @ButtonRound151       
+); code;
+
+const ScreenDBpedal_Labels:        array[005] of TLabelPtr         = (
+  @Label74,             
+  @Label75,             
+  @Label76,             
+  @Label77,             
+  @Label78              
+); code;
+
+const ScreenDBpedal_CLabels:       array[001] of TCLabelPtr        = (
+  @Label52              
+); code;
+
+const ScreenDBpedal_Boxes:         array[001] of TBoxPtr           = (
+  @Box39                
+); code;
+
+const ScreenDBpedal_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box40,               
+  @Box41,               
+  @Box42                
+); code;
+
+const ScreenDBpedal_Boxes_Round:   array[001] of TBox_RoundPtr     = (
+  @BoxRound23           
+); code;
+
+const ScreenDBpedal_CLines:        array[004] of TCLinePtr         = (
+  @Line35,              
+  @Line36,              
+  @Line38,              
+  @Line37               
+); code;
+
+const ScreenDBpedal_EveScrollBars: array[009] of TEveScrollbarPtr  = (
+  @EveScrollBar105,     
+  @EveScrollBar106,     
+  @EveScrollBar107,     
+  @EveScrollBar108,     
+  @EveScrollBar56,      
+  @EveScrollBar59,      
+  @EveScrollBar68,      
+  @EveScrollBar69,      
+  @EveScrollBar70       
+); code;
+
+
+const ScreenGMsynthUpr_Buttons_Round: array[009] of TButton_RoundPtr;  code; forward;
+const ScreenGMsynthUpr_Labels:        array[007] of TLabelPtr;         code; forward;
+const ScreenGMsynthUpr_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenGMsynthUpr_CircleButtons: array[004] of TCircleButtonPtr;  code; forward;
+const ScreenGMsynthUpr_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenGMsynthUpr_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenGMsynthUpr_Lines:         array[001] of TLinePtr;          code; forward;
+const ScreenGMsynthUpr_CLines:        array[003] of TCLinePtr;         code; forward;
+const ScreenGMsynthUpr_EveScrollBars: array[007] of TEveScrollbarPtr;  code; forward;
+const ScreenGMsynthUpr_EveNumbers:    array[002] of TEveNumberPtr;     code; forward;
+
+var   ScreenGMsynthUpr: TScreen;
+
+
+var   Box47: TBox;
+
+var   ButtonRound169_Caption: string[7];    
+var   ButtonRound169_OnDown:  TEvent;       
+var   ButtonRound169:         TButton_Round;
+
+var   ButtonRound118_Caption: string[4];    
+var   ButtonRound118_OnDown:  TEvent;       
+var   ButtonRound118:         TButton_Round;
+
+var   ButtonRound117_Caption: string[8];    
+var   ButtonRound117_OnDown:  TEvent;       
+var   ButtonRound117:         TButton_Round;
+
+var   ButtonRound106_Caption: string[7];    
+var   ButtonRound106_OnDown:  TEvent;       
+var   ButtonRound106:         TButton_Round;
+
+var   ButtonRound104_Caption: string[8];    
+var   ButtonRound104_OnDown:  TEvent;       
+var   ButtonRound104:         TButton_Round;
+
+var   ButtonRound103_Caption: string[4];    
+var   ButtonRound103_OnDown:  TEvent;       
+var   ButtonRound103:         TButton_Round;
+
+const Box48: TCBox = (
+  @ScreenGMsynthUpr,    // Box48.OwnerScreen
+  7,                    // Box48.Order
+  1,                    // Box48.Visible
+  255,                  // Box48.Opacity
+  255,                  // Box48.Tag
+  394,                  // Box48.Left
+  0,                    // Box48.Top
+  9,                    // Box48.Width
+  272,                  // Box48.Height
+  0,                    // Box48.Pen_Width
+  0xCE79,               // Box48.Pen_Color
+  0xCE79,               // Box48.Color
+  0xCE79,               // Box48.Press_Color
+  0xCE79,               // Box48.ColorTo
+  0xCE79,               // Box48.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box48.Gradient
+  1,                    // Box48.Active
+  0,                    // Box48.OnUp
+  0,                    // Box48.OnDown
+  0,                    // Box48.OnClick
+  0                     // Box48.OnPress
+); code;
+
+const Line43: TCLine = (
+  @ScreenGMsynthUpr, // Line43.OwnerScreen
+  8,                 // Line43.Order
+  1,                 // Line43.Visible
+  255,               // Line43.Opacity
+  255,               // Line43.Tag
+  403,               // Line43.First_Point_X
+  0,                 // Line43.First_Point_Y
+  403,               // Line43.Second_Point_X
+  180,               // Line43.Second_Point_Y
+  1,                 // Line43.Pen_Width
+  0x0000             // Line43.Pen_Color
+); code;
+
+var   EveScrollBar37_OnPress: TEvent;       
+var   EveScrollBar37:         TEveScrollbar;
+
+var   Label48_Caption: string[11];
+var   Label48:         TLabel;    
+
+var   EveScrollBar41_OnPress: TEvent;       
+var   EveScrollBar41:         TEveScrollbar;
+
+var   Label54_Caption: string[8];
+var   Label54:         TLabel;   
+
+var   EveScrollBarGMupper1_OnPress: TEvent;       
+var   EveScrollBarGMupper1:         TEveScrollbar;
+
+var   Label58_Caption: string[8];
+var   Label58:         TLabel;   
+
+var   EveScrollBar57_OnPress: TEvent;       
+var   EveScrollBar57:         TEveScrollbar;
+
+var   Label59_Caption: string[9];
+var   Label59:         TLabel;   
+
+var   EveScrollBar58_OnPress: TEvent;       
+var   EveScrollBar58:         TEveScrollbar;
+
+var   Label60_Caption: string[8];
+var   Label60:         TLabel;   
+
+var   EveScrollBarGMupper2_OnPress: TEvent;       
+var   EveScrollBarGMupper2:         TEveScrollbar;
+
+var   Label61_Caption: string[8];
+var   Label61:         TLabel;   
+
+var   EveScrollBar60_OnPress: TEvent;       
+var   EveScrollBar60:         TEveScrollbar;
+
+var   Label62_Caption: string[11];
+var   Label62:         TLabel;    
+
+const Label63_Caption: string[14] = 'GM Synth Upper'; code;
+const Label63:         TCLabel    = (
+  @ScreenGMsynthUpr, // Label63.OwnerScreen
+  23,                // Label63.Order
+  1,                 // Label63.Visible
+  255,               // Label63.Opacity
+  255,               // Label63.Tag
+  8,                 // Label63.Left
+  6,                 // Label63.Top
+  126,               // Label63.Width
+  21,                // Label63.Height
+  @Label63_Caption,  // Label63.Caption
+  28,                // Label63.FontName
+  0x0000,            // Label63.Font_Color
+  28,                // Label63.FontHandle
+  -1,                // Label63.Source
+  1,                 // Label63.Active
+  0,                 // Label63.OnUp
+  0,                 // Label63.OnDown
+  0,                 // Label63.OnClick
+  0                  // Label63.OnPress
+); code;
+
+const Box49: TCBox = (
+  @ScreenGMsynthUpr,    // Box49.OwnerScreen
+  24,                   // Box49.Order
+  1,                    // Box49.Visible
+  255,                  // Box49.Opacity
+  255,                  // Box49.Tag
+  0,                    // Box49.Left
+  246,                  // Box49.Top
+  403,                  // Box49.Width
+  26,                   // Box49.Height
+  1,                    // Box49.Pen_Width
+  0x5AEB,               // Box49.Pen_Color
+  0x5AEB,               // Box49.Color
+  0x5AEB,               // Box49.Press_Color
+  0xFFFF,               // Box49.ColorTo
+  0x9CD3,               // Box49.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box49.Gradient
+  1,                    // Box49.Active
+  0,                    // Box49.OnUp
+  0,                    // Box49.OnDown
+  0,                    // Box49.OnClick
+  0                     // Box49.OnPress
+); code;
+
+var   ButtonRound119_Caption: string[8];    
+var   ButtonRound119_OnDown:  TEvent;       
+var   ButtonRound119:         TButton_Round;
+
+var   ButtonRound120_Caption: string[8];    
+var   ButtonRound120_OnDown:  TEvent;       
+var   ButtonRound120:         TButton_Round;
+
+var   CircleButtonDecUpr1_Caption: string[1];    
+var   CircleButtonDecUpr1_OnDown:  TEvent;       
+var   CircleButtonDecUpr1:         TCircleButton;
+
+var   CircleButtonDecUpr2_Caption: string[1];    
+var   CircleButtonDecUpr2_OnDown:  TEvent;       
+var   CircleButtonDecUpr2:         TCircleButton;
+
+var   CircleButtonIncUpr1_Caption: string[1];    
+var   CircleButtonIncUpr1_OnDown:  TEvent;       
+var   CircleButtonIncUpr1:         TCircleButton;
+
+var   CircleButtonIncUpr2_Caption: string[1];    
+var   CircleButtonIncUpr2_OnDown:  TEvent;       
+var   CircleButtonIncUpr2:         TCircleButton;
+
+var   ButtonRound121_Caption: string[8];    
+var   ButtonRound121_OnDown:  TEvent;       
+var   ButtonRound121:         TButton_Round;
+
+const Box50: TCBox = (
+  @ScreenGMsynthUpr,    // Box50.OwnerScreen
+  32,                   // Box50.Order
+  1,                    // Box50.Visible
+  255,                  // Box50.Opacity
+  255,                  // Box50.Tag
+  1,                    // Box50.Left
+  238,                  // Box50.Top
+  401,                  // Box50.Width
+  7,                    // Box50.Height
+  0,                    // Box50.Pen_Width
+  0xCE79,               // Box50.Pen_Color
+  0xCE79,               // Box50.Color
+  0xCE79,               // Box50.Press_Color
+  0xCE79,               // Box50.ColorTo
+  0xCE79,               // Box50.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box50.Gradient
+  1,                    // Box50.Active
+  0,                    // Box50.OnUp
+  0,                    // Box50.OnDown
+  0,                    // Box50.OnClick
+  0                     // Box50.OnPress
+); code;
+
+const Line45: TCLine = (
+  @ScreenGMsynthUpr, // Line45.OwnerScreen
+  33,                // Line45.Order
+  1,                 // Line45.Visible
+  255,               // Line45.Opacity
+  255,               // Line45.Tag
+  75,                // Line45.First_Point_X
+  245,               // Line45.First_Point_Y
+  403,               // Line45.Second_Point_X
+  245,               // Line45.Second_Point_Y
+  1,                 // Line45.Pen_Width
+  0x0000             // Line45.Pen_Color
+); code;
+
+var   Line46: TLine;
+
+var   EveNumberGMupper1: TEveNumber;
+
+var   EveNumberGMupper2: TEveNumber;
+
+const Line44: TCLine = (
+  @ScreenGMsynthUpr, // Line44.OwnerScreen
+  37,                // Line44.Order
+  1,                 // Line44.Visible
+  255,               // Line44.Opacity
+  255,               // Line44.Tag
+  403,               // Line44.First_Point_X
+  225,               // Line44.First_Point_Y
+  403,               // Line44.Second_Point_X
+  272,               // Line44.Second_Point_Y
+  1,                 // Line44.Pen_Width
+  0x0000             // Line44.Pen_Color
+); code;
+
+const ScreenGMsynthUpr_Buttons_Round: array[009] of TButton_RoundPtr  = (
+  @ButtonRound169,      
+  @ButtonRound118,      
+  @ButtonRound117,      
+  @ButtonRound106,      
+  @ButtonRound104,      
+  @ButtonRound103,      
+  @ButtonRound119,      
+  @ButtonRound120,      
+  @ButtonRound121       
+); code;
+
+const ScreenGMsynthUpr_Labels:        array[007] of TLabelPtr         = (
+  @Label48,             
+  @Label54,             
+  @Label58,             
+  @Label59,             
+  @Label60,             
+  @Label61,             
+  @Label62              
+); code;
+
+const ScreenGMsynthUpr_CLabels:       array[001] of TCLabelPtr        = (
+  @Label63              
+); code;
+
+const ScreenGMsynthUpr_CircleButtons: array[004] of TCircleButtonPtr  = (
+  @CircleButtonDecUpr1, 
+  @CircleButtonDecUpr2, 
+  @CircleButtonIncUpr1, 
+  @CircleButtonIncUpr2  
+); code;
+
+const ScreenGMsynthUpr_Boxes:         array[001] of TBoxPtr           = (
+  @Box47                
+); code;
+
+const ScreenGMsynthUpr_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box48,               
+  @Box49,               
+  @Box50                
+); code;
+
+const ScreenGMsynthUpr_Lines:         array[001] of TLinePtr          = (
+  @Line46               
+); code;
+
+const ScreenGMsynthUpr_CLines:        array[003] of TCLinePtr         = (
+  @Line43,              
+  @Line45,              
+  @Line44               
+); code;
+
+const ScreenGMsynthUpr_EveScrollBars: array[007] of TEveScrollbarPtr  = (
+  @EveScrollBar37,      
+  @EveScrollBar41,      
+  @EveScrollBarGMupper1,
+  @EveScrollBar57,      
+  @EveScrollBar58,      
+  @EveScrollBarGMupper2,
+  @EveScrollBar60       
+); code;
+
+const ScreenGMsynthUpr_EveNumbers:    array[002] of TEveNumberPtr     = (
+  @EveNumberGMupper1,   
+  @EveNumberGMupper2    
+); code;
+
+
+const ScreenGMsynthLwr_Buttons_Round: array[009] of TButton_RoundPtr;  code; forward;
+const ScreenGMsynthLwr_Labels:        array[007] of TLabelPtr;         code; forward;
+const ScreenGMsynthLwr_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenGMsynthLwr_CircleButtons: array[004] of TCircleButtonPtr;  code; forward;
+const ScreenGMsynthLwr_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenGMsynthLwr_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenGMsynthLwr_CLines:        array[004] of TCLinePtr;         code; forward;
+const ScreenGMsynthLwr_EveScrollBars: array[007] of TEveScrollbarPtr;  code; forward;
+const ScreenGMsynthLwr_EveNumbers:    array[002] of TEveNumberPtr;     code; forward;
+
+var   ScreenGMsynthLwr: TScreen;
+
+
+var   Box43: TBox;
+
+var   ButtonRound170_Caption: string[4];    
+var   ButtonRound170_OnDown:  TEvent;       
+var   ButtonRound170:         TButton_Round;
+
+var   ButtonRound68_Caption: string[8];    
+var   ButtonRound68_OnDown:  TEvent;       
+var   ButtonRound68:         TButton_Round;
+
+var   ButtonRound59_Caption: string[7];    
+var   ButtonRound59_OnDown:  TEvent;       
+var   ButtonRound59:         TButton_Round;
+
+var   ButtonRound58_Caption: string[8];    
+var   ButtonRound58_OnDown:  TEvent;       
+var   ButtonRound58:         TButton_Round;
+
+var   ButtonRound57_Caption: string[4];    
+var   ButtonRound57_OnDown:  TEvent;       
+var   ButtonRound57:         TButton_Round;
+
+var   ButtonRound55_Caption: string[7];    
+var   ButtonRound55_OnDown:  TEvent;       
+var   ButtonRound55:         TButton_Round;
+
+const Box44: TCBox = (
+  @ScreenGMsynthLwr,    // Box44.OwnerScreen
+  7,                    // Box44.Order
+  1,                    // Box44.Visible
+  255,                  // Box44.Opacity
+  255,                  // Box44.Tag
+  394,                  // Box44.Left
+  0,                    // Box44.Top
+  9,                    // Box44.Width
+  272,                  // Box44.Height
+  0,                    // Box44.Pen_Width
+  0xCE79,               // Box44.Pen_Color
+  0xCE79,               // Box44.Color
+  0xCE79,               // Box44.Press_Color
+  0xCE79,               // Box44.ColorTo
+  0xCE79,               // Box44.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box44.Gradient
+  1,                    // Box44.Active
+  0,                    // Box44.OnUp
+  0,                    // Box44.OnDown
+  0,                    // Box44.OnClick
+  0                     // Box44.OnPress
+); code;
+
+const Line39: TCLine = (
+  @ScreenGMsynthLwr, // Line39.OwnerScreen
+  8,                 // Line39.Order
+  1,                 // Line39.Visible
+  255,               // Line39.Opacity
+  255,               // Line39.Tag
+  403,               // Line39.First_Point_X
+  0,                 // Line39.First_Point_Y
+  403,               // Line39.Second_Point_X
+  180,               // Line39.Second_Point_Y
+  1,                 // Line39.Pen_Width
+  0x0000             // Line39.Pen_Color
+); code;
+
+var   EveScrollBar35_OnPress: TEvent;       
+var   EveScrollBar35:         TEveScrollbar;
+
+var   Label46_Caption: string[11];
+var   Label46:         TLabel;    
+
+var   EveScrollBar36_OnPress: TEvent;       
+var   EveScrollBar36:         TEveScrollbar;
+
+var   Label47_Caption: string[8];
+var   Label47:         TLabel;   
+
+var   EveScrollBar38_OnPress: TEvent;       
+var   EveScrollBar38:         TEveScrollbar;
+
+var   Label49_Caption: string[8];
+var   Label49:         TLabel;   
+
+var   EveScrollBar39_OnPress: TEvent;       
+var   EveScrollBar39:         TEveScrollbar;
+
+var   Label50_Caption: string[9];
+var   Label50:         TLabel;   
+
+var   EveScrollBar40_OnPress: TEvent;       
+var   EveScrollBar40:         TEveScrollbar;
+
+var   Label53_Caption: string[8];
+var   Label53:         TLabel;   
+
+var   EveScrollBar54_OnPress: TEvent;       
+var   EveScrollBar54:         TEveScrollbar;
+
+var   Label55_Caption: string[8];
+var   Label55:         TLabel;   
+
+var   EveScrollBar55_OnPress: TEvent;       
+var   EveScrollBar55:         TEveScrollbar;
+
+var   Label56_Caption: string[11];
+var   Label56:         TLabel;    
+
+const Label57_Caption: string[14] = 'GM Synth Lower'; code;
+const Label57:         TCLabel    = (
+  @ScreenGMsynthLwr, // Label57.OwnerScreen
+  23,                // Label57.Order
+  1,                 // Label57.Visible
+  255,               // Label57.Opacity
+  255,               // Label57.Tag
+  8,                 // Label57.Left
+  6,                 // Label57.Top
+  127,               // Label57.Width
+  21,                // Label57.Height
+  @Label57_Caption,  // Label57.Caption
+  28,                // Label57.FontName
+  0x0000,            // Label57.Font_Color
+  28,                // Label57.FontHandle
+  -1,                // Label57.Source
+  1,                 // Label57.Active
+  0,                 // Label57.OnUp
+  0,                 // Label57.OnDown
+  0,                 // Label57.OnClick
+  0                  // Label57.OnPress
+); code;
+
+const Box45: TCBox = (
+  @ScreenGMsynthLwr,    // Box45.OwnerScreen
+  24,                   // Box45.Order
+  1,                    // Box45.Visible
+  255,                  // Box45.Opacity
+  255,                  // Box45.Tag
+  0,                    // Box45.Left
+  246,                  // Box45.Top
+  403,                  // Box45.Width
+  26,                   // Box45.Height
+  1,                    // Box45.Pen_Width
+  0x5AEB,               // Box45.Pen_Color
+  0x5AEB,               // Box45.Color
+  0x5AEB,               // Box45.Press_Color
+  0xFFFF,               // Box45.ColorTo
+  0x9CD3,               // Box45.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box45.Gradient
+  1,                    // Box45.Active
+  0,                    // Box45.OnUp
+  0,                    // Box45.OnDown
+  0,                    // Box45.OnClick
+  0                     // Box45.OnPress
+); code;
+
+var   ButtonRound69_Caption: string[8];    
+var   ButtonRound69_OnDown:  TEvent;       
+var   ButtonRound69:         TButton_Round;
+
+var   ButtonRound90_Caption: string[8];    
+var   ButtonRound90_OnDown:  TEvent;       
+var   ButtonRound90:         TButton_Round;
+
+var   CircleButton1_Caption: string[1];    
+var   CircleButton1_OnDown:  TEvent;       
+var   CircleButton1:         TCircleButton;
+
+var   CircleButton2_Caption: string[1];    
+var   CircleButton2_OnDown:  TEvent;       
+var   CircleButton2:         TCircleButton;
+
+var   CircleButton3_Caption: string[1];    
+var   CircleButton3_OnDown:  TEvent;       
+var   CircleButton3:         TCircleButton;
+
+var   CircleButton4_Caption: string[1];    
+var   CircleButton4_OnDown:  TEvent;       
+var   CircleButton4:         TCircleButton;
+
+var   ButtonRound101_Caption: string[8];    
+var   ButtonRound101_OnDown:  TEvent;       
+var   ButtonRound101:         TButton_Round;
+
+const Box46: TCBox = (
+  @ScreenGMsynthLwr,    // Box46.OwnerScreen
+  32,                   // Box46.Order
+  1,                    // Box46.Visible
+  255,                  // Box46.Opacity
+  255,                  // Box46.Tag
+  1,                    // Box46.Left
+  238,                  // Box46.Top
+  401,                  // Box46.Width
+  7,                    // Box46.Height
+  0,                    // Box46.Pen_Width
+  0xCE79,               // Box46.Pen_Color
+  0xCE79,               // Box46.Color
+  0xCE79,               // Box46.Press_Color
+  0xCE79,               // Box46.ColorTo
+  0xCE79,               // Box46.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box46.Gradient
+  1,                    // Box46.Active
+  0,                    // Box46.OnUp
+  0,                    // Box46.OnDown
+  0,                    // Box46.OnClick
+  0                     // Box46.OnPress
+); code;
+
+const Line41: TCLine = (
+  @ScreenGMsynthLwr, // Line41.OwnerScreen
+  33,                // Line41.Order
+  1,                 // Line41.Visible
+  255,               // Line41.Opacity
+  255,               // Line41.Tag
+  151,               // Line41.First_Point_X
+  245,               // Line41.First_Point_Y
+  403,               // Line41.Second_Point_X
+  245,               // Line41.Second_Point_Y
+  1,                 // Line41.Pen_Width
+  0x0000             // Line41.Pen_Color
+); code;
+
+const Line42: TCLine = (
+  @ScreenGMsynthLwr, // Line42.OwnerScreen
+  34,                // Line42.Order
+  1,                 // Line42.Visible
+  255,               // Line42.Opacity
+  255,               // Line42.Tag
+  0,                 // Line42.First_Point_X
+  245,               // Line42.First_Point_Y
+  76,                // Line42.Second_Point_X
+  245,               // Line42.Second_Point_Y
+  1,                 // Line42.Pen_Width
+  0x0000             // Line42.Pen_Color
+); code;
+
+var   EveNumber1: TEveNumber;
+
+var   EveNumber2: TEveNumber;
+
+const Line40: TCLine = (
+  @ScreenGMsynthLwr, // Line40.OwnerScreen
+  37,                // Line40.Order
+  1,                 // Line40.Visible
+  255,               // Line40.Opacity
+  255,               // Line40.Tag
+  403,               // Line40.First_Point_X
+  225,               // Line40.First_Point_Y
+  403,               // Line40.Second_Point_X
+  272,               // Line40.Second_Point_Y
+  1,                 // Line40.Pen_Width
+  0x0000             // Line40.Pen_Color
+); code;
+
+const ScreenGMsynthLwr_Buttons_Round: array[009] of TButton_RoundPtr  = (
+  @ButtonRound170,      
+  @ButtonRound68,       
+  @ButtonRound59,       
+  @ButtonRound58,       
+  @ButtonRound57,       
+  @ButtonRound55,       
+  @ButtonRound69,       
+  @ButtonRound90,       
+  @ButtonRound101       
+); code;
+
+const ScreenGMsynthLwr_Labels:        array[007] of TLabelPtr         = (
+  @Label46,             
+  @Label47,             
+  @Label49,             
+  @Label50,             
+  @Label53,             
+  @Label55,             
+  @Label56              
+); code;
+
+const ScreenGMsynthLwr_CLabels:       array[001] of TCLabelPtr        = (
+  @Label57              
+); code;
+
+const ScreenGMsynthLwr_CircleButtons: array[004] of TCircleButtonPtr  = (
+  @CircleButton1,       
+  @CircleButton2,       
+  @CircleButton3,       
+  @CircleButton4        
+); code;
+
+const ScreenGMsynthLwr_Boxes:         array[001] of TBoxPtr           = (
+  @Box43                
+); code;
+
+const ScreenGMsynthLwr_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box44,               
+  @Box45,               
+  @Box46                
+); code;
+
+const ScreenGMsynthLwr_CLines:        array[004] of TCLinePtr         = (
+  @Line39,              
+  @Line41,              
+  @Line42,              
+  @Line40               
+); code;
+
+const ScreenGMsynthLwr_EveScrollBars: array[007] of TEveScrollbarPtr  = (
+  @EveScrollBar35,      
+  @EveScrollBar36,      
+  @EveScrollBar38,      
+  @EveScrollBar39,      
+  @EveScrollBar40,      
+  @EveScrollBar54,      
+  @EveScrollBar55       
+); code;
+
+const ScreenGMsynthLwr_EveNumbers:    array[002] of TEveNumberPtr     = (
+  @EveNumber1,          
+  @EveNumber2           
+); code;
+
+
+const ScreenGMsynthPed_Buttons_Round: array[009] of TButton_RoundPtr;  code; forward;
+const ScreenGMsynthPed_Labels:        array[007] of TLabelPtr;         code; forward;
+const ScreenGMsynthPed_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenGMsynthPed_CircleButtons: array[004] of TCircleButtonPtr;  code; forward;
+const ScreenGMsynthPed_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenGMsynthPed_CBoxes:        array[003] of TCBoxPtr;          code; forward;
+const ScreenGMsynthPed_CLines:        array[004] of TCLinePtr;         code; forward;
+const ScreenGMsynthPed_EveScrollBars: array[007] of TEveScrollbarPtr;  code; forward;
+const ScreenGMsynthPed_EveNumbers:    array[002] of TEveNumberPtr;     code; forward;
+
+var   ScreenGMsynthPed: TScreen;
+
+
+var   Box51: TBox;
+
+var   ButtonRound171_Caption: string[4];    
+var   ButtonRound171_OnDown:  TEvent;       
+var   ButtonRound171:         TButton_Round;
+
+var   ButtonRound136_Caption: string[8];    
+var   ButtonRound136_OnDown:  TEvent;       
+var   ButtonRound136:         TButton_Round;
+
+var   ButtonRound135_Caption: string[7];    
+var   ButtonRound135_OnDown:  TEvent;       
+var   ButtonRound135:         TButton_Round;
+
+var   ButtonRound134_Caption: string[8];    
+var   ButtonRound134_OnDown:  TEvent;       
+var   ButtonRound134:         TButton_Round;
+
+var   ButtonRound133_Caption: string[4];    
+var   ButtonRound133_OnDown:  TEvent;       
+var   ButtonRound133:         TButton_Round;
+
+var   ButtonRound122_Caption: string[7];    
+var   ButtonRound122_OnDown:  TEvent;       
+var   ButtonRound122:         TButton_Round;
+
+const Box52: TCBox = (
+  @ScreenGMsynthPed,    // Box52.OwnerScreen
+  7,                    // Box52.Order
+  1,                    // Box52.Visible
+  255,                  // Box52.Opacity
+  255,                  // Box52.Tag
+  394,                  // Box52.Left
+  0,                    // Box52.Top
+  9,                    // Box52.Width
+  272,                  // Box52.Height
+  0,                    // Box52.Pen_Width
+  0xCE79,               // Box52.Pen_Color
+  0xCE79,               // Box52.Color
+  0xCE79,               // Box52.Press_Color
+  0xCE79,               // Box52.ColorTo
+  0xCE79,               // Box52.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box52.Gradient
+  1,                    // Box52.Active
+  0,                    // Box52.OnUp
+  0,                    // Box52.OnDown
+  0,                    // Box52.OnClick
+  0                     // Box52.OnPress
+); code;
+
+const Line47: TCLine = (
+  @ScreenGMsynthPed, // Line47.OwnerScreen
+  8,                 // Line47.Order
+  1,                 // Line47.Visible
+  255,               // Line47.Opacity
+  255,               // Line47.Tag
+  403,               // Line47.First_Point_X
+  0,                 // Line47.First_Point_Y
+  403,               // Line47.Second_Point_X
+  180,               // Line47.Second_Point_Y
+  1,                 // Line47.Pen_Width
+  0x0000             // Line47.Pen_Color
+); code;
+
+var   EveScrollBar61_OnPress: TEvent;       
+var   EveScrollBar61:         TEveScrollbar;
+
+var   Label64_Caption: string[11];
+var   Label64:         TLabel;    
+
+var   EveScrollBar62_OnPress: TEvent;       
+var   EveScrollBar62:         TEveScrollbar;
+
+var   Label65_Caption: string[8];
+var   Label65:         TLabel;   
+
+var   EveScrollBar63_OnPress: TEvent;       
+var   EveScrollBar63:         TEveScrollbar;
+
+var   Label66_Caption: string[8];
+var   Label66:         TLabel;   
+
+var   EveScrollBar64_OnPress: TEvent;       
+var   EveScrollBar64:         TEveScrollbar;
+
+var   Label67_Caption: string[9];
+var   Label67:         TLabel;   
+
+var   EveScrollBar65_OnPress: TEvent;       
+var   EveScrollBar65:         TEveScrollbar;
+
+var   Label68_Caption: string[8];
+var   Label68:         TLabel;   
+
+var   EveScrollBar66_OnPress: TEvent;       
+var   EveScrollBar66:         TEveScrollbar;
+
+var   Label69_Caption: string[8];
+var   Label69:         TLabel;   
+
+var   EveScrollBar67_OnPress: TEvent;       
+var   EveScrollBar67:         TEveScrollbar;
+
+var   Label70_Caption: string[11];
+var   Label70:         TLabel;    
+
+const Label71_Caption: string[14] = 'GM Synth Pedal'; code;
+const Label71:         TCLabel    = (
+  @ScreenGMsynthPed, // Label71.OwnerScreen
+  23,                // Label71.Order
+  1,                 // Label71.Visible
+  255,               // Label71.Opacity
+  255,               // Label71.Tag
+  8,                 // Label71.Left
+  6,                 // Label71.Top
+  123,               // Label71.Width
+  21,                // Label71.Height
+  @Label71_Caption,  // Label71.Caption
+  28,                // Label71.FontName
+  0x0000,            // Label71.Font_Color
+  28,                // Label71.FontHandle
+  -1,                // Label71.Source
+  1,                 // Label71.Active
+  0,                 // Label71.OnUp
+  0,                 // Label71.OnDown
+  0,                 // Label71.OnClick
+  0                  // Label71.OnPress
+); code;
+
+const Box53: TCBox = (
+  @ScreenGMsynthPed,    // Box53.OwnerScreen
+  24,                   // Box53.Order
+  1,                    // Box53.Visible
+  255,                  // Box53.Opacity
+  255,                  // Box53.Tag
+  0,                    // Box53.Left
+  246,                  // Box53.Top
+  403,                  // Box53.Width
+  26,                   // Box53.Height
+  1,                    // Box53.Pen_Width
+  0x5AEB,               // Box53.Pen_Color
+  0x5AEB,               // Box53.Color
+  0x5AEB,               // Box53.Press_Color
+  0xFFFF,               // Box53.ColorTo
+  0x9CD3,               // Box53.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box53.Gradient
+  1,                    // Box53.Active
+  0,                    // Box53.OnUp
+  0,                    // Box53.OnDown
+  0,                    // Box53.OnClick
+  0                     // Box53.OnPress
+); code;
+
+var   ButtonRound137_Caption: string[8];    
+var   ButtonRound137_OnDown:  TEvent;       
+var   ButtonRound137:         TButton_Round;
+
+var   ButtonRound149_Caption: string[8];    
+var   ButtonRound149_OnDown:  TEvent;       
+var   ButtonRound149:         TButton_Round;
+
+var   CircleButton9_Caption: string[1];    
+var   CircleButton9_OnDown:  TEvent;       
+var   CircleButton9:         TCircleButton;
+
+var   CircleButton10_Caption: string[1];    
+var   CircleButton10_OnDown:  TEvent;       
+var   CircleButton10:         TCircleButton;
+
+var   CircleButton11_Caption: string[1];    
+var   CircleButton11_OnDown:  TEvent;       
+var   CircleButton11:         TCircleButton;
+
+var   CircleButton12_Caption: string[1];    
+var   CircleButton12_OnDown:  TEvent;       
+var   CircleButton12:         TCircleButton;
+
+var   ButtonRound150_Caption: string[8];    
+var   ButtonRound150_OnDown:  TEvent;       
+var   ButtonRound150:         TButton_Round;
+
+const Box54: TCBox = (
+  @ScreenGMsynthPed,    // Box54.OwnerScreen
+  32,                   // Box54.Order
+  1,                    // Box54.Visible
+  255,                  // Box54.Opacity
+  255,                  // Box54.Tag
+  1,                    // Box54.Left
+  238,                  // Box54.Top
+  401,                  // Box54.Width
+  7,                    // Box54.Height
+  0,                    // Box54.Pen_Width
+  0xCE79,               // Box54.Pen_Color
+  0xCE79,               // Box54.Color
+  0xCE79,               // Box54.Press_Color
+  0xCE79,               // Box54.ColorTo
+  0xCE79,               // Box54.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box54.Gradient
+  1,                    // Box54.Active
+  0,                    // Box54.OnUp
+  0,                    // Box54.OnDown
+  0,                    // Box54.OnClick
+  0                     // Box54.OnPress
+); code;
+
+const Line49: TCLine = (
+  @ScreenGMsynthPed, // Line49.OwnerScreen
+  33,                // Line49.Order
+  1,                 // Line49.Visible
+  255,               // Line49.Opacity
+  255,               // Line49.Tag
+  226,               // Line49.First_Point_X
+  245,               // Line49.First_Point_Y
+  403,               // Line49.Second_Point_X
+  245,               // Line49.Second_Point_Y
+  1,                 // Line49.Pen_Width
+  0x0000             // Line49.Pen_Color
+); code;
+
+const Line50: TCLine = (
+  @ScreenGMsynthPed, // Line50.OwnerScreen
+  34,                // Line50.Order
+  1,                 // Line50.Visible
+  255,               // Line50.Opacity
+  255,               // Line50.Tag
+  0,                 // Line50.First_Point_X
+  245,               // Line50.First_Point_Y
+  151,               // Line50.Second_Point_X
+  245,               // Line50.Second_Point_Y
+  1,                 // Line50.Pen_Width
+  0x0000             // Line50.Pen_Color
+); code;
+
+var   EveNumber3: TEveNumber;
+
+var   EveNumber4: TEveNumber;
+
+const Line48: TCLine = (
+  @ScreenGMsynthPed, // Line48.OwnerScreen
+  37,                // Line48.Order
+  1,                 // Line48.Visible
+  255,               // Line48.Opacity
+  255,               // Line48.Tag
+  403,               // Line48.First_Point_X
+  225,               // Line48.First_Point_Y
+  403,               // Line48.Second_Point_X
+  272,               // Line48.Second_Point_Y
+  1,                 // Line48.Pen_Width
+  0x0000             // Line48.Pen_Color
+); code;
+
+const ScreenGMsynthPed_Buttons_Round: array[009] of TButton_RoundPtr  = (
+  @ButtonRound171,      
+  @ButtonRound136,      
+  @ButtonRound135,      
+  @ButtonRound134,      
+  @ButtonRound133,      
+  @ButtonRound122,      
+  @ButtonRound137,      
+  @ButtonRound149,      
+  @ButtonRound150       
+); code;
+
+const ScreenGMsynthPed_Labels:        array[007] of TLabelPtr         = (
+  @Label64,             
+  @Label65,             
+  @Label66,             
+  @Label67,             
+  @Label68,             
+  @Label69,             
+  @Label70              
+); code;
+
+const ScreenGMsynthPed_CLabels:       array[001] of TCLabelPtr        = (
+  @Label71              
+); code;
+
+const ScreenGMsynthPed_CircleButtons: array[004] of TCircleButtonPtr  = (
+  @CircleButton9,       
+  @CircleButton10,      
+  @CircleButton11,      
+  @CircleButton12       
+); code;
+
+const ScreenGMsynthPed_Boxes:         array[001] of TBoxPtr           = (
+  @Box51                
+); code;
+
+const ScreenGMsynthPed_CBoxes:        array[003] of TCBoxPtr          = (
+  @Box52,               
+  @Box53,               
+  @Box54                
+); code;
+
+const ScreenGMsynthPed_CLines:        array[004] of TCLinePtr         = (
+  @Line47,              
+  @Line49,              
+  @Line50,              
+  @Line48               
+); code;
+
+const ScreenGMsynthPed_EveScrollBars: array[007] of TEveScrollbarPtr  = (
+  @EveScrollBar61,      
+  @EveScrollBar62,      
+  @EveScrollBar63,      
+  @EveScrollBar64,      
+  @EveScrollBar65,      
+  @EveScrollBar66,      
+  @EveScrollBar67       
+); code;
+
+const ScreenGMsynthPed_EveNumbers:    array[002] of TEveNumberPtr     = (
+  @EveNumber3,          
+  @EveNumber4           
+); code;
+
+
+const ScreenPresets_Buttons_Round: array[010] of TButton_RoundPtr;  code; forward;
+const ScreenPresets_Labels:        array[004] of TLabelPtr;         code; forward;
+const ScreenPresets_CLabels:       array[001] of TCLabelPtr;        code; forward;
+const ScreenPresets_CircleButtons: array[008] of TCircleButtonPtr;  code; forward;
+const ScreenPresets_Boxes:         array[001] of TBoxPtr;           code; forward;
+const ScreenPresets_CBoxes:        array[001] of TCBoxPtr;          code; forward;
+const ScreenPresets_CLines:        array[001] of TCLinePtr;         code; forward;
+const ScreenPresets_EveScrollBars: array[004] of TEveScrollbarPtr;  code; forward;
+const ScreenPresets_EveNumbers:    array[004] of TEveNumberPtr;     code; forward;
+
+var   ScreenPresets: TScreen;
+
+
+var   Box55: TBox;
+
+var   ButtonRound172_Caption: string[7];    
+var   ButtonRound172_OnDown:  TEvent;       
+var   ButtonRound172:         TButton_Round;
+
+var   ButtonRound173_Caption: string[4];    
+var   ButtonRound173_OnDown:  TEvent;       
+var   ButtonRound173:         TButton_Round;
+
+var   ButtonRound174_Caption: string[8];    
+var   ButtonRound174_OnDown:  TEvent;       
+var   ButtonRound174:         TButton_Round;
+
+var   ButtonRound175_Caption: string[7];    
+var   ButtonRound175_OnDown:  TEvent;       
+var   ButtonRound175:         TButton_Round;
+
+var   ButtonRound176_Caption: string[8];    
+var   ButtonRound176_OnDown:  TEvent;       
+var   ButtonRound176:         TButton_Round;
+
+var   ButtonRound177_Caption: string[4];    
+var   ButtonRound177_OnDown:  TEvent;       
+var   ButtonRound177:         TButton_Round;
+
+const Box56: TCBox = (
+  @ScreenPresets,       // Box56.OwnerScreen
+  7,                    // Box56.Order
+  1,                    // Box56.Visible
+  255,                  // Box56.Opacity
+  255,                  // Box56.Tag
+  394,                  // Box56.Left
+  0,                    // Box56.Top
+  9,                    // Box56.Width
+  272,                  // Box56.Height
+  0,                    // Box56.Pen_Width
+  0xCE79,               // Box56.Pen_Color
+  0xCE79,               // Box56.Color
+  0xCE79,               // Box56.Press_Color
+  0xCE79,               // Box56.ColorTo
+  0xCE79,               // Box56.Press_ColorTo
+  _FT800_BRUSH_GR_NONE, // Box56.Gradient
+  1,                    // Box56.Active
+  0,                    // Box56.OnUp
+  0,                    // Box56.OnDown
+  0,                    // Box56.OnClick
+  0                     // Box56.OnPress
+); code;
+
+const Line54: TCLine = (
+  @ScreenPresets,  // Line54.OwnerScreen
+  8,               // Line54.Order
+  1,               // Line54.Visible
+  255,             // Line54.Opacity
+  255,             // Line54.Tag
+  403,             // Line54.First_Point_X
+  45,              // Line54.First_Point_Y
+  403,             // Line54.Second_Point_X
+  271,             // Line54.Second_Point_Y
+  1,               // Line54.Pen_Width
+  0x0000           // Line54.Pen_Color
+); code;
+
+const Label80_Caption: string[14] = 'Voices/Presets'; code;
+const Label80:         TCLabel    = (
+  @ScreenPresets,   // Label80.OwnerScreen
+  9,                // Label80.Order
+  1,                // Label80.Visible
+  255,              // Label80.Opacity
+  255,              // Label80.Tag
+  8,                // Label80.Left
+  6,                // Label80.Top
+  118,              // Label80.Width
+  21,               // Label80.Height
+  @Label80_Caption, // Label80.Caption
+  28,               // Label80.FontName
+  0x0000,           // Label80.Font_Color
+  28,               // Label80.FontHandle
+  -1,               // Label80.Source
+  1,                // Label80.Active
+  0,                // Label80.OnUp
+  0,                // Label80.OnDown
+  0,                // Label80.OnClick
+  0                 // Label80.OnPress
+); code;
+
+var   EveScrollBar72_OnPress: TEvent;       
+var   EveScrollBar72:         TEveScrollbar;
+
+var   Label51_Caption: string[11];
+var   Label51:         TLabel;    
+
+var   CircleButton5_Caption: string[1];    
+var   CircleButton5_OnDown:  TEvent;       
+var   CircleButton5:         TCircleButton;
+
+var   CircleButton6_Caption: string[1];    
+var   CircleButton6_OnDown:  TEvent;       
+var   CircleButton6:         TCircleButton;
+
+var   CircleButton7_Caption: string[1];    
+var   CircleButton7_OnDown:  TEvent;       
+var   CircleButton7:         TCircleButton;
+
+var   CircleButton8_Caption: string[1];    
+var   CircleButton8_OnDown:  TEvent;       
+var   CircleButton8:         TCircleButton;
+
+var   EveNumber5: TEveNumber;
+
+var   EveNumber6: TEveNumber;
+
+var   EveScrollBar71_OnPress: TEvent;       
+var   EveScrollBar71:         TEveScrollbar;
+
+var   Label81_Caption: string[11];
+var   Label81:         TLabel;    
+
+var   CircleButton19_Caption: string[1];    
+var   CircleButton19_OnDown:  TEvent;       
+var   CircleButton19:         TCircleButton;
+
+var   CircleButton20_Caption: string[1];    
+var   CircleButton20_OnDown:  TEvent;       
+var   CircleButton20:         TCircleButton;
+
+var   EveNumber7: TEveNumber;
+
+var   EveScrollBar74_OnPress: TEvent;       
+var   EveScrollBar74:         TEveScrollbar;
+
+var   Label82_Caption: string[13];
+var   Label82:         TLabel;    
+
+var   CircleButton21_Caption: string[1];    
+var   CircleButton21_OnDown:  TEvent;       
+var   CircleButton21:         TCircleButton;
+
+var   CircleButton22_Caption: string[1];    
+var   CircleButton22_OnDown:  TEvent;       
+var   CircleButton22:         TCircleButton;
+
+var   EveNumber8: TEveNumber;
+
+var   EveScrollBar73_OnPress: TEvent;       
+var   EveScrollBar73:         TEveScrollbar;
+
+var   Label79_Caption: string[11];
+var   Label79:         TLabel;    
+
+var   ButtonRound178_Caption: string[10];   
+var   ButtonRound178_OnDown:  TEvent;       
+var   ButtonRound178:         TButton_Round;
+
+var   ButtonRound179_Caption: string[10];   
+var   ButtonRound179_OnDown:  TEvent;       
+var   ButtonRound179:         TButton_Round;
+
+var   ButtonRound180_Caption: string[10];   
+var   ButtonRound180_OnDown:  TEvent;       
+var   ButtonRound180:         TButton_Round;
+
+var   ButtonRound181_Caption: string[11];   
+var   ButtonRound181_OnDown:  TEvent;       
+var   ButtonRound181:         TButton_Round;
+
+const ScreenPresets_Buttons_Round: array[010] of TButton_RoundPtr  = (
+  @ButtonRound172,      
+  @ButtonRound173,      
+  @ButtonRound174,      
+  @ButtonRound175,      
+  @ButtonRound176,      
+  @ButtonRound177,      
+  @ButtonRound178,      
+  @ButtonRound179,      
+  @ButtonRound180,      
+  @ButtonRound181       
+); code;
+
+const ScreenPresets_Labels:        array[004] of TLabelPtr         = (
+  @Label51,             
+  @Label81,             
+  @Label82,             
+  @Label79              
+); code;
+
+const ScreenPresets_CLabels:       array[001] of TCLabelPtr        = (
+  @Label80              
+); code;
+
+const ScreenPresets_CircleButtons: array[008] of TCircleButtonPtr  = (
+  @CircleButton5,       
+  @CircleButton6,       
+  @CircleButton7,       
+  @CircleButton8,       
+  @CircleButton19,      
+  @CircleButton20,      
+  @CircleButton21,      
+  @CircleButton22       
+); code;
+
+const ScreenPresets_Boxes:         array[001] of TBoxPtr           = (
+  @Box55                
+); code;
+
+const ScreenPresets_CBoxes:        array[001] of TCBoxPtr          = (
+  @Box56                
+); code;
+
+const ScreenPresets_CLines:        array[001] of TCLinePtr         = (
+  @Line54               
+); code;
+
+const ScreenPresets_EveScrollBars: array[004] of TEveScrollbarPtr  = (
+  @EveScrollBar72,      
+  @EveScrollBar71,      
+  @EveScrollBar74,      
+  @EveScrollBar73       
+); code;
+
+const ScreenPresets_EveNumbers:    array[004] of TEveNumberPtr     = (
+  @EveNumber5,          
+  @EveNumber6,          
+  @EveNumber7,          
+  @EveNumber8           
+); code;
+
+// Table of object draw handlers
+// Use object type constants to access coresponding object draw handler
+const DrawHandlerTable: array[44] of TPointer = (
+  0,                 // Button draw handler not used
+  0,                 // CButton draw handler not used
+  @DrawButtonRound,  // ButtonRound draw handler
+  0,                 // CButtonRound draw handler not used
+  @DrawLabel,        // Label draw handler
+  @DrawCLabel,       // CLabel draw handler
+  0,                 // Image draw handler not used
+  0,                 // CImage draw handler not used
+  0,                 // Circle draw handler not used
+  @DrawCCircle,      // CCircle draw handler
+  @DrawCircleButton, // CircleButton draw handler
+  0,                 // CCircleButton draw handler not used
+  @DrawBox,          // Box draw handler
+  @DrawCBox,         // CBox draw handler
+  @DrawBoxRound,     // BoxRound draw handler
+  @DrawCBoxRound,    // CBoxRound draw handler
+  @DrawLine,         // Line draw handler
+  @DrawCLine,        // CLine draw handler
+  0,                 // Polygon draw handler not used
+  0,                 // CPolygon draw handler not used
+  @DrawCheckBox,     // CheckBox draw handler
+  0,                 // RadioButton draw handler not used
+  0,                 // ProgressBar draw handler not used
+  0,                 // Audio draw handler not used
+  0,                 // EveClock draw handler not used
+  0,                 // EveGauge draw handler not used
+  @DrawEveDial,      // EveDial draw handler
+  @DrawEveKeys,      // EveKeys draw handler
+  0,                 // CEveKeys draw handler not used
+  0,                 // EveProgressBar draw handler not used
+  @DrawEveScrollBar, // EveScrollBar draw handler
+  0,                 // EveToggle draw handler not used
+  @DrawEveSlider,    // EveSlider draw handler
+  0,                 // EveSpinner draw handler not used
+  0,                 // EveScreenSaver draw handler not used
+  0,                 // EveSketch draw handler not used
+  0,                 // EveButton draw handler not used
+  0,                 // CEveButton draw handler not used
+  0,                 // EveGradient draw handler not used
+  0,                 // CEveGradient draw handler not used
+  @DrawEveText,      // EveText draw handler
+  0,                 // CEveText draw handler not used
+  @DrawEveNumber,    // EveNumber draw handler
+  0                  // CEveNumber draw handler not used
+);
+// ~Table of draw handler pointers
+
+implementation
+
+end.

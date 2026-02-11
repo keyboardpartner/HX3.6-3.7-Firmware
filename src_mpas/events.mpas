@@ -1,0 +1,648 @@
+// #############################################################################
+//       __ ________  _____  ____  ___   ___  ___
+//      / //_/ __/\ \/ / _ )/ __ \/ _ | / _ \/ _ \
+//     / ,< / _/   \  / _  / /_/ / __ |/ , _/ // /
+//    /_/|_/___/_  /_/____/\____/_/_|_/_/|_/____/
+//      / _ \/ _ | / _ \/_  __/ |/ / __/ _ \
+//     / ___/ __ |/ , _/ / / /    / _// , _/
+//    /_/  /_/ |_/_/|_| /_/ /_/|_/___/_/|_|
+//
+// #############################################################################
+
+// |-----------------------------User Activity---------------------------------|
+// |--MenuSystem--|--SwitchIF--|--AnalogInputs--|--MIDI Dispatch--|---Parser---|
+// |---------------------------Event/Edit Array--------------------------------|
+// |----------------------------Apply Changes----------------------------------|
+// |---FPGA Hilevel---|---MIDI Send---|--Binary Send (WIFI)--|--Store/Recall---|
+// |-----------------------------Hardware-----------------------|----Events-^--|
+
+// Event-Tabelle
+
+unit events;
+
+uses twi_systimer, const_def, var_def, edit_vals, edit_offsets, dataflash,
+  avrco_compat, serial2, midi_com, osc_com, messages, menu_entries, nuts_bolts;
+
+procedure EventsInit;
+
+procedure NewEditIdxEvent(edit_idx, pvalue, event_source: Word);
+procedure InvalEditIdxEvent(edit_idx, pvalue: Word);
+procedure NewParamEvent(param: Word; pvalue:DWord; event_source: Word);
+
+procedure FillEventSource(start_idx, count, event_source: Word);
+
+const
+
+  // Offsets für Extended Events
+  c_extevt_SendDSP = 0;                   // ExtendedEvents[0]
+  c_extevt_SendPhasingInits = 1;          // ExtendedEvents[1]
+  c_extevt_SendBusbarInits = 2;           // ExtendedEvents[2]
+  c_extevt_SendLeslieInits = 3;           // ExtendedEvents[3]
+  c_extevt_DrawbarParams = 4;             // ExtendedEvents[4]
+  c_extevt_MIDIext = 5;                   // ExtendedEvents[5]
+  c_extevt_AnalogRemap = 6;               // ExtendedEvents[6]
+  c_extevt_ButtonRemap = 7;               // ExtendedEvents[7]
+  c_extevt_MenuEnables = 8;               // ExtendedEvents[8]
+
+  c_extevt_StoreDefaults = 10;            // ExtendedEvents[10]
+  c_extevt_StoreSystemInits = 11;         // ExtendedEvents[11]
+  c_extevt_StoreExtendedParams = 12;      // ExtendedEvents[12]
+  c_extevt_StoreCurrentOrganModel = 13;   // ExtendedEvents[13]
+  c_extevt_StoreCurrentSpeakerModel = 14; // ExtendedEvents[14]
+
+var
+  ExtendedEvents: Array[0..15] of boolean; aligned 4;
+
+implementation
+
+var
+  idx: Word;
+
+
+procedure FillEventSource(start_idx, count, event_source: Word);
+// start_idx zeigt auf Edit-/Event-Tabelle 0..511
+var my_idx: Word;
+begin
+  for my_idx:= start_idx to (start_idx + count - 1) do
+    event_array[my_idx]:= event_source;
+end;
+
+// #############################################################################
+
+procedure NewIndirectDBevent(param, pvalue, event_source: Word);
+begin
+  if not ValueInRange(param, 1690, 1747) then
+    exit;
+  EDIT_SetupIdx(param);
+  idx_mod_10:= param mod 10;  // 0..9
+  if ValueInRange(param, 1690, 1695) then begin
+    if idx_mod_10 < 3 then
+      event_array[c_UpperDBs]:= event_source
+    else
+      event_array[c_LowerDBs]:= event_source;
+    case idx_mod_10 of
+    0:  // Activate A Upper
+      begin
+        MIDI_OverrideCancelDB1:= false;
+        edit_ActiveUpperIndirect:= 0;
+        for idx:= 0 to 11 do
+          NewEditIdxEvent(c_UpperDBs + idx, edit_UpperIndirect_DBs[0][idx], event_source);
+        MIDI_DisablePercussion:= false;
+        event_array[c_LogicalTab_PercON]:= event_source;
+      end;
+    1:  // Activate to B Upper
+      begin
+        MIDI_OverrideCancelDB1:= false;
+        edit_ActiveUpperIndirect:= ValueTrimLimit(pvalue, 0, 1);
+        edit_ActiveUpperIndirect:= 0;
+        for idx:= 0 to 11 do
+          NewEditIdxEvent(c_UpperDBs + idx, edit_UpperIndirect_DBs[1][idx], event_source);
+        MIDI_DisablePercussion:= true;
+        event_array[c_LogicalTab_PercON]:= event_source;
+      end;
+    2:  // switch A/B Upper
+      begin
+        MIDI_OverrideCancelDB1:= false;
+        edit_ActiveUpperIndirect:= ValueTrimLimit(pvalue, 0, 1);
+        if edit_ActiveUpperIndirect = 0 then begin
+          for idx:= 0 to 11 do
+            NewEditIdxEvent(c_UpperDBs + idx, edit_UpperIndirect_DBs[0][idx], event_source);
+          MIDI_DisablePercussion:= false;
+        end else begin
+          for idx:= 0 to 11 do
+            NewEditIdxEvent(c_UpperDBs + idx, edit_UpperIndirect_DBs[1][idx], event_source);
+          MIDI_DisablePercussion:= true;
+        end;
+        event_array[c_LogicalTab_PercON]:= event_source;
+      end;
+    3:  // Activate A Lower
+      begin
+        MIDI_OverrideCancelDB1:= false;
+        edit_ActiveLowerIndirect:= 0;
+        for idx:= 0 to 11 do
+          NewEditIdxEvent(c_LowerDBs + idx, edit_LowerIndirect_DBs[0][idx], event_source);
+      end;
+    4:  // Activate to B Lower
+      begin
+        MIDI_OverrideCancelDB1:= false;
+        edit_ActiveLowerIndirect:= ValueTrimLimit(pvalue, 0, 1);
+        for idx:= 0 to 11 do
+          NewEditIdxEvent(c_LowerDBs + idx, edit_LowerIndirect_DBs[1][idx], event_source);
+      end;
+    5:  // switch A/B Lower
+      begin
+        MIDI_OverrideCancelDB1:= false;
+        edit_ActiveLowerIndirect:= ValueTrimLimit(pvalue, 0, 1);
+        if edit_ActiveLowerIndirect = 0 then begin
+          for idx:= 0 to 11 do
+            NewEditIdxEvent(c_LowerDBs + idx, edit_LowerIndirect_DBs[0][idx], event_source);
+        end else begin
+          for idx:= 0 to 11 do
+            NewEditIdxEvent(c_LowerDBs + idx, edit_LowerIndirect_DBs[1][idx], event_source);
+        end;
+      end;
+    end;
+  end else if ValueInRange(param, 1700, 1711) then begin
+    MIDI_OverrideCancelDB1:= false;
+    edit_UpperIndirect_DBs[0][idx_mod_100]:= pvalue;
+    // Wenn aktiv, gleich an "richtige" Drawbars durchreichen
+    if edit_ActiveUpperIndirect = 0 then
+      NewEditIdxEvent(c_upperDBs + idx_mod_100, 255, event_source);
+  end else if ValueInRange(param, 1712, 1723) then begin
+    MIDI_OverrideCancelDB1:= false;
+    edit_UpperIndirect_DBs[1][idx_mod_100]:= pvalue;
+    // Wenn aktiv, gleich an "richtige" Drawbars durchreichen
+    if edit_ActiveUpperIndirect >= 1 then
+      NewEditIdxEvent(c_upperDBs - 12 + idx_mod_100, pvalue, event_source);
+  end else if ValueInRange(param, 1724, 1735) then begin
+    MIDI_OverrideCancelDB1:= false;
+    edit_LowerIndirect_DBs[0][idx_mod_100]:= pvalue;
+    // Wenn aktiv, gleich an "richtige" Drawbars durchreichen
+    if edit_ActiveLowerIndirect = 0 then
+      NewEditIdxEvent(c_lowerDBs - 24 + idx_mod_100, pvalue, event_source);
+  end else if ValueInRange(param, 1736, 1747) then begin
+    MIDI_OverrideCancelDB1:= false;
+    edit_LowerIndirect_DBs[1][idx_mod_100]:= pvalue;
+    // Wenn aktiv, gleich an "richtige" Drawbars durchreichen
+    if edit_ActiveLowerIndirect >= 1 then
+      NewEditIdxEvent(c_lowerDBs - 36 + idx_mod_100, pvalue, event_source);
+  end;
+end;
+
+// #############################################################################
+
+procedure incdec_presets(index: byte; event_source: Word);
+const
+  c_osc_order_to_gmvoice: Array[0..5] of byte = (0, 3, 8, 11, 16, 19);
+var 
+  i, n, m: Byte;
+begin
+  if index = 0 then begin
+    dectolimB(edit_CommonPreset, 0);
+    if not PresetStoreRequest then  // nur laden wenn kein PresetStoreRequest
+      NewEditIdxEvent(c_voices, edit_CommonPreset, event_source);
+  end else if index = 1 then begin
+    inctolimB(edit_CommonPreset, 99);
+    if not PresetStoreRequest then  // nur laden wenn kein PresetStoreRequest
+      NewEditIdxEvent(c_voices, edit_CommonPreset, event_source);
+  end else if ValueInRange(index, 2, 7) then begin
+    i:= ((index - 2) div 2) + 1; // Common Preset Dummy überspringen
+    n:= edit_voices[i];
+    if index and 1 = 1 then
+      inctolimB(n, 15)
+    else
+      dectolimB(n, 0);
+    edit_voices[i]:= n;
+    if not PresetStoreRequest then  // nur laden wenn kein PresetStoreRequest
+      NewEditIdxEvent(c_voices + i, n, event_source);
+  end else if ValueInRange(index, 8, 19) then begin // MIDI 78..89
+    // Reihenfolge von NRPN $3570+x und in Tabelle:
+    // upper_0, lower_0, pedal_0, xxx, upper_1, lower_1, pedal_1, xxx
+    // Reihenfolge MIDI/OSC-Befehle:
+    // Dec/Inc upper_0   0,0 (Index auf GM_VoiceNames)
+    // Dec/Inc upper_1   4,4
+    // Dec/Inc lower_0   1,1
+    // Dec/Inc lower_1   5,5
+    // Dec/Inc pedal_0   2,2
+    // Dec/Inc pedal_1   6,6
+    i:= (index - 8) div 2;
+    // upper_0, lower_0, pedal_0, xxx, upper_1, lower_1, pedal_1, xxx
+    n:= c_osc_order_to_gmvoice[i];
+    m:= edit_GMprogs[n];
+    if index and 1 = 1 then
+      inctolimB(m, 126)
+    else
+      dectolimB(m, 0);
+    NewEditIdxEvent(c_GMprogs + n, m, event_source);
+  end;
+end;
+
+procedure send_osc_store_led;
+begin
+  if ConnectMode = c_connect_osc_midi then begin // OSC connectedByMIDI
+    MIDI_SendBoolean(3, 90, PresetStoreRequest)  // Store Request LED MIDI
+  end else if ConnectMode = c_connect_osc_wifi then begin
+    OSC_SendBinaryVal(1640, byte(PresetStoreRequest) and $40); // Store Request LED OSC
+  end;
+end;
+
+procedure send_osc_store_all_off;
+begin
+  PresetStoreRequest:= false;
+  send_osc_store_led;
+  if ConnectMode = c_connect_osc_midi then begin // OSC connectedByMIDI
+    MIDI_SendBoolean(3, 58, false);  // Btn Preset
+    MIDI_SendBoolean(3, 59, false);  // Btn Voice
+    MIDI_SendBoolean(3, 60, false);  // Btn Voice
+    MIDI_SendBoolean(3, 61, false);  // Btn Voice
+    MIDI_SendBoolean(3, 62, false);  // Btn Store
+  end else if ConnectMode = c_connect_osc_wifi then begin
+    OSC_SendBinaryVal(1640, 0); // Store Request LED OSC
+    OSC_SendBinaryVal(1605, 0); // Btn Preset
+    OSC_SendBinaryVal(1606, 0); // Btn Voice
+    OSC_SendBinaryVal(1607, 0); // Btn Voice
+    OSC_SendBinaryVal(1608, 0); // Btn Voice
+    OSC_SendBinaryVal(1609, 0); // Btn Store
+  end;
+end;
+
+procedure NewTouchOSCevent(param, pvalue, event_source: Word);
+// TouchOSC- und MIDI-CC-Events
+const
+  s_label_organ = '/label_organ="';
+  s_label_rotary = '/label_rotary="';
+  s_label_wait_empty = '/label_wait=""';
+  s_label_wait = '/label_wait="Please wait..."';
+  s_label_preset = '/label_preset="';
+  s_label_preset_none = s_label_preset + '(none)"';
+  s_label_fw = '/label_fw_version="';
+  s_label_page0 = '/page/1=0';
+  s_label_page127 = '/page/1=127';
+  c_osc_order_to_gmvoice: Array[0..5] of byte = (0, 3, 8, 11, 16, 19);
+var
+  offs, my_val, my_limit: Word;
+  my_bool: Boolean;
+begin
+  my_bool:= pvalue <> 0;
+  if ValueInRange(param, 1620, 1627) then begin
+    // Dec/Inc Presets/Voices ALIAS
+    param:= param - 1620;
+    NewEditIdxEvent(param + c_LogicalTab_DecPreset, pvalue, event_source);
+  end else if ValueInRange(param, 1642, 1647) then begin
+    // Dec/Inc Organ/Speaker Models, Transpose ALIAS
+    param:= param - 1642;
+    NewEditIdxEvent(param + c_LogicalTab_DecOrganModel, pvalue, event_source);
+  end else if my_bool and ValueInRange(param, 1628, 1639) then begin
+    // Inc/Dec GM
+    // Reihenfolge von NRPN $3570+x und in Tabelle:
+    // upper_0, lower_0, pedal_0, xxx, upper_1, lower_1, pedal_1, xxx
+    // Reihenfolge MIDI/OSC-Befehle:
+    // Dec/Inc upper_0   0,0 (Index auf GM_VoiceNames)
+    // Dec/Inc upper_1   4,4
+    // Dec/Inc lower_0   1,1
+    // Dec/Inc lower_1   5,5
+    // Dec/Inc pedal_0   2,2
+    // Dec/Inc pedal_1   6,6
+    // upper_0, lower_0, pedal_0, xxx, upper_1, lower_1, pedal_1, xxx
+    offs:= c_osc_order_to_gmvoice[(param - 1628) div 2];
+    my_val:= edit_GMprogs[offs];
+    if (param and 1) = 1 then
+      inctolimW(my_val, 126)
+    else
+      dectolimW(my_val, 0);
+    NewEditIdxEvent(c_GMprogs + offs, my_val, c_control_event_source);
+  end else 
+    case param of
+    1605, 1606, 1607, 1608:
+      begin
+        offs:= param - 1605;
+        if PresetStoreRequest then begin
+          NewEditIdxEvent(c_SaveEventPreset + offs, edit_voices[offs], c_control_event_source);
+          send_osc_store_all_off;
+          if ConnectMode = c_connect_osc_wifi then begin
+            Serial2_CRLF;
+            Serial2_sendstringCRLF(s_label_preset + CurrentPresetName + '"');
+          end;
+        end else
+          NewEditIdxEvent(c_CommonPreset + offs, edit_voices[offs], c_control_event_source);
+      end;
+    1609:
+      if my_bool then begin
+        PresetStoreRequest:= not PresetStoreRequest;
+        if PresetStoreRequest then
+          send_osc_store_led
+        else
+          send_osc_store_all_off;
+        ToggleLEDcount:= 0;
+      end;
+
+    1610:// Start OSCconnectedBySerial Mode, HX3 sendet Parameter-Änderungen, binär
+      begin
+        //    MIDI_RequestAllGMnames;
+        ConnectMode:= c_connect_osc_wifi;  // Abschalten mit 9902=0
+        MSG_MenuHeader(s_osc_connect);
+        mdelay(100);
+        OSC_SendBinaryVal(1610, 127); // Connect Button ON (dummy für Re-Connect)
+        mdelay(1000);    // Zeit für IP-Meldung von WiFi-Interface
+        OSC_SendBinaryVal(1610, 127); // Connect Button ON
+        OSC_SendBinaryVal(1649, 64);  // LED Blink
+        Serial2_sendstringCRLF(s_label_page0); // für alte Versionen
+        OSC_SendBinaryVal(1650, 0);   // Page
+        mdelay(100);
+        Serial2_CRLF; // sync Text
+        Serial2_sendstring(s_label_fw); // Versionsnummer HX3
+        Serial2_sendstring(s_LCD1Str);
+        Serial2_sendstringCRLF('"');
+        Serial2_CRLF; // sync Text
+        Serial2_sendstringCRLF(s_label_wait);
+        OSC_SendBinaryVal(1610, 0); // Connect Button OFF (dummy)
+        mdelay(100);    // Zeit für IP-Meldung von WiFi-Interface
+        Serial2_CRLF;
+        Serial2_sendstringCRLF(s_label_preset_none); // Preset-Namen
+        Serial2_sendstringCRLF(s_label_wait_empty);
+        Serial2_sendstringCRLF(s_label_page127); // für alte Versionen
+        mdelay(100);    // Zeit für IP-Meldung von WiFi-Interface
+        MenuIndex_Requested:= 0;
+        OSC_SendBinaryVal(1697, 127); // Param Invalidate Extended
+        mdelay(500);
+        OSC_SendBinaryVal(1650, 1); // Page
+        OSC_SendAllOSCvals;         // einschl. Preset-Nummern
+        Serial2_CRLF;
+        Serial2_sendstring(s_label_organ);
+        Serial2_sendstring(s_OrganModelArr[edit_OrganModel]);
+        Serial2_sendChar('"');
+        Serial2_CRLF;
+        Serial2_sendstring(s_label_rotary);
+        Serial2_sendstring(s_SpeakerModelArr[edit_RotaryModel]);
+        Serial2_sendChar('"');
+        Serial2_CRLF;
+        mdelay(500);
+        send_osc_store_all_off;
+      end;
+      
+    // OSC/MIDI Store Events
+    1611:  // Store Defaults
+      ExtendedEvents[c_extevt_StoreDefaults]:= my_bool;
+    1612:  // Store System Inits
+      ExtendedEvents[c_extevt_StoreSystemInits]:= my_bool;
+    1613:  // Store Extended Params
+      ExtendedEvents[c_extevt_StoreExtendedParams]:= my_bool;
+    1614:  // Store current Organ Model
+      ExtendedEvents[c_extevt_StoreCurrentOrganModel]:= my_bool;
+    1615:  // Store current Speaker Model
+      ExtendedEvents[c_extevt_StoreCurrentSpeakerModel]:= my_bool;
+
+    1650: // #1650 TouchOSC Page Select, Einstellung vorbelegen
+      begin
+        // Organ Model Preconfig
+        OSC_SendBinaryVal(1610, 0); // Connect Button OFF
+        case pvalue of
+          0: // Start page
+            begin
+              Serial2_CRLF; // sync Text
+              Serial2_sendstringCRLF(s_label_wait_empty); // "Please Wait..." löschen
+            end;
+          1, 2: // B3/Basic Pages
+            NewEditIdxEvent(c_OrganModel, 0, c_control_event_source);
+          3, 4: // H100 Pages
+            NewEditIdxEvent(c_OrganModel, 4, c_control_event_source);
+          5, 6: // EG Mode Pages, keine Änderung wenn bereits EG Mode
+            if edit_OrganModel < 5 then
+              NewEditIdxEvent(c_OrganModel, 5, c_control_event_source);
+        end;
+        MenuRefresh:= true;
+      end;
+    1651:  // Page B3
+      NewEditIdxEvent(c_OrganModel, 0, c_control_event_source);
+    1653, 1654:  // Page H100
+      NewEditIdxEvent(c_OrganModel, 4, c_control_event_source);
+    1655, 1656:  // EG Mode
+      if edit_OrganModel < 5 then
+        NewEditIdxEvent(c_OrganModel, 5, c_control_event_source);
+    1670:  // Drawbar set 1 (B Key)
+      begin
+        MIDI_DisablePercussion:= false;
+        MIDI_OverrideCancelDB1:= false;
+        event_array[c_LogicalTab_PercOn]:= event_source;
+      end;
+    1671:  // Drawbar set 2 (A# Key, no percussion)
+      begin
+        MIDI_DisablePercussion:= true;
+        MIDI_OverrideCancelDB1:= true;
+        event_array[c_LogicalTab_PercOn]:= event_source;
+      end;
+// 1672 aus Kompatibilitätsgründen nicht belegen, war Upper/Lower/Pedal Audio Enable
+    1674:  // Temp Perc Enable/Disable
+      begin
+        MIDI_DisablePercussion:= not my_bool;
+        MIDI_OverrideCancelDB1:= not my_bool;
+        event_array[c_LogicalTab_PercOn]:= event_source;
+      end;
+    1677:  // Upper/Lower/Pedal Audio Enable (war vorher 1672)
+      begin
+        my_bool:= (pvalue and 1) <> 0;
+        NewEditIdxEvent(c_EnableUpperAudio, my_bool, event_source);
+        my_bool:= (pvalue and 2) <> 0;
+        NewEditIdxEvent(c_EnableLowerAudio, my_bool, event_source);
+        my_bool:= (pvalue and 4) <> 0;
+        NewEditIdxEvent(c_EnablePedalAudio, my_bool, event_source);
+      end;
+    1680, 1681, 1682, 1683, 1684, 1685:  // Set V1..C3, Vibrato Knob Direct
+      NewEditIdxEvent(c_VibKnob, param - 1680, event_source);
+    1686:  // Set rotary RUN SLOW
+      begin
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, event_source);
+        NewEditIdxEvent(c_LogicalTab_LeslieFast, 0, event_source);
+      end;
+    1687:  // Set rotary RUN FAST
+      begin
+        NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, event_source);
+        NewEditIdxEvent(c_LogicalTab_LeslieFast, 255, event_source);
+      end;
+    1688:  // Set rotary STOP
+      NewEditIdxEvent(c_LogicalTab_LeslieRun, 0, event_source);
+    1689:  // Set rotary RUN
+      NewEditIdxEvent(c_LogicalTab_LeslieRun, 255, event_source);
+    end;
+end;
+
+// #############################################################################
+
+
+procedure NewEditIdxEvent(edit_idx, pvalue, event_source: Word);
+// allgemeiner Event im Bereich 0 bis 511
+begin
+  if ValueInRange(edit_idx, 0, 511) then begin
+    if ValueInRange(edit_idx, 0128, 0223) then
+      pvalue:= Word(pvalue <> 0);  // Logical Tabs
+    edit_array[edit_idx]:= lo(pvalue);
+    // nur ändern, aber kein Event wenn PresetStoreRequest von MIDI oder OSC
+    if ValueInRange(edit_idx, 0268, 0271) and (PresetStoreRequest) then
+      exit;
+    event_array[edit_idx]:= event_source;
+  end;
+end;
+
+procedure InvalEditIdxEvent(edit_idx, pvalue: Word);
+// Event annulieren
+begin
+  NewEditIdxEvent(edit_idx, pvalue, 0);
+end;
+
+// -----------------------------------------------------------------------------
+
+procedure NewParamEvent(param: Word; pvalue: DWord; event_source: Word);
+// bei to_eep = TRUE Auswertung/Anwendung erst nach Timeout, damit
+// fortlaufende Parameter vom Editor übermittelt werden können,
+// ohne dass jedesmal ein Dataflash-Store ausgelöst wirdvar
+var
+  my_bool: Boolean;
+  my_idx: Word;
+begin
+  if ValueInRange(param, 1000, 1511) then begin
+    pvalue:= pvalue and $FF;
+    NewEditIdxEvent(param - 1000, pvalue, event_source);  // edit_array-Event
+    exit;
+  end;
+  
+  // ab hier zusätzliche und Touch-OSC Parameter, außerhalb edit_array
+  my_bool:= pvalue <> 0;
+  EDIT_SetupIdx(param); // idx_1000er, idx_mod_xx berechnen
+  case idx_1000er of
+    1: 
+      begin
+        if ValueInRange(param, 1520, 1531) then  // Extended Event
+          MIDI_SendIndexedController(param-1000, pvalue)   // nur MIDI CC senden
+        else if param = 1600 then begin
+          SwellPedalControlledByMIDI:= true;
+          MIDIswell128:= lo(pvalue);
+        end else if ValueInRange(param, 1601, 1689) then
+          NewTouchOSCevent(param, pvalue, event_source)
+        else if ValueInRange(param, 1690, 1747) then
+          NewIndirectDBevent(param, pvalue, event_source);
+      end;
+      
+    2: 
+      // ab hier nur noch Extended Parameter
+      case idx_100er of
+        0:
+          if idx_mod_1000 <= 23 then begin  // 0..23
+            eep_SAM_RevDSPvals[idx_mod_100 div 4][idx_mod_100 mod 4]:= pvalue;
+            ExtendedEvents[c_extevt_SendDSP]:= true;
+          end;
+        1:
+          if idx_mod_100 <= 63 then begin  // 100..163
+            eep_LeslieInits[idx_mod_100]:= pvalue;
+            ExtendedEvents[c_extevt_SendLeslieInits]:= true;
+          end;
+        5, 6:
+          if idx_mod_1000 <= 627 then begin     // 500..627, PHR Sets
+            my_idx:= param - 2500;
+            eep_PhasingRotorSets[my_idx div 16][my_idx mod 16]:= pvalue;
+            ExtendedEvents[c_extevt_SendPhasingInits]:= true;
+          end;
+      end;
+      
+    3: 
+      if idx_mod_1000 <= 311 then begin
+        // Pedalfaktoren im 2/4 DB-Mode
+        eep_PedalDBfacs[idx_100er][idx_mod_100 mod 12]:= pvalue; // 4 x 12 Werte
+        ExtendedEvents[c_extevt_DrawbarParams]:= true;
+      end else if ValueInRange(idx_mod_1000, 500, 595) then begin
+        eep_ExtKeyscanInits[idx_mod_100]:= pvalue;
+        ExtendedEvents[c_extevt_MIDIext]:= true;
+      end;
+      
+    4: 
+      if idx_mod_1000 <= 767 then begin
+        // MIDI-CC-Satz Einzelwerte schreiben
+        // 4 Bytes gepackt als 32-Bit-Werte: (msb) MIN MAX CH CC (lsb)
+        Temp_Dval:= pvalue;
+        MIDIset.CCs[idx_mod_1000]:= Temp_Bvals[0];
+        MIDIset.CHs[idx_mod_1000]:= Temp_Bvals[1]; // enthält auch MODE!
+        if idx_mod_1000 <= 751 then begin
+           // hier kein Index > 751, da von CC-Namen belegt
+           MIDIset.CCmaxs[idx_mod_1000]:= Temp_Bvals[2];
+           MIDIset.CCmins[idx_mod_1000]:= Temp_Bvals[3];
+        end;
+        NB_CreateSortedCCarrays; // Sortiertes Array für CC-Behandlung
+        MIDI_SendSustainSostEnable;
+      end else if idx_mod_1000 < 800 then begin
+        // Custom-NRPN-Tabelle
+        my_idx:= idx_mod_1000 - 768;
+        Temp_Dval:= pvalue;
+        MIDIset.NRPNs[my_idx].EditIdx:= Temp_Wvals[0];
+        MIDIset.NRPNs[my_idx].NRPN:= Temp_Wvals[1];
+      end else if idx_mod_1000 < 816 then begin
+        DF_LoadCCarray(idx_mod_100);   // setzt UseSustainSostMask
+        NB_CreateSortedCCarrays;
+        MIDI_SendSustainSostEnable;
+      end else if ValueInRange(idx_mod_1000, 900, 915) then begin
+        // Speichern des gerade mit 8600=3200 oder SysEx geladenen
+        // oder mit 4921=1 umkopierten BlockArrays als CC-Set 0..15 in DF
+        if my_bool then begin
+          CopyBlock(@BlockBuffer8, @MIDIset, c_midicc_len);  // 3200 Bytes
+          DF_EraseWriteBlock(c_midicc_base_DF + idx_mod_100, c_midicc_len);
+          NB_CreateSortedCCarrays;
+          MIDI_SendSustainSostEnable;
+        end;
+      end else if idx_mod_1000 = 920 then begin
+        // Umkopieren des gerade mit 8600=3200 oder SysEx geladenen BlockBuffer
+        // in MIDIset_Array zum Test als Custom 1 CC
+        if my_bool then begin
+          CopyBlock(@BlockBuffer8, @MIDIset, c_midicc_len);
+          edit_MIDI_CC_Set:= 9;  // CC Set
+          NB_CreateSortedCCarrays;
+          MIDI_SendSustainSostEnable;
+        end;
+      end else if idx_mod_1000 = 921 then begin
+        // Umkopieren des aktuellen MIDIset_Array in BlockBuffer
+        // zum erneuten Speichern mit 4900..4915
+        // FillBlock(@BlockBuffer8, 4096, 255);
+        CopyBlock(@MIDIset, @BlockBuffer8, c_midicc_len);
+      end;
+    
+    5: 
+      case idx_100er of
+        0:
+          if idx_mod_100 <= 87 then begin
+            // Analog Remaps
+            eep_AnalogRemaps[idx_mod_100]:= pvalue;
+            if (idx_mod_100 < 9) then
+              eep_AnalogRemaps[idx_mod_100 + 100]:= pvalue; // Upper secondary DB9-MPX
+            if valueInRange(idx_mod_100, 12, 20) then
+              eep_AnalogRemaps[idx_mod_100 + 100]:= pvalue; // Lower secondary DB9-MP
+            ExtendedEvents[c_extevt_AnalogRemap]:= true;
+          end;
+        1:
+          if idx_mod_100 <= 95 then begin
+            // Switch/Button Remaps
+            eep_ButtonRemaps[idx_mod_100]:= pvalue;
+            ExtendedEvents[c_extevt_ButtonRemap]:= true;
+          end;
+        2:
+          if idx_mod_100 <= 95 then begin
+            // Switch/Button Modes
+            eep_ButtonModes[idx_mod_100]:= pvalue;
+            ExtendedEvents[c_extevt_ButtonRemap]:= true;
+          end;
+        3:
+          if idx_mod_100 <= 31 then begin
+            // Switch/Button Modes für XB2
+            eep_ButtonRemaps_XB2[idx_mod_100]:= pvalue;
+            ExtendedEvents[c_extevt_ButtonRemap]:= true;
+          end;
+        4:
+          if idx_mod_100 <= 15 then begin
+            // Liste mit Auswahl der Orgelmodelle für Button-Group
+            eep_OrganModelAssignments[idx_mod_100]:= pvalue;
+            ExtendedEvents[c_extevt_ButtonRemap]:= true;
+          end;
+        5:
+          if idx_mod_100 <= 15 then begin
+            // Liste mit Auswahl der Speaker-Modelle für Button-Group
+            eep_SpeakerModelAssignments[idx_mod_100]:= pvalue;
+            ExtendedEvents[c_extevt_ButtonRemap]:= true;
+          end;
+      end;
+    
+    6:
+      if idx_mod_1000 <= 199 then begin
+        eep_MenuEnables[idx_mod_1000]:= my_bool;
+        ExtendedEvents[c_extevt_MenuEnables]:= true;
+      end;    
+  end;
+end;
+
+
+procedure EventsInit;
+begin
+  FillBlock(@event_array, sizeof(event_array), 0);
+  FillBlock(@edit_array, sizeof(edit_array), 0);
+  FillBlock(@ExtendedEvents, sizeof(ExtendedEvents), 0);
+  ToggleLEDcount:= 0;
+  ToggleLEDstate:= false;
+  PresetStoreRequest:= false;
+end;
+
+end.
