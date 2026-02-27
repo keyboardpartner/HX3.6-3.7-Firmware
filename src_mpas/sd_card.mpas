@@ -515,7 +515,6 @@ begin
   if InitMsgEnable then
     Serial1_sendstringCRLF(s_divline);
 {$ENDIF}
-
 end;
 
 // #############################################################################

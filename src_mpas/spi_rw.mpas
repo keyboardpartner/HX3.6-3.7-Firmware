@@ -291,6 +291,7 @@ end;
 
 {$IFNDEF BOOTLOADER}
 procedure SPI_fpga_send_scaled_byte(reg, data_b: Byte; scale_100: Word);
+// Wert mit Prozentzahl skalieren
 begin
   SPI_fpga_regsel(reg, true);
   temp_w:= (scale_100 * data_b) div 100;
@@ -304,6 +305,7 @@ begin
 end;
 
 procedure SPI_fpga_send_volume_byte(reg, data_b: Byte);
+// 0..127 auf 0..252 quadriert für Lautstärkeregelung
 begin
   SPI_fpga_regsel(reg, true);
   temp_w:= (Word(data_b) * Word(data_b)) div 64;

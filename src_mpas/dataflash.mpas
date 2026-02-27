@@ -766,9 +766,9 @@ begin
 {$IFDEF DEBUG_DF}
   Serial1_sendstringCRLF('/ DF load scan driver');
 {$ENDIF}
-  SPI_AutoIncSetup(0);
+  SPI_AutoIncSetup(c_lc_scan_driver);
   DF_ProcessBlocks(c_scan_base_DF, c_scan_len, @DF_LC32_Proc);
-  // SPI_AutoIncReset(0);
+  // SPI_AutoIncReset(c_lc_scan_driver);
   SPI_ResetScan;
 end;
 
@@ -805,9 +805,9 @@ begin
 {$IFDEF DEBUG_DF}
   Serial1_sendstringCRLF('/ DF load tapering #' + IntToStrTrim(taper));
 {$ENDIF}
-  SPI_AutoIncSetup(1);
+  SPI_AutoIncSetup(c_lc_tapering);
   DF_ProcessBlocks(c_taper_base_DF + taper, c_taper_len, @DF_LC32_ProcTaper);
-  SPI_AutoIncReset(1);
+  SPI_AutoIncReset(c_lc_tapering);
 end;
 
 procedure DF_LoadWaveset(waveset: Word);
@@ -815,9 +815,9 @@ begin
 {$IFDEF DEBUG_DF}
   Serial1_sendstringCRLF('/ DF load waveset #' + IntToSTrTrim(waveset));
 {$ENDIF}
-  SPI_AutoIncSetup(4);
+  SPI_AutoIncSetup(c_lc_waveset);
   DF_ProcessBlocks(c_waveset_base_DF + (waveset * 4), c_waveset_len, @DF_LC16_Proc);
-  SPI_AutoIncReset(4);
+  SPI_AutoIncReset(c_lc_waveset);
 end;
 
 procedure DF_LoadFIRcoeff;
@@ -825,9 +825,10 @@ begin
 {$IFDEF DEBUG_DF}
   Serial1_sendstringCRLF('/ DF load FIR coeff');
 {$ENDIF}
-  SPI_AutoIncSetup(2);
+  // 15 -> 2: FIR filter (32 Bit breite Daten!)
+  SPI_AutoIncSetup(c_lc_fir_coeff);
   DF_ProcessBlocks(c_coeff_base_DF, c_fir_len, @DF_LC32_Proc);
-  SPI_AutoIncReset(2);
+  SPI_AutoIncReset(c_lc_fir_coeff);
 end;
 
 // #############################################################################

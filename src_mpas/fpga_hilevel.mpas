@@ -192,13 +192,13 @@ begin
   if rotary_model < 8 then
     DF_LoadFIRcoeff
   else begin
-    SPI_AutoIncSetup(2);
+    SPI_AutoIncSetup(c_lc_fir_coeff);
     for idx:= 0 to 511 do begin
       if idx < 8 then
         lc_word:= c_fir_linear_arr[idx];
       SPI_fpga_rw_32(lc_word);   // Lese-Ergebnis nicht benutzt
     end;
-    SPI_AutoIncReset(2);
+    SPI_AutoIncReset(c_lc_fir_coeff);
   end;
 end;
 
@@ -279,6 +279,34 @@ begin
   ReverbKnob_old:= rev_prg;
 end;
 
+procedure FH_CreateDynTable(mindyn, slope: Integer);
+var
+  inv_slope, norm: real;
+  t: Integer;
+begin
+  // Erstelle inverse Lookup-Tabelle Timerwert -> Dynamikwert
+  // Index: gemessene Tastenanschlagzeit 255..0 (255 = extrem schnell)
+  // mindyn: minimaler Dynamikwert 0..40
+  // slope: 1 = nahezu linear, 20 = stark 1/t-ähnlich
+  if (slope < 1) then
+     slope:= 1;
+  inv_slope:= 1.0 / real(slope);
+  for t:= 0 to 255 do begin
+    norm:= real(t) / 255.0;  // normalisierter Zeitwert 0..1
+    norm:= (inv_slope * norm) / ((1 + inv_slope) - norm);
+    norm:= norm * real(127 - mindyn);
+    BlockBuffer8[255-t]:= Integer(norm) + mindyn;
+  end;
+  {$IFDEF DEBUG_FH}
+    Serial1_sendstring('/ FH Dyntable: ');
+    for t:= 0 to 25 do begin
+      Serial1_sendIntVal(BlockBuffer8[t]);
+      Serial1_sendchar(#32);
+    end;
+    Serial1_sendstringCRLF('...');
+  {$ENDIF}
+end;
+
 procedure FH_OrganParamsToFPGA;
 // Edit-Tabelle Orgel an FPGA, Kanal und Freigabe an SAM5504
 // nur übertragen, wenn im Menü geändert
@@ -289,18 +317,28 @@ begin
 // MIDI_OUT_SEL: 0 = MIDI_TX_1, 1 = MIDI_IN_1, 2 = MIDI_IN_2, 3 = MIDI_FROM_SAM (USB)
 
   MIDI_SendSustainSostEnable;
-  SPI_fpga_send_byte(67, edit_MIDI_Channel);
+  // SPI_fpga_send_byte(67, edit_MIDI_Channel);   ????
 
   temp_w:= (edit_ContSpringFlx shl 4) or (edit_ContSpringDmp and 15);
   SPI_fpga_send_byte(9, lo(temp_w));  // Klick-Länge und Noise-Frequenz
   SPI_fpga_send_byte(10, edit_GenTranspose);  // Generator Transpose
   SPI_fpga_send_byte(13, edit_KeyTranspose);  // positive Werte verschieben Töne nach UNTEN!
   
-  // Fatar Key Velocity Faktor (1/t-Steilheit), 
+  // Fatar Key Velocity Faktor (1/t-Steilheit) bei FPGA bis 12/25,
   // Early Contact (Bit 0) und LubedContacts (Bit 1)
   temp_w:= (edit_EarlyKeyCont and 1) or (edit_LubedContacts and 2); // für FATAR Scancore
   temp_w:= temp_w or (edit_FatarVelocityFac shl 2);
   SPI_fpga_send_byte(11, lo(temp_w));
+  
+  // Dynamik-Tabelle für neues FPGA erstellen und senden
+  temp_b:= eep_BoardInfo.ScanVersion and $0F;
+  if (temp_b = 1) or (temp_b >= 6) then begin
+    FH_CreateDynTable(10, edit_FatarVelocityFac div 2);
+    SPI_AutoIncSetup(c_lc_dynslope);
+    SPI_SendBuf8(256);
+    SPI_AutoIncReset(c_lc_dynslope);
+  end;
+  
   temp_w:= c_TuningTable[edit_TG_tuning];
   SPI_fpga_send_byte(68, lo(temp_w)); // CycleSteal-Wert -125 .. +125
 
@@ -347,26 +385,6 @@ begin
 end;
 
 // #############################################################################
-
-procedure FH_ArrayToFPGA(var reg_array: t_regbuf; count, target: Word);
-// 16 Register-Werte an FPGA übertragen
-begin
-  SPI_AutoIncSetup(target); // for Write Core 3
-  for idx:= 0 to count - 1 do
-    SPI_fpga_rw_byte(Byte(reg_array[idx]));
-  SPI_AutoIncReset(target);
-{$IFDEF DEBUG_FH}
-  IntToStr(target, debug_str);
-  ltrim(debug_str);
-  Serial1_sendstring('/ FH DBarray #' + debug_str + ', vals: ');
-  for idx:= 0 to count - 1 do begin
-    IntToStr(reg_array[idx], debug_str);
-    ltrim(debug_str);
-    Serial1_sendstring(debug_str + ', ');
-  end;
-  Serial1_CRLF;
-{$ENDIF}
-end;
 
 procedure drawbars_to_lc(edit_idx: Word; manual: Word; target: Word);
 // AutoInc-Register muss gesetzt sein
@@ -470,7 +488,7 @@ procedure bb_adsr_to_fpga;
 // sendet nacheinander 16 Attack-, 16 Decay-, 16 Sustain- und 16 Release-Werte
 begin
   // Attack- und Decay-Values senden
-  SPI_AutoIncSetup(11);
+  SPI_AutoIncSetup(c_lc_adsr_upper);
   for idx:= 0 to 15 do
     SPI_fpga_rw_word(c_TimeLogTable[bb_attack_arr[idx]]);
 
@@ -484,7 +502,7 @@ begin
   // Release-Wert senden
   for idx:= 0 to 15 do
     SPI_fpga_rw_word(c_TimeLogTable[bb_release_arr[idx]]);
-  SPI_AutoIncReset(11);
+  SPI_AutoIncReset(c_lc_adsr_upper);
 end;
 
 procedure adsr_to_bb_adsr;
@@ -720,9 +738,9 @@ begin
     // alle EG Modes
     my_word:= drawbar_ena_to_busbar_ena(NB_LogicalTabsToWord12(48));
     SPI_fpga_send_word(44, $0FFF); // ADSR enables, all ON
-    SPI_AutoIncSetup(12);    // for Write Core 12
+    SPI_AutoIncSetup(c_lc_adsr_lower);    // for Write Core 12
     scaled_lwrped_adsr_to_lc(c_LowerADSR, my_word); // Busbars auf ADSR statt A--D
-    SPI_AutoIncReset(12);
+    SPI_AutoIncReset(c_lc_adsr_lower);
   end else
     SPI_fpga_send_word(44, 0); // ADSR enables, all OFF
 end;
@@ -744,9 +762,9 @@ begin
 {$ENDIF}
   drawbars_to_lc(c_PedalDBs, 2, 10);  // edit_idx, manual, LC
   // ADSR-Params bei Pedal immer
-  SPI_AutoIncSetup(13);       // for Write Core 13
+  SPI_AutoIncSetup(c_lc_adsr_pedal);       // for Write Core 13
   scaled_lwrped_adsr_to_lc(c_PedalADSR, $FFFF);
-  SPI_AutoIncReset(13);
+  SPI_AutoIncReset(c_lc_adsr_pedal);
 end;
 
 // #############################################################################
@@ -924,12 +942,12 @@ begin
     StepArray[idx]:= stepval;
   end;
 
-  SPI_AutoIncSetup(7); // for Write Core 7 = Tube Amp StepVals/Slopes, 512 Werte
+  SPI_AutoIncSetup(c_lc_tube_amp_slope); // for Write Core 7 = Tube Amp StepVals/Slopes, 512 Werte
   for idx:= 0 to 255 do
     SPI_fpga_rw_word(Word(StepArray[idx]));
   for idx:= 0 to 255 do
     SPI_fpga_rw_word(Word(SlopeArray[idx]));
-  SPI_AutoIncReset(7);
+  SPI_AutoIncReset(c_lc_tube_amp_slope);
 end;
 
 // #############################################################################
@@ -1040,8 +1058,7 @@ procedure FH_SplitConfigToFPGA;  // Index [40]
 var split_reg: Byte;
 begin
 {$IFDEF DEBUG_FH}
-  Serial1_sendstring('/ FH Split mode to FPGA: ' + ByteToStr(edit_SplitMode));
-  Serial1_sendstring('/ FH Split Point to FPGA: ' + ByteToStr(edit_SplitPoint));
+  Serial1_sendstringCRLF('/ FH Split mode/point to FPGA ');
 {$ENDIF}
   // Werte an Scan Driver
   SPI_fpga_send_byte($0A, edit_GenTranspose);  // Generator Transpose, +1 = 1 Halbton nach oben
@@ -1055,7 +1072,7 @@ begin
   if ForceSplitRequest and edit_LogicalTab_SplitOn then begin
     // Scan/Split erstmal OFF, damit Änderungen beim Wiedereinschalten übernommen werden
 {$IFDEF DEBUG_FH}
-    Serial1_sendstring('/ FH New Split Request');
+    Serial1_sendstringCRLF('/ FH New Split Request');
 {$ENDIF}
     SPI_fpga_send_byte(7, 0);
     mDelay(3);
@@ -1078,7 +1095,7 @@ begin
     DF_LoadTapering(taper_set)
   else begin
     // Errechnete oder konstante Taper-Werte für Nicht-Hammonds
-    SPI_AutoIncSetup(1);  // for Write Core 1 = Tapering
+    SPI_AutoIncSetup(c_lc_tapering);  // for Write Core 1 = Tapering
     for idx:= 0 to 15 do
       case taper_set of
       4: // linear
@@ -1100,7 +1117,7 @@ begin
           SPI_fpga_rw_32(DWord(taper_val));
         end;
       end;
-    SPI_AutoIncReset(1);
+    SPI_AutoIncReset(c_lc_tapering);
   end;
 
   // erste 12 Tapering-Werte 8 Bit breit nochmal an FPGA übertragen
@@ -1111,10 +1128,10 @@ begin
   if (edit_DB16_FoldbMode and 2) = 2 then  // muted, früher TWG Config0
     // Full muted oder Foldback muted, früher TWG Config0
     taper_val:= muldivByte(taper_val, 50, 100);
-  SPI_AutoIncSetup(1); // for Write Core 1 = Tapering BRAM, 12 Werte neu
+  SPI_AutoIncSetup(c_lc_tapering); // for Write Core 1 = Tapering BRAM, 12 Werte neu
   for idx:= 0 to 11 do
     SPI_fpga_rw_32(DWord(taper_val));
-  SPI_AutoIncReset(1);
+  SPI_AutoIncReset(c_lc_tapering);
 
 
 {$IFDEF DEBUG_FH}
@@ -1344,7 +1361,7 @@ var
   random_div: LongInt;
   m_idx, fpga_word: Word;
 begin
-  SPI_AutoIncSetup(5); // for Write Core 5
+  SPI_AutoIncSetup(c_lc_tuning_vals); // for Write Core 5
   if tuning_set = 0 then begin
     for m_idx:= 0 to 6 do
       for idx:= 0 to 11 do
@@ -1367,7 +1384,7 @@ begin
         SPI_fpga_rw_word(fpga_word);
       end;
   end;
-  SPI_AutoIncReset(5);
+  SPI_AutoIncReset(c_lc_tuning_vals);
   // CycleSteal-Wert -125 .. +125
   SPI_fpga_send_Byte(68, c_TuningTable[edit_TG_tuning]);
 {$IFDEF DEBUG_FH}
@@ -1383,7 +1400,7 @@ var
   busbar, startnote: Word;
   filter_data: DWord;
 begin
-  SPI_AutoIncSetup(6);
+  SPI_AutoIncSetup(c_lc_hp_filter);
   // for Write Core 6 = RC Filter Facs in FPGA, tg_manuals_ng
   for busbar:= 0 to 15 do begin
 // 64 Highpass-Filter-Werte 16 Bit breit an FPGA übertragen
@@ -1396,7 +1413,7 @@ begin
         startnote:= startnote - 12;
     end;
   end;
-  SPI_AutoIncReset(6);
+  SPI_AutoIncReset(c_lc_hp_filter);
 {$IFDEF DEBUG_FH}
   IntToStr(tg_size, debug_str);
   ltrim(debug_str);
@@ -1409,7 +1426,7 @@ procedure FH_KeymapToFPGA(tg_size: Word; do_high_foldback: Boolean);
 var
   note, busbar, start_note: Word;
 begin
-  SPI_AutoIncSetup(3); // for Write Core 3
+  SPI_AutoIncSetup(c_lc_keymap); // for Write Core 3
   for busbar:= 0 to 15 do begin
     start_note:= edit_BusBarNoteOffsets[busbar];
     for note:= 0 to 63 do begin
@@ -1422,15 +1439,15 @@ begin
           start_note:= 127;   // Rest abgeschaltet
     end;
   end;
-  SPI_AutoIncReset(3);
+  SPI_AutoIncReset(c_lc_keymap);
   // erste Oktave
   start_note:= edit_BusBarNoteOffsets[0];
   if (edit_DB16_FoldbMode and 1) = 0 then  // Foldback oder Foldback muted
     start_note:= start_note + 12;
-  SPI_AutoIncSetup(3); // for Write Core 3 = Keymap BRAM
+  SPI_AutoIncSetup(c_lc_keymap); // for Write Core 3 = Keymap BRAM
   for idx:= 0 to 11 do
     SPI_fpga_rw_byte(start_note + idx);
-  SPI_AutoIncReset(3);
+  SPI_AutoIncReset(c_lc_keymap);
 {$IFDEF DEBUG_FH}
   IntToStr(tg_size, debug_str);
   ltrim(debug_str);

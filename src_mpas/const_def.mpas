@@ -314,6 +314,23 @@ const
   c_max_loadableFiles = 8;
   c_max_loadableBackupFiles = 2;
 
+  // LC-Targets for SPI LoadCore
+  c_lc_scan_driver = 0;
+  c_lc_tapering = 1;
+  c_lc_fir_coeff = 2;
+  c_lc_keymap = 3;
+  c_lc_waveset = 4;
+  c_lc_tuning_vals = 5;
+  c_lc_hp_filter = 6;
+  c_lc_tube_amp_slope = 7;
+  c_lc_upper_drawbars = 8;
+  c_lc_lower_drawbars = 9;
+  c_lc_pedal_drawbars = 10;
+  c_lc_adsr_upper = 11;
+  c_lc_adsr_lower = 12;
+  c_lc_adsr_pedal = 13;
+  c_lc_dynslope = 14;
+
   c_LoadableFileTypes: Array[0..c_max_loadableFiles] of TFileTypesRecord = (
     (s_fpga_name, c_FPGA_base_DF),           // 0
     (s_scan_name, c_scan_base_DF),           // 1
@@ -349,7 +366,7 @@ const
   c_CurrentOrganStructureVersion = 60;
   c_CurrentRotaryStructureVersion = 60;
 
-  s_Vers1Str        = '7.063';    // müssen 5 Zeichen sein!
+  s_Vers1Str        = '7.064';    // müssen 5 Zeichen sein!
   s_DeviceStr  = 'HX3.7 TrueOrgan';   // 15 Bytes
   s_LCD1Str          = 'HX3 #' + s_Vers1Str;    // Kurzform von Vers1 für LCD
   s_SysExDeviceStr  = s_DeviceStr + ' #' + s_Vers1Str;    // +8 Bytes

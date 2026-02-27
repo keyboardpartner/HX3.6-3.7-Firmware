@@ -163,12 +163,12 @@ var
   edit_ModuleSwellVolume: Byte; absolute c_edit_addr + 93;
   edit_ModuleFrontVolume: Byte; absolute c_edit_addr + 94;
   edit_ModuleRearVolume: Byte; absolute c_edit_addr + 95;
-  
-  edit_1091: Byte; absolute c_edit_addr + 91;
-  edit_1092: Byte; absolute c_edit_addr + 92;
-  edit_1093: Byte; absolute c_edit_addr + 93;
-  edit_1094: Byte; absolute c_edit_addr + 94;
-  edit_1095: Byte; absolute c_edit_addr + 95;
+
+  edit_SwellLoudnessBass: Byte; absolute c_edit_addr + 91;
+  edit_SwellMidrangeResponse: Byte; absolute c_edit_addr + 92;
+  edit_SwellMidrangeShelving: Byte; absolute c_edit_addr + 93;
+  edit_SwellFinalResponse: Byte; absolute c_edit_addr + 94;
+  edit_SwellLoudnessTreble: Byte; absolute c_edit_addr + 95;
 
 // @96, #1096 ff. getrennte DBs für elektronische Tastenkonta
   edit_UpperEnvelopeDBs: Array[0..15] of Byte; absolute c_edit_addr + 96;

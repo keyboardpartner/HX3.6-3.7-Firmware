@@ -663,7 +663,7 @@ begin
     // edit_TonePot: 0..127, nom. 60
     swell_raw128:= swell_raw255 div 2;
     if edit_PreampSwellType = 0 then begin
-      swell_bassboost:= MulDivInt(edit_1091, edit_MinimalSwell, 20) + c_AntiLogTable[swell_raw128] div 3;   // #1091
+      swell_bassboost:= MulDivInt(edit_SwellLoudnessBass, edit_MinimalSwell, 20) + c_AntiLogTable[swell_raw128] div 3;   // #1091
       if swell_bassboost > 200 then
         swell_bassboost:= 200;
       // halber Anstieg bis 32, danach steiler mis Max. 255
@@ -676,24 +676,24 @@ begin
       if swell_temp > 0 then
         swell_midrange:= swell_temp + MulDivInt(swell_midrange, 255-swell_temp, 255);
 
-      swell_midrange_response:= edit_1092; // #1092
+      swell_midrange_response:= edit_SwellMidrangeResponse; // #1092
 
-      swell_midrange_shelf:= edit_1093 + MulDivInt(edit_1093, edit_TonePot, 64);      // #1093, 0..255
+      swell_midrange_shelf:= edit_SwellMidrangeShelving + MulDivInt(edit_SwellMidrangeShelving, edit_TonePot, 64);      // #1093, 0..255
       if swell_midrange_shelf > 255 then
         swell_midrange_shelf:= 255;
         
       swell_temp:= edit_TonePot div 4;
-      swell_final_response:= edit_1094 + swell_temp;  // #1094
+      swell_final_response:= edit_SwellFinalResponse + swell_temp;  // #1094
       if swell_final_response > 63 then
         swell_final_response:= 63; // nur 5 Bit
-      swell_loudness_hi:= MulDivInt(swell_temp + edit_1095, edit_MinimalSwell, 20);  // #1095
+      swell_loudness_hi:= MulDivInt(swell_temp + edit_SwellLoudnessTreble, edit_MinimalSwell, 20);  // #1095
     end else begin // Testmodus
       swell_midrange:= swell_raw255;      // #1092
-      swell_bassboost:= edit_1091;    // #1091
-      swell_midrange_response:= edit_1092;
-      swell_midrange_shelf:= edit_1093 * 2;      // #1093
-      swell_final_response:= edit_1094;  // #1094
-      swell_loudness_hi:= edit_1095;    // #1095
+      swell_bassboost:= edit_SwellLoudnessBass;    // #1091
+      swell_midrange_response:= edit_SwellMidrangeResponse;
+      swell_midrange_shelf:= edit_SwellMidrangeShelving * 2;      // #1093
+      swell_final_response:= edit_SwellFinalResponse;  // #1094
+      swell_loudness_hi:= edit_SwellLoudnessTreble;    // #1095
     end;
 
     if edit_EnablePedalAudio then begin
