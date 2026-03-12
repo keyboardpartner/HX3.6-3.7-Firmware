@@ -4,6 +4,8 @@
 
 ### Firmware for KeyboardPartner HX3.6 and HX3.7 boards
 
+**Customer info:** Do not open! No user servicable parts inside. For HX3 updates, see our **[HX3 Update page](http://updates.keyboardpartner.de/Files/index.php)**.
+
 HX3 firmware is compiled with commercial **mikroPascal PRO for ARM** IDE from [**mikroE**](https://www.mikroe.com/). It runs on a ST32F103RET6 or GD32F303RET6 MCU. This version is compatible with both HX3.6 and HX3.7 boards.
 
 See the [**ChangeLog**](CHANGELOG.md) for version info.

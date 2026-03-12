@@ -6,7 +6,7 @@ Value=0
 [BUILD_TYPE]
 Value=1
 [ACTIVE_TAB]
-Value=messages.mpas
+Value=edit_vals.mpas
 [USE_EEPROM]
 Value=0
 [USE_HEAP]
@@ -62,7 +62,10 @@ File4=edit_defaults.mpas
 File5=messages.mpas
 File6=twi_systimer.mpas
 File7=menu_entries.mpas
-Count=8
+File8=const_def.mpas
+File9=fpga_hilevel.mpas
+File10=edit_vals.mpas
+Count=11
 [EEPROM]
 Count=0
 [ACTIVE_COMMENTS_FILES]
