@@ -262,6 +262,13 @@ const
   s_dat_ext = '.dat';
   s_bin_ext = '.bin';
 
+  s_red = '"red"';
+  s_green = '"green"';
+  s_blue = '"blue"';
+  s_white = '"white"';
+  s_yellow = '"yellow"';
+  s_gray = '"gray"';
+  
 // #############################################################################
 // ###                     Dataflash Block-Belegung                          ###
 // #############################################################################

@@ -190,10 +190,10 @@ begin
   // c_to_fpga_event_source: nur ans FPGA, interne Änderung
   // c_midi_sysex_source: SysEx-Events kommen immer vom Editor
   c_editor_event_source: // Durch Editor oder TouchOSC verursachte Events
-    if ConnectMode = c_connect_osc_wifi then begin
-      NB_SendBinaryVal(param, new_val); // OSC braucht das Event zurück
-      mDelay(5);
-    end;
+  if ConnectMode = c_connect_osc_wifi then begin
+    NB_SendBinaryVal(param, new_val); // OSC braucht das Event zurück
+    mDelay(5);
+  end;
   c_board_event_source, c_preset_event_source, c_control_event_source,
   c_menu_event_source, c_gui_event_source: // Durch Bedienung verursachte Events
       case ConnectMode of

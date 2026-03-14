@@ -12,6 +12,9 @@ const
   VEC_TABLE_START_BLOCK = VEC_TABLE_START div BLOCK_LEN;
   BOOTLOADER_START = $0200;
 
+  s_dest_str: Array[0..4] of String[2] = (
+    '--', 'DF', '--', 'SE', 'FW');
+
 procedure IFL_ErasePage2K(start_addr: DWord);  // mit Lock/Unlock
 procedure IFL_EraseBlock4K(start_addr: DWord); // 4 KBytes
 procedure IFL_StoreIntFlash_Proc(current_block, block_len: Word);
@@ -29,6 +32,7 @@ var
   debug_str: String[32];
 {$ENDIF}
 
+
 // #############################################################################
 
 procedure IFL_blockmsg(dest, block_idx: Word; to_failsafe: Boolean);
@@ -39,17 +43,11 @@ begin
     if block_idx mod 4 = 0 then begin
       LCD_TWI_XY(14, 1);
       if to_failsafe then
-          LCD_TWI_WriteStr('FS')
-      else case dest of
-          1:
-            LCD_TWI_WriteStr('DF');
-          3:
-            LCD_TWI_WriteStr('SE');
-          4:
-            LCD_TWI_WriteStr('FW')
-        else
-            LCD_TWI_WriteStr('  ');
-      end;
+        LCD_TWI_WriteStr('FS')
+      else if dest < 5 then
+        LCD_TWI_WriteStr(s_dest_str[dest])
+      else
+        LCD_TWI_WriteStr('  ');
     end;
     LCD_TWI_XY(13, 0);
     LCD_TWI_WriteValFill0(block_idx, 3);

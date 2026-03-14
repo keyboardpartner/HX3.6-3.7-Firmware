@@ -4,9 +4,9 @@ Clock=72000000
 [MEMORY_MODEL]
 Value=0
 [BUILD_TYPE]
-Value=1
+Value=0
 [ACTIVE_TAB]
-Value=bootloader_defines_37.pld
+Value=dataflash.mpas
 [USE_EEPROM]
 Value=0
 [USE_HEAP]
@@ -36,9 +36,9 @@ Count=0
 Count=0
 ActiveImageIndex=-1
 [OPENED_FILES]
-File0=bootloader.mpas
-File1=sd_card.mpas
-File2=bootloader_defines_37.pld
+File0=Serial1.mpas
+File1=bootloader.mpas
+File2=dataflash.mpas
 Count=3
 [EEPROM]
 Count=0
@@ -48,7 +48,8 @@ Count=0
 Count=0
 [SEARCH_PATH]
 Path0=..\..\..\mikroPascal PRO for ARM\Packages\FAT32 Library\Uses\
-Count=1
+Path1=C:\Mikroe\mikroPascal PRO for ARM\Packages\FAT32 Library\Uses\
+Count=2
 [PLDS]
 File0=bootloader_defines_37.pld
 Count=1

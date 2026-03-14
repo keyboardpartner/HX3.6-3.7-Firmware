@@ -10,6 +10,7 @@
 // #############################################################################
 
 // SysTimer, Serielle Schnitstelle, Hilfsroutinen
+// benutzt 2ms Interrupt von Timer 2
 
 unit twi_systimer;
 
@@ -51,8 +52,8 @@ var
 
   IRQ_Toggle: Boolean;       // 1 Hz Toggle
   IRQ_Incr_delta, IRQ_Incr_acc: Integer;  // Drehgeber-Steps
-  IRQ_sema, IRQ_EncoderTouched: boolean;  // Drehgeber wurde betätigt
-  IRQ_SysTimer: DWord;    // Zähler mit Überlauf, alle 2ms inkrementiert
+  IRQ_sema, IRQ_EncoderTouched: boolean;  // Drehgeber wurde betï¿½tigt
+  IRQ_SysTimer: DWord;    // Zï¿½hler mit ï¿½berlauf, alle 2ms inkrementiert
 
 implementation
 
@@ -60,7 +61,7 @@ implementation
 var
   TWI_present: Boolean; volatile;
   IRQ_Count: Word; volatile;
-  IRQ_Incr0, IRQ_Incr1, IRQ_Incr2: Word; volatile; // Für Dreh-Encoder, in Systick-IRQ benutzt
+  IRQ_Incr0, IRQ_Incr1, IRQ_Incr2: Word; volatile; // Fï¿½r Dreh-Encoder, in Systick-IRQ benutzt
   IRQ_SysTimers: Array[0..c_NumSysTimers - 1] of Word; volatile;
 
   twi_data: array[0..7] of byte; aligned 4;
@@ -226,7 +227,7 @@ var systimer_idx: Word;
 begin
   TIM2_SR.UIF := 0;
   inc(IRQ_Count);
-  inc(IRQ_SysTimer);  // Zähler mit Überlauf
+  inc(IRQ_SysTimer);  // Zï¿½hler mit ï¿½berlauf
   if IRQ_Count >= 125 then begin
     IRQ_Toggle:= not IRQ_Toggle;              // Toggle PORT LEDs 500ms Cycle
     IRQ_Count:= 0;
@@ -237,15 +238,15 @@ begin
   IRQ_Incr0:=  GPIOB_IDR and 3;               // A/B input Port D
 
   if IRQ_Incr0 <> IRQ_Incr1 then begin
-    if IRQ_Incr0 = 0 then begin               // Rastpunkt überschritten
+    if IRQ_Incr0 = 0 then begin               // Rastpunkt ï¿½berschritten
       if IRQ_Incr2 = 3 then begin             // kommt aus Ruheposition
         if IRQ_Incr1 = 1 then begin           // Rechtsdrehung
-          inc(IRQ_Incr_delta);                // Encoder-Änderung
-          inc(IRQ_Incr_acc);                  // für Beschleunigung
+          inc(IRQ_Incr_delta);                // Encoder-ï¿½nderung
+          inc(IRQ_Incr_acc);                  // fï¿½r Beschleunigung
           IRQ_EncoderTouched:= true;
         end else if IRQ_Incr1 = 2 then begin  // Linksdrehung
-          dec(IRQ_Incr_delta);                // Encoder-Änderung
-          dec(IRQ_Incr_acc);                  // für Beschleunigung
+          dec(IRQ_Incr_delta);                // Encoder-ï¿½nderung
+          dec(IRQ_Incr_acc);                  // fï¿½r Beschleunigung
           IRQ_EncoderTouched:= true;
         end;
       end;

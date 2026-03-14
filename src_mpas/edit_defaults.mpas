@@ -7,7 +7,7 @@ const
 {$IFNDEF BOOTLOADER}
 // #############################################################################
 
-  def_username: String[15] = 'KBP NoName';
+  def_username: String[15] = 'KeyboardPartner';
 
 {
 0  edit_PreampSwellType,
