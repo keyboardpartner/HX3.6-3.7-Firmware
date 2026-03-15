@@ -20,6 +20,8 @@
 // Firmware-Vektortabelle  ab $D000 nicht überschrieben wird!
 // Bootloader-Länge derzeit bic ca. $CC80
 
+// MCU Frequenz nicht höher als 72 MHz, sonst Fehler bei DFU-Read!
+
 // Nach Kompilierung der Firmware befindet sich deren Vektortabelle
 // im Binary immer auf $00000000 (Block 0), egal was bei ORG() vermerkt ist.
 // Gelesener Firmware-Block 0 aus DF wird daher im Bootloader
