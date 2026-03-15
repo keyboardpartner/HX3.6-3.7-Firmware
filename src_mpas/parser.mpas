@@ -10,7 +10,7 @@ uses twi_systimer, const_def, var_def, sd_card, spi_rw, lcd_twi, edit_vals,
 var
   SendPromptRequest_1, SendPromptRequest_2, SaveDefaultsRequest, WriteEnable,
   ParamChanged, SystemInitChanged: Boolean;
-  ParseRcvStr, ParseRcvStrOSC: String[80]; // auch für INI-Files
+  ParseRcvStr, ParseRcvStrOSC: String[80]; // auch fï¿½r INI-Files
   ParseSendStr: String[40];
   ParamValue: LongInt;
 
@@ -38,7 +38,7 @@ var
   
 
 const
-// nur noch allgemeine und Konfigurations-Parameter über Mnemonics!
+// nur noch allgemeine und Konfigurations-Parameter ï¿½ber Mnemonics!
   c_cmdAnzahl= 27; // letzter Eintrag, statt tCmdwhich
   c_cmdErr = c_cmdAnzahl + 1;// Error, Statt tCmdwhich
   c_CmdStrArr: array[0..c_cmdAnzahl] of string[3] = (
@@ -53,9 +53,9 @@ const
 
     'CFG',// 8000 FPGA Config from Flash
     'UPD',// 8200 Update from SD
-    'INI',// 8300 INI-Datei ausführen
+    'INI',// 8300 INI-Datei ausfï¿½hren
     'SCI',// 8500 Scan Core Info, 0=ID, 1=Revision
-    'RCB',// 8600 4K-Block überspezielles Protokoll empfangen
+    'RCB',// 8600 4K-Block ï¿½berspezielles Protokoll empfangen
     'WFB',// 8601 4K-Block in DataFlash speichern, Param = Blocknummer abs.
     'DFI',// 8800 DF Init Presets
     'RCS',// 8900 Receive Binary Stream (+Core #)
@@ -88,7 +88,7 @@ const
 
 procedure pa_setup_idx(param: Word);
 begin
-  // für dezimalen Suchbaum
+  // fï¿½r dezimalen Suchbaum
   idx_1000er:= param div 1000; // 0, 1, 2, 3... Tausender-Stelle
   idx_mod_1000:= param mod 1000; // 0..999
   idx_mod_100:=  param mod 100;  // 0..99
@@ -368,7 +368,7 @@ begin
       200, 201: // #8200
         begin  // Befehl an Bootloader: Alle Cores und Firmware von SD updaten
           bkp_init;
-          bkp_write(0, $55AA);   // Mitteilung an Bootloader
+          bkp_write(0, c_blcmd_menu);   // Mitteilung $55AA an Bootloader, LCD-Menu
           // Bit 0: Scan, Bit 1: FIR_COE, Bit 2: Standard-CC, Bit 3: Custom CC,
           // Bit 4: Wavesets, Bit 5: Taperings, Bit 6: FPGA,
           // Bit 7: Firmware ins DF auf c_shadow_firmware_base
@@ -377,7 +377,7 @@ begin
             bkp_write(1, $0100)  // Firmware direkt
           else
             bkp_write(1, $017F); // Firmware direkt, FPGA und alle LC-Files
-          bkp_write(2, 0);       // Länge in Blocks nur nötig falls Bit 7 gesetzt
+          bkp_write(2, 0);       // Lï¿½nge in Blocks nur nï¿½tig falls Bit 7 gesetzt
           bkp_shutdown;
           SystemReset;
         end;
@@ -468,7 +468,7 @@ begin
         end;
       601:  // #8601 Soeben empfangenen 4KByte-Block in DF speichern, absolute Blocknummer
         DF_EraseWriteBlock(pvalue, 4096);
-      605:  // 4KByte-Block als temporäres Preset laden, 512 Bytes genutzt
+      605:  // 4KByte-Block als temporï¿½res Preset laden, 512 Bytes genutzt
         SR_GetPresetFromBlockBuffer;
       606:  // 4KByte-Block als Preset mit # abspeichern, 512 Bytes genutzt
         DF_EraseWriteBlock(c_preset_base_DF + Lo(pvalue), c_edit_array_len);
@@ -478,13 +478,13 @@ begin
           DF_ReadBlock(pvalue, 4096);
           NB_SerSendBlock(@BlockBuffer8, 4096);
         end;
-      702:  // #8702, 512-Byte-Block senden, ValueInt = absolute Blocknummer aus DF, für Presets
+      702:  // #8702, 512-Byte-Block senden, ValueInt = absolute Blocknummer aus DF, fï¿½r Presets
         begin
           DF_ReadBlock(pvalue, c_edit_array_len);
           NB_SerSendBlock(@BlockBuffer8, c_edit_array_len);
         end;
       703:  // #8703, 512-Byte-EditPages 0 und 1 senden, ValueInt ignoriert
-            // z.B. für Preset-Speicherauszug
+            // z.B. fï¿½r Preset-Speicherauszug
         begin
           CString_to_PStringArr(CurrentPresetName,  @edit_array + c_PresetNameStrArr);
           NB_SerSendBlock(@edit_array, c_edit_array_len);
@@ -493,14 +493,14 @@ begin
       704:  // 3200-Byte-Block CC-Sets senden, ValueInt ignoriert
         NB_SerSendBlock(@MIDIset, c_midicc_send_len);
         
-      800:  // DFI =8800, Re-Init from ROM, Presets/Voices löschen
+      800:  // DFI =8800, Re-Init from ROM, Presets/Voices lï¿½schen
         if my_bool then 
           SR_InitBoardAndPresets;
 
       900, 902: // Scan Core und FIR Serial Receive, LongWords
         if CommandSource = c_command_source_ftdi then begin
           SPI_AutoIncSetup(idx_mod_100); // for Write
-          for idx:= 0 to word(pValue) - 1 do begin // Länge in LongWords!
+          for idx:= 0 to word(pValue) - 1 do begin // Lï¿½nge in LongWords!
             Serial1_rcvbyte_to(SPI_bytes[0], 200);
             Serial1_rcvbyte_to(SPI_bytes[1], 50);
             Serial1_rcvbyte_to(SPI_bytes[2], 50);
@@ -514,7 +514,7 @@ begin
       901, 903: // Tapering und Keymap Serial Receive, Bytes
         if CommandSource = c_command_source_ftdi then begin
           SPI_AutoIncSetup(idx_mod_100); // for Write
-          for idx:= 0 to word(pValue) - 1 do begin // Länge in Bytes!
+          for idx:= 0 to word(pValue) - 1 do begin // Lï¿½nge in Bytes!
             Serial1_rcvbyte_to(SPI_byte, 200);
             SPI_fpga_rw_byte(SPI_byte);
           end;
@@ -524,7 +524,7 @@ begin
         // WaveSets, TuningSet und FilterFacs, Words
         if CommandSource = c_command_source_ftdi then begin
           SPI_AutoIncSetup(idx_mod_100); // for Write
-          for idx:= 0 to word(pValue) - 1 do begin // Länge in LongWords!
+          for idx:= 0 to word(pValue) - 1 do begin // Lï¿½nge in LongWords!
             Serial1_rcvbyte_to(SPI_bytes[0], 200);
             Serial1_rcvbyte_to(SPI_bytes[1], 50);
             SPI_fpga_rw_word(SPI_Word);
@@ -535,7 +535,7 @@ begin
   9:
     case idx_mod_1000 of
       900, 901:   // #9900, #9901
-        if CommandSource = c_command_source_ftdi then    // HX3 sendet binär
+        if CommandSource = c_command_source_ftdi then    // HX3 sendet binï¿½r
           ConnectMode:= c_connect_editor_serial
         else if CommandSource = c_command_source_midi then // Sysex
           ConnectMode:= c_connect_editor_midi;
@@ -618,7 +618,7 @@ begin
         LCD_TWI_XY(0, param mod 2);
         LCD_TWI_WriteStr(val_str);
         LCD_TWI_ClrEOL;
-        setSysTimer(c_DisplayTimer, 1000); // zurück nach 2 Sekunden
+        setSysTimer(c_DisplayTimer, 1000); // zurï¿½ck nach 2 Sekunden
         MenuIndex_Requested:= MenuIndex;
       end;
     9990:
@@ -659,7 +659,7 @@ var
 begin
   param_str:= '';
   myBool:= false;
-  while parse_str[parse_ptr] = ' ' do // Leerzeichen überspringen
+  while parse_str[parse_ptr] = ' ' do // Leerzeichen ï¿½berspringen
     Inc(parse_ptr);
   my_char:= parse_str[parse_ptr];
   if (my_char >= '0') and (my_char <='9') then begin
@@ -720,7 +720,7 @@ begin
   my_SubChOffset:= 0;   // direkter SubCh-Aufruf
 //Parse einzelnen Befehl
   if not PA_Extract(false, is_alpha, parse_ptr, val_str, cmd_str) then begin
-    cmd_which:= PA_Cmd2Index(val_str);  // Klartext übersetzen
+    cmd_which:= PA_Cmd2Index(val_str);  // Klartext ï¿½bersetzen
     if cmd_which = c_cmdErr then begin
       if CommandSource = c_command_source_wifi then
         Serial2_sendstringCRLF(s_err_str)
@@ -757,7 +757,7 @@ end;
 // ESC CMD ADRL ADRH LEN DATA0...DATAn CRC then wait for <--ACK
 // mit
 // LEN = Anzahl der folgenden Datenbytes, 0 => 256
-// CRC = einfache Modulo-Prüfsumme über alle Bytes von ESC bis DATAn
+// CRC = einfache Modulo-Prï¿½fsumme ï¿½ber alle Bytes von ESC bis DATAn
 // als Antwort wird gesendet:
 // ACK oder NAK wenn CRC falsch oder TimeOut
 
@@ -765,15 +765,15 @@ end;
 // Parameter holen:
 // ESC CMD ADRL ADRH LEN CRC then wait for <--ACK
 // mit
-// LEN = Anzahl der gewünschten Datenbytes, 0 => 256
-// CRC = einfache Modulo-Prüfsumme über alle empfangenen Bytes von ESC bis LEN
+// LEN = Anzahl der gewï¿½nschten Datenbytes, 0 => 256
+// CRC = einfache Modulo-Prï¿½fsumme ï¿½ber alle empfangenen Bytes von ESC bis LEN
 
 // CMD=3: SetParam mit Response (setzt kein parsed_table!)
 // Parameter setzen:
 // ESC CMD ADRL ADRH LEN DATA0...DATAn CRC then wait for <--ACK
 // mit
 // LEN = Anzahl der folgenden Datenbytes, 0 => 256
-// CRC = einfache Modulo-Prüfsumme über alle Bytes von ESC bis DATAn
+// CRC = einfache Modulo-Prï¿½fsumme ï¿½ber alle Bytes von ESC bis DATAn
 // als Antwort wird gesendet:
 // ACK oder NAK wenn CRC falsch oder TimeOut
 
@@ -782,8 +782,8 @@ end;
 // ACK ESC CMD ADRL ADRH LEN DATA0...DATAn CRC
 // CMD=1: SetParam, CMD=2: GetParam
 // mit
-// LEN = Anzahl der folgenden oder gewünschten Datenbytes, 0 => 256
-// CRC = einfache Modulo-Prüfsumme über alle Bytes von ESC bis DATAn
+// LEN = Anzahl der folgenden oder gewï¿½nschten Datenbytes, 0 => 256
+// CRC = einfache Modulo-Prï¿½fsumme ï¿½ber alle Bytes von ESC bis DATAn
 
 procedure PA_HandleBinary;
 var
@@ -807,8 +807,8 @@ begin
     CommandSource:= c_command_source_ftdi;
     if (BinaryCmd = 1) then begin  //    or (BinaryCmd = 3)
       // Command: fortlaufende Parameter setzen
-      // auf Datensatz warten, Länge steht fest. Buffer füllen
-      // Mit Cmd=1 Änderungen nicht erneut senden
+      // auf Datensatz warten, Lï¿½nge steht fest. Buffer fï¿½llen
+      // Mit Cmd=1 ï¿½nderungen nicht erneut senden
       for idx:= 0 to BinaryLen-1 do
         if not Serial1_rcvbyte_to(temp_byte, 10) then begin
           BinaryValid:= false;
@@ -822,8 +822,8 @@ begin
       BinaryValid:= BinaryValid and (BinaryCRC = my_temp_crc);
       if BinaryValid then begin
         SysLEDflash(50);
-        // Datensatz vollständig, CRC stimmt. Befehl bestätigen.
-        // Nur an FPGA, nicht zurücksenden, kommt von Editor oder OSC Wifi
+        // Datensatz vollstï¿½ndig, CRC stimmt. Befehl bestï¿½tigen.
+        // Nur an FPGA, nicht zurï¿½cksenden, kommt von Editor oder OSC Wifi
         for idx:= 0 to BinaryLen-1 do begin
           my_param:= BinaryAdr + Integer(idx);
           my_val:= BinaryBuffer[idx];
@@ -840,7 +840,7 @@ begin
       if BinaryValid then begin
         SysLEDflash(50);
         Serial1_sendchar(#6); // ACK
-        // Datensatz vollständig, CRC stimmt. Befehl bestätigen
+        // Datensatz vollstï¿½ndig, CRC stimmt. Befehl bestï¿½tigen
         my_temp_crc:= NB_SendBinaryHeader(2, BinaryAdr);
         Serial1_sendchar(BinaryLen);     // LEN
         my_temp_crc:= my_temp_crc + BinaryLen;
@@ -856,7 +856,7 @@ begin
         Serial1_sendchar(#21); // NAK
     end;
   end else
-    while Serial1_rxstat do // ungültigen Rest lesen
+    while Serial1_rxstat do // ungï¿½ltigen Rest lesen
       Serial1_rcvchar();
 end;
 
@@ -884,8 +884,8 @@ begin
     CommandSource:= c_command_source_wifi;
     if (BinaryCmd = 1) then begin  //    or (BinaryCmd = 3)
       // Command: fortlaufende Parameter setzen
-      // auf Datensatz warten, Länge steht fest. Buffer füllen
-      // Mit Cmd=1 Änderungen nicht erneut senden
+      // auf Datensatz warten, Lï¿½nge steht fest. Buffer fï¿½llen
+      // Mit Cmd=1 ï¿½nderungen nicht erneut senden
       for idx:= 0 to BinaryLen-1 do
         if not Serial2_rcvbyte_to(temp_byte, 10) then begin
           BinaryValid:= false;
@@ -899,8 +899,8 @@ begin
       BinaryValid:= BinaryValid and (BinaryCRC = my_temp_crc);
       if BinaryValid then begin
         SysLEDflash(50);
-        // Datensatz vollständig, CRC stimmt. Befehl bestätigen.
-        // Nur an FPGA, nicht zurücksenden, kommt von Editor oder OSC Wifi
+        // Datensatz vollstï¿½ndig, CRC stimmt. Befehl bestï¿½tigen.
+        // Nur an FPGA, nicht zurï¿½cksenden, kommt von Editor oder OSC Wifi
         for idx:= 0 to BinaryLen-1 do begin
           my_param:= BinaryAdr + Integer(idx);
           my_val:= BinaryBuffer[idx];
@@ -917,7 +917,7 @@ begin
       if BinaryValid then begin
         SysLEDflash(50);
         Serial2_sendchar(#6); // ACK
-        // Datensatz vollständig, CRC stimmt. Befehl bestätigen
+        // Datensatz vollstï¿½ndig, CRC stimmt. Befehl bestï¿½tigen
         my_temp_crc:= NB_SendBinaryHeader(2, BinaryAdr);
         Serial2_sendchar(BinaryLen);     // LEN
         my_temp_crc:= my_temp_crc + BinaryLen;
@@ -933,7 +933,7 @@ begin
         Serial2_sendchar(#21); // NAK
     end;
   end else
-    while Serial2_rxstat do // ungültigen Rest lesen
+    while Serial2_rxstat do // ungï¿½ltigen Rest lesen
       Serial2_rcvchar();
 end;
 
@@ -956,7 +956,7 @@ begin
       #13:  // CR
         begin
           if (length(ParseRcvStr) > 0) and ParseRcvStr[0] <> '/' then begin
-            // Eingabe vollständig
+            // Eingabe vollstï¿½ndig
             SysLEDflash(50);
             CommandSource:= c_command_source_ftdi;
             PA_HandleCmdString(ParseRcvStr);
@@ -964,7 +964,7 @@ begin
           end;
           ParseRcvStr:= '';
         end;
-      #27:  // ESC --> Binärmodus starten, niemals auf EEPROM loslassen!
+      #27:  // ESC --> Binï¿½rmodus starten, niemals auf EEPROM loslassen!
         PA_HandleBinary
     else
       if (rcv_char >= #32) and (rcv_char <= #122) then
@@ -982,7 +982,7 @@ begin
       #13:  // CR
         begin
           if (length(ParseRcvStrOSC) > 0) and ParseRcvStrOSC[0] <> '/' then begin
-            // Eingabe vollständig
+            // Eingabe vollstï¿½ndig
             SysLEDflash(50);
             CommandSource:= c_command_source_wifi;
             PA_HandleCmdString(ParseRcvStrOSC);
@@ -990,7 +990,7 @@ begin
           end;
           ParseRcvStrOSC:= '';
         end;
-      #27:  // ESC --> Binärmodus starten, niemals auf EEPROM loslassen!
+      #27:  // ESC --> Binï¿½rmodus starten, niemals auf EEPROM loslassen!
         PA_HandleBinaryOSC
     else
       if (rcv_char >= #32) and (rcv_char <= #122) then

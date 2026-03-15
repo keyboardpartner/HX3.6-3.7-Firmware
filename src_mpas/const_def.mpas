@@ -25,7 +25,7 @@ type
     InitFlag: DWord;     // $AA554B50 = c_magic_flag_DW wenn initialisiert
   end;
 
-  TVoicesRecord = record   // Länge 840
+  TVoicesRecord = record   // Lï¿½nge 840
     Upper: array[0..15] of Array [0..15] of byte;
     Lower: array[0..15] of Array [0..15] of byte;
     Pedal: array[0..15] of Array [0..15] of byte;  // 3 x 256 Bytes = 768
@@ -37,11 +37,11 @@ type
   TeditArray8 = array[0..4091] of Byte;
 
   TEditArray32rec = record
-    edit_array32: array[0..510] of DWord;  // Platz für edit_array und extended
+    edit_array32: array[0..510] of DWord;  // Platz fï¿½r edit_array und extended
     InitFlag: DWord;    // $AA554B50 = c_magic_flag_DW wenn initialisiert
   end;
 
-  TFileTypesRecord = record   // Länge 840
+  TFileTypesRecord = record   // Lï¿½nge 840
     FileName: String[15];
     FileDestBlock: Integer;   // -1 = invalid
   end;
@@ -61,11 +61,11 @@ const
 
 // werden in event_array gespeichert
   c_to_fpga_event_source: Word  = 1;   // nur an FPGA, ohne Quelle
-  c_board_event_source: Word    = 2;   // eigene Events durch verknüpfte Einstellungen
-  c_preset_event_source: Word   = 4;   // durch Preset-Load ausgelöstes Event
-  c_editor_event_source: Word   = 8;   // über Serial gekommen
-  c_midi_event_source: Word     = 16;  // über MIDI als CC gekommen
-  c_midi_sysex_source: Word     = 32;  // über MIDI vom Editor gekommen
+  c_board_event_source: Word    = 2;   // eigene Events durch verknï¿½pfte Einstellungen
+  c_preset_event_source: Word   = 4;   // durch Preset-Load ausgelï¿½stes Event
+  c_editor_event_source: Word   = 8;   // ï¿½ber Serial gekommen
+  c_midi_event_source: Word     = 16;  // ï¿½ber MIDI als CC gekommen
+  c_midi_sysex_source: Word     = 32;  // ï¿½ber MIDI vom Editor gekommen
   c_control_event_source: Word  = 64;  // eigene Events durch Bedienelemente/Tabs
   c_menu_event_source: Word     = 128; // eigene Events durch MenuPanel
   c_gui_event_source: Word      = 256; // eigene Events durch FT800
@@ -134,16 +134,16 @@ const
   c_edit_addr: DWord = $2000F000;   // 4 KByte am Ende des RAM-Bereichs
   c_edit_ext_addr = c_edit_addr + c_edit_ext_offs;
   
-  c_midicc_len   = 3328;   // ganze 256-Byte-Seiten für Dataflash-Routinen
-  c_midicc_send_len   = 3200;   // Für Binary Send
+  c_midicc_len   = 3328;   // ganze 256-Byte-Seiten fï¿½r Dataflash-Routinen
+  c_midicc_send_len   = 3200;   // Fï¿½r Binary Send
 
-  c_voiceblock_len = 832 + 2;   // plus Word für Init-Flag
+  c_voiceblock_len = 832 + 2;   // plus Word fï¿½r Init-Flag
 
 // #############################################################################
 // ###                       Digital Input Mapping                           ###
 // #############################################################################
 
-  // Button Assigns für swi_get_TabLED_bits
+  // Button Assigns fï¿½r swi_get_TabLED_bits
   c_map_percon    = 0;
   c_map_percsoft  = 1;
   c_map_percfast  = 2;
@@ -206,14 +206,16 @@ const
   c_mapidx_max = c_map_lasttype - c_map_firsttype;
 
 // #############################################################################
+
 // Bootloader-Commands
   c_blcmd_startdfu: Word      = $55A0;
   c_blcmd_unpackdfu: Word     = $55A1;
   c_blcmd_failsafe_fw: Word   = $55A2;
   c_blcmd_failsafe_fpga: Word = $55A3;
   c_blcmd_sdload: Word        = $55A4;
-  c_blcmd_menu: Word          = $55AA;
-  c_blcmd_done: Word          = $55FF;  // von BL zurückgeliefert
+  c_blcmd_stopdfu: Word       = $55A5;  // Serielles Menu
+  c_blcmd_menu: Word          = $55AA;  // LCD-Menu
+  c_blcmd_done: Word          = $55FF;  // von BL zurÃ¼ckgeliefert
   c_updatelist_magicflag      = $5AA5;
 
   // DFUDL Block Offsets
@@ -222,12 +224,12 @@ const
   c_datachecksum_DW = c_validflag_DW - 2;   // einfache Checksumme
   c_fw_version_DW = c_validflag_DW - 3;    // Firmware-Version, Hi & Lo=Frac
   c_fpga_version_DW = c_validflag_DW - 4;  // FPGA-Datenformat Hex
-  c_fw_failsafe_bcount_DW = c_validflag_DW - 5;   // Anzahl Firmware-Blocks für Failsafe
+  c_fw_failsafe_bcount_DW = c_validflag_DW - 5;   // Anzahl Firmware-Blocks fÃ¼r Failsafe
   c_fpga_failsafe_bcount_DW = c_validflag_DW - 6; // sind 0 wenn kein Failsafe enthalten
   c_scan_failsafe_bcount_DW = c_validflag_DW - 7;
-  c_partsbits_DW = c_validflag_DW - 8;      // Bit-Einträge, welche Parts upgedated wurden
-  c_timestamp_DW = c_validflag_DW - 9;      // Unix-Timestanp (Sekunden seit 1.1.1970)
-  c_param_count_DW = c_validflag_DW - 10;  // Re-Enable DFU wenn <> 0 für DSP
+  c_partsbits_DW = c_validflag_DW - 8;      // Bit-EintrÃ¤ge, welche Parts upgedated wurden
+  c_timestamp_DW = c_validflag_DW - 9;      // Unix-Timestamp (Sekunden seit 1.1.1970)
+  c_param_count_DW = c_validflag_DW - 10;  // Re-Enable DFU wenn <> 0 fÃ¼r DSP
   c_exitflag_DW = c_validflag_DW - 11;       // Exit Bootloader wenn <> 0
 
 
@@ -273,50 +275,50 @@ const
 // ###                     Dataflash Block-Belegung                          ###
 // #############################################################################
 
-  // Länge $12F2CC = 1.241.804 für XC7S25 Image, $12F = 303 dez. 4k-Blöcke
+  // Lï¿½nge $12F2CC = 1.241.804 fï¿½r XC7S25 Image, $12F = 303 dez. 4k-Blï¿½cke
   // Rest frei bis einschl. Block $31F
   c_DFU_base_SAM: Word     = $3D00;  // SAM-Adresse 0x81E80000
 
-  // Diese Werte müssen auch dem Editor bekannt sein:
+  // Diese Werte mï¿½ssen auch dem Editor bekannt sein:
   c_FPGA_base_DF: Word = 0;  // bis Block $012F = 303 dez.
-  // Failsafe-Images für FPGA und Scan Driver falls normale korrumpiert
+  // Failsafe-Images fï¿½r FPGA und Scan Driver falls normale korrumpiert
   // Falls es Bootloader nicht gelingt, FPGA und Scan Driver zu starten,
   // wird Image aus diesen Bereichen umkopiert und FPGA-Start erneut versucht.
-  // Nötig, um ggf. Zugriff auf SAM-Flash über FPGA und DFU zu ermöglichen
-  // Failsafe-Binaries können/dürfen nur von SD-Karte aufgespielt werden!
+  // Nï¿½tig, um ggf. Zugriff auf SAM-Flash ï¿½ber FPGA und DFU zu ermï¿½glichen
+  // Failsafe-Binaries kï¿½nnen/dï¿½rfen nur von SD-Karte aufgespielt werden!
   c_FPGA_failsafe_base_DF: Word = $140;  // bis Block $0270 = 624 dez.
   c_scan_failsafe_base_DF: Word = $278;  // zwei Blocks
   c_dfudl_failsafe_DF: Word     = $27C;  // letzte geladene DFUDL-Table mit Failsafe
 
-  c_update_info_DF: Word        = $27D;  // DFUDL-Info-Block, für Firmware
-  c_param_update_list_DF: Word  = $27E;  // PUL-Block, für Firmware
+  c_update_info_DF: Word        = $27D;  // DFUDL-Info-Block, fï¿½r Firmware
+  c_param_update_list_DF: Word  = $27E;  // PUL-Block, fï¿½r Firmware
   c_boardinfo_DF: Word          = $27F;  // Block mit Seriennummern, Username etc.
-  c_firmware_failsafe_base_DF: Word = $280;  // 128 Blöcke, 512 KByte, bis $2FF = 767
+  c_firmware_failsafe_base_DF: Word = $280;  // 128 Blï¿½cke, 512 KByte, bis $2FF = 767
 
-  // 16 Rotary-Modelle (Einstellungen für Rotary Setup)
+  // 16 Rotary-Modelle (Einstellungen fï¿½r Rotary Setup)
   c_leslieModel_base_DF: Word   = $300;  // 768, nach Firmware-Image
-  // 16 Orgelmodelle (Einstellungen für Vibrato, Generator, Gating, Mixturen etc.
+  // 16 Orgelmodelle (Einstellungen fï¿½r Vibrato, Generator, Gating, Mixturen etc.
   c_organModel_base_DF: Word    = $310;  // 784, nach Rotary Models
 
-  // Freie Blöcke für Daten, 100 für Presets benutzt
+  // Freie Blï¿½cke fï¿½r Daten, 100 fï¿½r Presets benutzt
   c_preset_base_DF: Word  = $320;  // 800
-  // Platz für 16 MIDI-CC-Sets je 4K:
+  // Platz fï¿½r 16 MIDI-CC-Sets je 4K:
   c_midicc_base_DF: Word  = $3A0;  // 928, erster 4k-Block nach Presets
 
   // 0..1: Scan Core,  Block: c_scan_base
-  // 2: Voice Presets (EEPROM-Simulation), enthält Zugriegel-Arrays
+  // 2: Voice Presets (EEPROM-Simulation), enthï¿½lt Zugriegel-Arrays
   // 3: Defaults      (EEPROM-Simulation)
   // 11..14: Tapering
   // 15: FIR filter
   // 16 ff.: Wavesets
   c_core_base_DF: Word     = $3B0;    // 944, erster 4k-Block nach FPGA-Image(s)
   c_scan_base_DF: Word     = $3B0;    // 944, erster 4k-Block nach FPGA-Image(s)
-  c_voice_base_DF: Word    = c_core_base_DF + 2;    // 946, Zugriegel-Arrays, Länge 1 Block
-  c_defaults_base_DF: Word = c_core_base_DF + 3;    // 947, EEPROM-simulation, Länge 1 Block
+  c_voice_base_DF: Word    = c_core_base_DF + 2;    // 946, Zugriegel-Arrays, Lï¿½nge 1 Block
+  c_defaults_base_DF: Word = c_core_base_DF + 3;    // 947, EEPROM-simulation, Lï¿½nge 1 Block
   // c_eeprom_base: Word   = c_scan_base + 9;  // 953, nicht mehr verwendet
-  c_taper_base_DF: Word    = c_core_base_DF + 11;   // 955..958, Länge 4 x 1 Block
-  c_coeff_base_DF: Word    = c_core_base_DF + 15;   // 959, Länge 1 Block
-  c_waveset_base_DF: Word  = $3C0;   // 960, Länge 32 (8 x 4 Blocks)
+  c_taper_base_DF: Word    = c_core_base_DF + 11;   // 955..958, Lï¿½nge 4 x 1 Block
+  c_coeff_base_DF: Word    = c_core_base_DF + 15;   // 959, Lï¿½nge 1 Block
+  c_waveset_base_DF: Word  = $3C0;   // 960, Lï¿½nge 32 (8 x 4 Blocks)
   
   c_max_loadableFiles = 8;
   c_max_loadableBackupFiles = 2;
@@ -373,21 +375,21 @@ const
   c_CurrentOrganStructureVersion = 60;
   c_CurrentRotaryStructureVersion = 60;
 
-  s_Vers1Str        = '7.064';    // müssen 5 Zeichen sein!
+  s_Vers1Str        = '7.064';    // mï¿½ssen 5 Zeichen sein!
   s_DeviceStr  = 'HX3.7 TrueOrgan';   // 15 Bytes
-  s_LCD1Str          = 'HX3 #' + s_Vers1Str;    // Kurzform von Vers1 für LCD
+  s_LCD1Str          = 'HX3 #' + s_Vers1Str;    // Kurzform von Vers1 fï¿½r LCD
   s_SysExDeviceStr  = s_DeviceStr + ' #' + s_Vers1Str;    // +8 Bytes
-  s_LCDdeviceStrPlexi       = 'MIDI Expander';    // für LCD
-  s_LCDdeviceStrDrawbarExp  = 'DrawbarExpander';  // für LCD
-  s_LCDdeviceStrStdOrgan    = 'Custom Organ';     // für LCD
+  s_LCDdeviceStrPlexi       = 'MIDI Expander';    // fï¿½r LCD
+  s_LCDdeviceStrDrawbarExp  = 'DrawbarExpander';  // fï¿½r LCD
+  s_LCDdeviceStrStdOrgan    = 'Custom Organ';     // fï¿½r LCD
 
 // Reduziert Percussion-Pegel bei H100 und Modul,
-// wenn mehrere Perc-Fußlagen aktiviert sind
+// wenn mehrere Perc-Fuï¿½lagen aktiviert sind
   c_perc_mute: Array [0..15] of byte =
     //  0    1    2   3   4   5   6   7   8   9  10  11  12  13  14  15 // BBs
     (  100, 100, 80, 68, 60, 55, 50, 47, 45, 42, 40, 38, 36, 35, 33, 33
     );
-// Relative Percussion-Level (Prozent) nach Fußlage zur Mittelwertbildung
+// Relative Percussion-Level (Prozent) nach Fuï¿½lage zur Mittelwertbildung
   c_perc_bbfacs: Array [0..15] of byte =
     //  0    1    2   2nd  3rd  5   6   7   8   9  10  11  12  13  14  15 // BB#
     (  100, 100, 100, 100, 95, 85, 75, 65, 60, 55, 50, 50, 50, 50, 50, 50
@@ -981,8 +983,8 @@ c_edit_max: Array[0..511] of byte = (
   127, // #1119 Equ Treble Frequency if FullParametric
   127, // #1120 Equ Treble Peak/Q if FullParametric
   255, // #1121 Equ FullParametric Enable
-  127, // #1122 Böhm Module Ext Rotary Volume Left
-  127, // #1123 Böhm Module Ext Rotary Volume Right
+  127, // #1122 Bï¿½hm Module Ext Rotary Volume Left
+  127, // #1123 Bï¿½hm Module Ext Rotary Volume Right
   127, // #1124 Equ Bass Gain Pot Mid Position
   127, // #1125 Equ Mid Gain Pot Mid Position
   127, // #1126 Equ Treble Gain Pot Mid Position
@@ -1505,8 +1507,8 @@ c_edit_max: Array[0..511] of byte = (
   13376, // #1119 Equ Treble Frequency if FullParametric
   13376, // #1120 Equ Treble Peak/Q if FullParametric
   6400, // #1121 Equ FullParametric Enable
-  12288, // #1122 Böhm Module Ext Rotary Volume Left
-  12288, // #1123 Böhm Module Ext Rotary Volume Right
+  12288, // #1122 Bï¿½hm Module Ext Rotary Volume Left
+  12288, // #1123 Bï¿½hm Module Ext Rotary Volume Right
   14592, // #1124 Equ Bass Gain Pot Mid Position
   14592, // #1125 Equ Mid Gain Pot Mid Position
   14592, // #1126 Equ Treble Gain Pot Mid Position
