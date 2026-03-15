@@ -312,7 +312,6 @@ begin
   end;
   AC_SendSwell;  // spontate Reaktion auf Schweller erforderlich, alle 2ms
   //FSW_FAST
-  
   FH_UpdateLeslieSpeed; // Sendet auch MIDI Channel
 end;
 
