@@ -18,7 +18,7 @@
 
 // ACHTUNG: Bootloader darf nicht länger als $CFFF sein, damit die
 // Firmware-Vektortabelle  ab $D000 nicht überschrieben wird!
-// Bootloader-Länge derzeit bic ca. $CC80
+// Bootloader-Länge derzeit bic ca. $CB90
 
 // MCU Frequenz nicht höher als 72 MHz, sonst Fehler bei DFU-Read!
 
@@ -76,6 +76,13 @@ const
   cg_prgs: t_LCD_cgarr = ($00, $00, $00, $04, $0A, $04, $00, $00);
 
   msg_startfw_str =  '/ Starting FW at $';
+
+{$IFDEF GD303_MCU}
+  dev_str = '/ GD32F303RET6 MCU ';
+{$ELSE}
+  dev_str = '/ STM32F103RET6 MCU ';
+{$ENDIF}
+  mhz_str = ' MHz';
 
   //             '----------------'
   lcd_bl_str0  = 'HX3 Sound Engine';
@@ -708,6 +715,9 @@ begin
   mdelay(10);
   Serial1_sendstringCRLF(s_divline);
   Serial1_sendstringCRLF(bl_ver_str);
+  Serial1_sendstring(dev_str);
+  Serial1_sendIntVal(Clock_MHz());
+  Serial1_sendstringCRLF(mhz_str);
   Serial1_sendstringCRLF(s_divline);
 
   TWI_Init;
