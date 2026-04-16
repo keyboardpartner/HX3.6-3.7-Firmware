@@ -6,7 +6,7 @@ Value=0
 [BUILD_TYPE]
 Value=0
 [ACTIVE_TAB]
-Value=bootloader.mpas
+Value=dataflash.mpas
 [USE_EEPROM]
 Value=0
 [USE_HEAP]
@@ -38,8 +38,12 @@ ActiveImageIndex=-1
 [OPENED_FILES]
 File0=Serial1.mpas
 File1=bootloader.mpas
-File2=dataflash.mpas
-Count=3
+File2=intflash.mpas
+File3=sd_card.mpas
+File4=dataflash.mpas
+File5=spi_rw.mpas
+File6=edit_vals.mpas
+Count=7
 [EEPROM]
 Count=0
 [ACTIVE_COMMENTS_FILES]

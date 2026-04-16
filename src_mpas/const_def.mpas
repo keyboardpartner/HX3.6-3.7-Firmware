@@ -237,7 +237,7 @@ const
 // String-Konstanten
 
   s_divline = '/ ------------------------------------------------';
- 
+
   s_firmware_name = 'firmware.bin';
   s_fwbackup_name = 'fwbackup.bin';
   s_fpga_name = 'fpgamain.bin';

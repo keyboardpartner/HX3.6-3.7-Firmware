@@ -24,6 +24,7 @@ procedure Serial1_sendstringCRLF(var send_string: String);
 procedure Serial1_sendIntValCRLF(pval: Integer);
 procedure Serial1_sendIntVal(pval: Integer);
 procedure Serial1_CRLF;
+procedure Serial1_BLprompt;
 
 function Serial1_rcvchar: Char;
 function Serial1_rcvbyte_to(var rcv_byte: Byte; timeout: Word): Boolean;
@@ -37,8 +38,8 @@ var
 
   IRQ_rxbuf: Array[0..255] of Byte;
   IRQ_txbuf: Array[0..255] of Byte;
-  IRQ_rxbuf_ptr, IRQ_txbuf_ptr,      // Index für IRQ-Serviceroutine
-  IRQ_put_ptr, IRQ_get_ptr: Word;    // Index für Sende/Receive-Funktion
+  IRQ_rxbuf_ptr, IRQ_txbuf_ptr,      // Index fï¿½r IRQ-Serviceroutine
+  IRQ_put_ptr, IRQ_get_ptr: Word;    // Index fï¿½r Sende/Receive-Funktion
   
   TC_USART1_SR_bit : sbit at USART1_SR.B6;   // alc TC_bit in MikroE-Lib
 
@@ -132,10 +133,10 @@ begin
     while ((IRQ_put_ptr + 1) and $FF) = IRQ_txbuf_ptr do
       mDelay(1);                            // ganz voll? Kurz warten
   IRQ_txbuf[IRQ_put_ptr]:= Byte(send_char);   // Zeichen in den Ringpuffer
-  inc(IRQ_put_ptr);                           // Ringpuffer-Zeiger erhöhen
+  inc(IRQ_put_ptr);                           // Ringpuffer-Zeiger erhï¿½hen
   IRQ_put_ptr:= IRQ_put_ptr and $FF;          // Ringpuffer 256 Bytes
   if buffer_empty then
-    USART1_DR:= Byte(send_char); // erstes Zeichen direkt, um IRQ anzustoßen
+    USART1_DR:= Byte(send_char); // erstes Zeichen direkt, um IRQ anzustoï¿½en
 end;
 
 procedure Serial1_sendString(var send_string: String);
@@ -175,6 +176,12 @@ begin
   Serial1_sendstringCRLF(send_str);
 end;
 
+procedure Serial1_BLprompt;
+const  s_prompt = 'BL>';  
+begin
+  Serial1_CRLF;
+  Serial1_sendstring(s_prompt);
+end;
 
 // -----------------------------------------------------------------------------
 
@@ -184,7 +191,7 @@ begin
   if TC_bit then begin // transmission complete
     TC_bit:= 0; // clear uart tx transmit complete pending bit
     // weitere Zeichen zu senden?
-    inc(IRQ_txbuf_ptr);                     // Zeichen gesendet, nächstes
+    inc(IRQ_txbuf_ptr);                     // Zeichen gesendet, nï¿½chstes
     IRQ_txbuf_ptr:= IRQ_txbuf_ptr and $FF;  // Ringpuffer 256 Bytes
     if IRQ_txbuf_ptr <> IRQ_put_ptr then    // Ende noch nicht erreicht?
       USART1_DR:= IRQ_txbuf[IRQ_txbuf_ptr];

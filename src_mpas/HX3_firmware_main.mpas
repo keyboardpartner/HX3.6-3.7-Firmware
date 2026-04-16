@@ -70,6 +70,7 @@ const
 var
   temp_w, idx: word;
   sometimes_counter : word;
+  new_status: Byte;
 
 procedure LCDinfoAndCheckForUpdates;
 const
@@ -180,7 +181,7 @@ begin
     BT_RST:=  false;     // WIFI Reset
     SAM_NRST:= false;    // SAM-MCU Reset
     QFL_NRST:= false;    // SAM-Flash Reset
-    F_AUX_SEL:= false;   // Select QSPI SAM Flash = FALSE, normaler Betrieb
+    F_QSPI_ENA:= false;   // Select QSPI SAM Flash = FALSE, normaler Betrieb
     mDelay(1);
     SPI_fpga_send_byte(246, 0); // Set DSP ROW01 bits = 0, DSP-Firmware
     QFL_NRST:= true;    // SAM-Flash Reset aufheben
@@ -324,7 +325,7 @@ begin
   PortInit(); // in var_def.mpas
   BT_RST:=  false;     // WIFI Reset
   SAM_NRST:= false;    // SAM-MCU Reset
-  F_AUX_SEL:= false;   // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  F_QSPI_ENA:= false;   // Select QSPI SAM Flash = FALSE, normaler Betrieb
   EventsInit;
   LEDaux:= true;
   LEDactivity:= false;
@@ -336,7 +337,7 @@ begin
 
   Serial1_sendstringCRLF('');
   Serial1_sendstringCRLF(s_divline);
-  Serial1_sendstringCRLF('/ ' + s_SysExDeviceStr);
+  Serial1_sendstringCRLF(s_prefix_str + s_SysExDeviceStr);
   Serial1_sendstring(dev_str);
   Serial1_sendIntVal(Clock_MHz());
   Serial1_sendstringCRLF(mhz_str);
@@ -349,7 +350,6 @@ begin
   InitMsgEnable:= true;        // Ausgabe von Init-Meldungen beim Start
 
   SPI_fpga_send_byte(246, 0); // Set DSP ROW01 bits = 0, DSP-Firmware
-
   TWI_Init;
   LCD_TWI_Init;
   SWI_Init;
@@ -377,7 +377,8 @@ begin
   FillBlock(@edit_array, 4096, 0);
   TaskScheduler:= 0;
   InitMain();
-  
+  SPI_xc_setcmd(c_xcmd_ack_by_receiver);
+
   SendPromptRequest_1:= true; // Bereitschafts-Prompt
   SendPromptRequest_2:= true; // WIFI-Modul
 
@@ -386,9 +387,19 @@ begin
     ProcessVTFTStack();
 {$ENDIF}
     PA_CheckSer;
-    MIDI_Dispatch;            // MIDI-Input immer auswerten
+    if BusAvailable then
+      MIDI_Dispatch;            // MIDI-Input immer auswerten
+
+    new_status:= SPI_xc_getstatus();
+    if ((new_status and $C0) = $80)
+    and ((new_status and c_xcmd_msg_present_mask) <> 0) then
+      PA_handleXCcmds;
+    
     if IRQ_sema then begin
-      MainTasks;
+      if BusAvailable then
+        MainTasks;
+      // MenuPanelHandling;   // TEST statt MainTasks
+
       IRQ_sema:= false;
       inc(TaskScheduler);
       if TaskScheduler >= c_TaskSchedulerSlots then // Zeitscheibe

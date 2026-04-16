@@ -194,6 +194,10 @@ var
   BlockBuffer16: Array[0..2047] of Word at BlockBuffer32; // Overlays
   BlockBuffer8:  Array[0..4095] of Byte at BlockBuffer32;
   BlockBuffer32rec: TEditArray32rec at BlockBuffer32;
+  
+  VerifyBuffer16: Array[0..1023] of Word; // Overlays
+  VerifyBuffer8:  Array[0..2047] of Byte at VerifyBuffer16;
+  BusAvailable: Boolean;
 
 implementation
 

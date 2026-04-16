@@ -2,9 +2,12 @@ unit intflash;
 
 uses avrco_compat, twi_systimer, serial1, const_def, var_def, lcd_twi;
 
+type
+  t_err = Integer;
+
 const
   BLOCK_LEN = $1000;         // 4096
-  // Nicht mehr ändern, nachdem Bootloader im Umlauf ist!
+  // Nicht mehr ï¿½ndern, nachdem Bootloader im Umlauf ist!
   FIRMWARE_START = $0000E000;    // Start Firmware, darunter Bootloader
   FIRMWARE_START_BLOCK = FIRMWARE_START div BLOCK_LEN;
   
@@ -15,10 +18,46 @@ const
   s_dest_str: Array[0..4] of String[2] = (
     '--', 'DF', '--', 'SE', 'FW');
 
+  // Error-Nummer = Bitpositionen in error_flags wenn > 0
+  ce_noErr:        t_err = 0;
+  ce_noChange:     t_err = 1;
+  ce_SDnotPresent: t_err = 2;  // ab hier auf Display
+  ce_fileNotFound: t_err = 3;
+  ce_wrongFormat:  t_err = 4;
+  ce_DFwriteErr:   t_err = 5;
+  ce_DFeraseErr:   t_err = 6;
+  ce_verifyErr:    t_err = 7;
+  ce_checksumErr:  t_err = 8;
+  ce_firmwareErr:  t_err = 9;
+  ce_fpgaErr:      t_err = 10;
+  ce_failsafeErr:  t_err = 11;
+  ce_undefinedErr: t_err = 12;  // immer der letzte Eintrag!
+
+  ce_errorStrings: Array[0..12] of String[16] = (
+//  '----------------'
+    'Result OK       ',    // 0 ce_noErr
+    'Not changed     ',    // 1 ce_noChange
+    'SD Card failed  ',    // 2 ce_SDnotPresent
+    'File not found  ',    // 3 ce_fileNotFound
+    'Wrong format    ',    // 4 ce_wrongFormat
+    'DF write failed ',    // 5 ce_DFwriteErr
+    'DF erase failed ',    // 6 ce_DFeraseErr
+    'DF verify failed',    // 7 ce_verifyErr
+    'Checksum failed ',    // 8 ce_checksumErr
+    'MCU/FW invalid  ',    // 9 ce_firmwareErr
+    'FPGA Init failed',    // 9 ce_fpgaErr
+    'FAILSAFE invalid',    // 11 ce_failsafeErr
+    'Shit happened   '     // 12 ce_undefinedErr
+  );
+
+  ce_err_str =  '/ ERROR: ';
+  ce_info_str =  '/ INFO: ';
+
 procedure IFL_ErasePage2K(start_addr: DWord);  // mit Lock/Unlock
 procedure IFL_EraseBlock4K(start_addr: DWord); // 4 KBytes
 procedure IFL_StoreIntFlash_Proc(current_block, block_len: Word);
 procedure IFL_blockmsg(dest, block_idx: Word; to_failsafe: Boolean);
+procedure IFL_ErrorMessage(error_item: t_err);
 
 implementation
 
@@ -35,11 +74,47 @@ var
 
 // #############################################################################
 
-procedure IFL_blockmsg(dest, block_idx: Word; to_failsafe: Boolean);
-// auch für DF und SD
+procedure IFL_ErrorMessage(error_item: t_err);
+const
+  lcd_err_str = ' ERR';
 begin
-  if LCD_TWI_present then begin
+  Serial1_CRLF;
+  if (error_item > ce_undefinedErr) then
+    error_item:= ce_undefinedErr;
+  if (error_item > ce_noChange) then begin
+    Serial1_sendstring(ce_err_str);
+    if LCD_TWI_present then begin
+      LCD_TWI_XY(12, 0);
+      LCD_TWI_WriteStr(lcd_err_str);
+      LCD_TWI_XY(0, 1);
+      LCD_TWI_WriteStr(ce_errorStrings[error_item]);
+      LCD_TWI_ClrEOL;
+      mDelay(2500);
+    end;
+  end else
+    Serial1_sendstring(ce_info_str);
+  Serial1_sendstringCRLF(ce_errorStrings[error_item]);
+end;
+
+
+procedure IFL_blockmsg(dest, block_idx: Word; to_failsafe: Boolean);
+// auch fï¿½r DF und SD
+begin
+  Serial1_sendchar(#27);   // VT100 ESC code
+  Serial1_sendchar('7');   // VT100 Save Cursor Pos
+  Serial1_sendchar(#32);   // Space
+  if to_failsafe then
+    Serial1_sendstring('FS')
+  else
+    Serial1_sendstring(s_dest_str[dest]);
+  Serial1_sendchar(#32);   // Space
+  Serial1_sendIntVal(block_idx);
+  Serial1_sendchar(#32);   // Space
+  Serial1_sendchar(#32);   // Space
+  Serial1_sendchar(#27);   // VT100 ESC code
+  Serial1_sendchar('8');   // VT100 Restore Cursor Pos
 {$IFDEF BOOTLOADER}
+  if LCD_TWI_present then begin
     if block_idx mod 4 = 0 then begin
       LCD_TWI_XY(14, 1);
       if to_failsafe then
@@ -51,11 +126,13 @@ begin
     end;
     LCD_TWI_XY(13, 0);
     LCD_TWI_WriteValFill0(block_idx, 3);
-{$ELSE}
+  end;
+{$ELSE}        
+  if LCD_TWI_present then begin
     LCD_TWI_XY(13, 1);
     LCD_TWI_WriteValFill0(block_idx, 3);
-{$ENDIF}
   end;
+{$ENDIF}        
 end;
 
 
@@ -89,7 +166,7 @@ end;
 // Vektortabellen-Adresse SCB_VTOR des M3/M4 vor dem Einsprung in die
 // Firmware auf diesen Wert. Blocks 1 bis 12 (FIRMWARE_START_BLOCK-1)
 // enthalten nur Nullen und werden ignoriert, damit der Bootloader
-// nicht überschrieben wird.
+// nicht ï¿½berschrieben wird.
 
 procedure IFL_StoreIntFlash_Proc(block_nr, block_len: Word);
 // Gelesenen Block in ST32-Flash speichern
@@ -110,11 +187,11 @@ begin
     addr:= VEC_TABLE_START;
     block_nr:= VEC_TABLE_START_BLOCK;
   end else if block_nr < FIRMWARE_START_BLOCK then
-    exit; // Vektortabelle nicht überschreiben!
+    exit; // Vektortabelle nicht ï¿½berschreiben!
 
 
   addr:= addr or 0x08000000;  // always to Flash memory
-  IFL_EraseBlock4K(addr);     // 4 KByte löschen
+  IFL_EraseBlock4K(addr);     // 4 KByte lï¿½schen
 {$IFDEF DEBUG_SD}
   LongWordToHex(addr, debug_str);
   Serial1_sendstring('/ SD store Intflash proc at $' + debug_str);

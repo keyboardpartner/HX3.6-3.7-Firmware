@@ -18,7 +18,7 @@
 
 // ACHTUNG: Bootloader darf nicht länger als $CFFF sein, damit die
 // Firmware-Vektortabelle  ab $D000 nicht überschrieben wird!
-// Bootloader-Länge derzeit bic ca. $CB90
+// Bootloader-Länge derzeit bic ca. $CE90
 
 // MCU Frequenz nicht höher als 72 MHz, sonst Fehler bei DFU-Read!
 
@@ -76,6 +76,7 @@ const
   cg_prgs: t_LCD_cgarr = ($00, $00, $00, $04, $0A, $04, $00, $00);
 
   msg_startfw_str =  '/ Starting FW at $';
+  msg_remove_card =  'Remove SD Card';
 
 {$IFDEF GD303_MCU}
   dev_str = '/ GD32F303RET6 MCU ';
@@ -86,23 +87,25 @@ const
 
   //             '----------------'
   lcd_bl_str0  = 'HX3 Sound Engine';
-  lcd_bl_str1  = 'BootLoader #1.09';
+  lcd_bl_str1  = 'BootLoader #1.12';
   
   bl_ver_str   = '/ KBP ' + lcd_bl_str1;
   bl_cmd_str   = '/ BootloadCmd: $';
   bl_invalid_inp_str = '/ Invalid key, try again';
   bl_fck_str   = '/ FCK AFD, FCK TRMP, FCK NZS!'; // nur Anzeige, kein Kommando
 
-  serial_MenuItems: Array[0..7] of String[20] = (
+  serial_MenuItems: Array[0..9] of String[22] = (
   //  '--------------------'
-      '/ 0 = Exit to FW',   // 0 Exit Bootloader
-      '/ 1 = SD Card Upd',  // 1 Full Update from SD Card
-      '/ 2 = FPGA recover', // 2 FPGA Failsafe recovery
-      '/ 3 = FW recover',   // 3 Firmware Failsafe recovery
-      '/ 4 = Start DFU',    // 4 Start DFU Upload
-      '/ 5 = Stop  DFU',    // 5 Stop DFU Upload
-      '/ 6 = Reload FPGA',  // 6 Stop DFU Upload
-      '/ Press key 0..6'
+      '/ 0 = Exit to HX3',  // 0 Exit Bootloader
+      '/ 1 = SD Directory', // 1 List SD Card Directory
+      '/ 2 = SD Card Update',  // 2 Full Update from SD Card
+      '/ 3 = FPGA recovery', // 3 FPGA Failsafe recovery
+      '/ 4 = FW recovery',   // 4 Firmware Failsafe recovery
+      '/ 5 = Start DFU',    // 5 Start DFU Upload
+      '/ 6 = Stop DFU & FPGA',    // 6 Stop DFU Upload
+      '/ 7 = Reload FPGA',  // 7 Reload FPGA
+      '/ 8 = Unpack Upload',  // 8 from DFU or WIFI
+      '/ Press key 0..9'
   );
 
   // Update-Menu-Optionen:
@@ -171,11 +174,14 @@ var
 
 // #############################################################################
 
-procedure Serial1_Prompt;
-const  s_prompt = 'BL>';  
+procedure ListSerialCommands;
 begin
-  Serial1_sendstring(s_prompt);
+  Serial1_sendstringCRLF(s_divline);
+  for idx:= 0 to 8 do // Serielle Menü-Optionen anbieten
+    Serial1_sendstringCRLF(serial_MenuItems[idx]);
+  Serial1_sendstringCRLF(s_divline);
 end;
+
 
 procedure DisplayMenuItem(menu_item: Integer);
 begin
@@ -192,28 +198,6 @@ begin
     LCD_TWI_WriteChar(6);
     LCD_TWI_ClrEOL;
   end;
-end;
-
-procedure ErrorMessage(error_item: t_err);
-const
-  lcd_err_str = ' ERR';
-begin
-  if (error_item > ce_undefinedErr) then
-    error_item:= ce_undefinedErr;
-  if (error_item > ce_noChange) then begin
-    Serial1_sendstring(ce_err_str);
-    if LCD_TWI_present then begin
-      LCD_TWI_XY(12, 0);
-      LCD_TWI_WriteStr(lcd_err_str);
-      LCD_TWI_XY(0, 1);
-      LCD_TWI_WriteStr(ce_errorStrings[error_item]);
-      LCD_TWI_ClrEOL;
-      mDelay(2500);
-      DisplayMenuItem(MenuItem);
-    end;
-  end else
-    Serial1_sendstring(ce_info_str);
-  Serial1_sendstringCRLF(ce_errorStrings[error_item]);
 end;
 
 Procedure DisplayDoneMsg(ended_menu_item: Integer);
@@ -242,10 +226,10 @@ Procedure SerialActionMsg(menu_item: Integer);
 begin
   a_str:= lcd_MenuItems1[menu_item];
   rtrim(a_str);
-  Serial1_sendstring('/ ' + a_str + ' ');
+  Serial1_sendstring(s_prefix_str + a_str + ' ');
   a_str:= lcd_MenuItems2[menu_item];
   rtrim(a_str);
-  Serial1_sendstringCRLF(a_str);
+  Serial1_sendstring(a_str);
 end;
 
 function CheckFirmware(msg_on: Boolean): Boolean;
@@ -253,6 +237,7 @@ function CheckFirmware(msg_on: Boolean): Boolean;
 const
   msg_fw_str  = '/ Firmware check, start:';
   msg_vec_str = '/ Main vector table, VTOR = $';
+  msg_dots = '...';
 var  
   ptr_dword: ^Dword;
   rd_Dword: Dword;
@@ -271,7 +256,7 @@ begin
       inc(ptr_dword);
     end;
     if msg_on then begin
-      Serial1_sendstringCRLF('...');
+      Serial1_sendstringCRLF(msg_dots);
       Serial1_sendstring(msg_vec_str);
     end;
     rd_Dword:= VEC_TABLE_START;
@@ -286,8 +271,7 @@ begin
         Serial1_sendstring(a_str + ', $');
       inc(ptr_dword);
     end;
-    Serial1_sendstringCRLF('...');
-    Serial1_sendstringCRLF(s_divline);
+    Serial1_sendstringCRLF(msg_dots);
   end;
   ptr_dword:= VEC_TABLE_START;
   if (ptr_dword^ = $FFFFFFFF) or (ptr_dword^ = 0) then
@@ -384,9 +368,9 @@ procedure HandleBootloaderRequest(command: Word);
 // Bootloader wurde von FW mitgeteilt,
 // welche Bestandteile er updaten soll
 const 
-  s_sd_not_found = '/ SD Card not found';
+  s_dfu_not_found = '/ DFU File not found';
   s_dfu_started = '/ DFU started';
-  s_dfu_stopped = '/ DFU stopped';
+  s_dfu_stopped = '/ DFU & FPGA stopped';
 var
   my_err: Word; // Bit Nummer ce_noErr wird gesetzt
 begin
@@ -398,6 +382,7 @@ begin
   if (command = c_blcmd_sdload) then begin
     if SD_present then begin
       SerialActionMsg(c_menu_sdupd);
+      Serial1_CRLF;
       // W�hrend Ladevorgang FPGA sperren, damit korrumpiertes nicht st�rt
       SPI_ShutDownFPGA;
       eep_BoardInfo.FPGAloaded:= false; // sperrt ggf. FPGA
@@ -408,6 +393,7 @@ begin
       my_err:= SD_LoadDFUimage(s_dfu_name);
       // Falls kein DFU-File gefunden, einzelne Dateien versuchen
       if my_err <> 0 then begin
+        Serial1_sendstringCRLF(s_dfu_not_found);
         SD_fileToIntFlash(s_firmware_name, 0);
         for idx:= 0 to c_max_loadableFiles do
           SD_fileToDF(c_LoadableFileTypes[idx].FileName,
@@ -423,15 +409,15 @@ begin
       end;
       my_err:= 0;
       if CheckDFerrors then begin
-        ErrorMessage(ce_DFwriteErr);
+        IFL_ErrorMessage(ce_DFwriteErr);
+        DisplayMenuItem(MenuItem);
         ErrorFlags:= ErrorFlags or (1 shl ce_DFwriteErr);
       end;
       ExitBootloaderMenuWhenDone:= false;
       RestartFPGA;
       AnyUpdateDone:= true;
     end else
-      Serial1_sendstringCRLF(s_sd_not_found);
-    Serial1_Prompt;
+      Serial1_sendstringCRLF(s_noFAT32);
   end;
     
   // ---------------------------- SAM COPY -------------------------------------
@@ -440,24 +426,25 @@ begin
     AnyUpdateDone:= false;
     DF_StartDFU;
     Serial1_sendstringCRLF(s_dfu_started);
-    Serial1_Prompt;
   end;
 
   if (command = c_blcmd_stopdfu) then begin
     AnyUpdateDone:= false;
     DF_StopDFU(false);
     Serial1_sendstringCRLF(s_dfu_stopped);
-    Serial1_Prompt;
   end;
 
   if (command = c_blcmd_unpackdfu) then begin
     SerialActionMsg(c_menu_unpackdfu);
+    Serial1_CRLF;
     // Update aus SAM-QSPI-Flash
     LEDactivity:= true;
     DisplayMenuItem(c_menu_unpackdfu);
     // Blocks anhand DFUDL kopieren
     my_err:= DF_CopyDFUimageFromSAM;
-    ErrorMessage(my_err);
+    DF_StartDFU;
+    IFL_ErrorMessage(my_err);
+    DisplayMenuItem(MenuItem);
     if CheckDFerrors then
       ErrorFlags:= ErrorFlags or (1 shl ce_DFwriteErr);
     if not SPI_CheckFPGA(false) then begin
@@ -470,7 +457,6 @@ begin
     end;
     RestartFPGA; //  damit nicht erneut geladen wird
     AnyUpdateDone:= my_err = 0;
-    Serial1_Prompt;
   end;
 
   // ----------------------------- FAILSAFE ------------------------------------
@@ -484,7 +470,8 @@ begin
     // ins DF geladenes Failsafe-FPGA-Image zur�ckkopieren
     // ermittelt eep_BoardInfo.FPGAloaded, l�dt Scantreiber MIDI:
     my_err:= DF_CopyFPGAfromFailsafe;
-    ErrorMessage(my_err);
+    IFL_ErrorMessage(my_err);
+    DisplayMenuItem(MenuItem);
     if my_err > ce_noChange then
       ErrorFlags:= ErrorFlags or (1 shl my_err);
     if CheckDFerrors then
@@ -492,7 +479,6 @@ begin
     ExitBootloaderMenuWhenDone:= false;
     RestartFPGA;
     AnyUpdateDone:= my_err = 0;
-    Serial1_Prompt;
   end;
   
   if (command = c_blcmd_failsafe_fw) then begin
@@ -502,7 +488,8 @@ begin
     // ins DF geladenes Firmware-Image in IntFlash übertragen
     // ignoriert erste 64 KByte, ins ST-RAM ab $01 0000
     my_err:= DF_CopyFirmwareFromFailsafe;
-    ErrorMessage(my_err);
+    IFL_ErrorMessage(my_err);
+    DisplayMenuItem(MenuItem);
     if my_err > ce_noChange then
       ErrorFlags:= ErrorFlags or (1 shl my_err);
     if CheckDFerrors then
@@ -510,7 +497,6 @@ begin
     ExitBootloaderMenuWhenDone:= false;
     RestartFPGA;
     AnyUpdateDone:= true;
-    Serial1_Prompt;
   end;
 
   // ------------------------------- CHECK -------------------------------------
@@ -520,14 +506,17 @@ begin
     eep_BoardInfo.FPGAloaded:= SPI_CheckFPGA(false);
     if not eep_BoardInfo.FPGAloaded then begin
       SPI_CheckFPGA(true);  // mit Meldung
-      ErrorMessage(ce_fpgaErr);
+      IFL_ErrorMessage(ce_fpgaErr);
+      DisplayMenuItem(MenuItem);
     end;
     Firmware_ok:= CheckFirmware(false);
     if not Firmware_ok then begin
       CheckFirmware(true);  // mit Meldung
-      ErrorMessage(ce_firmwareErr);
+      IFL_ErrorMessage(ce_firmwareErr);
+      DisplayMenuItem(MenuItem);
     end;
   end;
+  Serial1_BLprompt;
 end;
 
 
@@ -592,23 +581,30 @@ begin
   Serial1_CRLF;
   BootloaderCommand:= 0;
   case key of
-    48: ExitMenu:= true;
-    49: HandleBootloaderRequest(c_blcmd_sdload);
-    50: HandleBootloaderRequest(c_blcmd_failsafe_fpga); // '2'
-    51: HandleBootloaderRequest(c_blcmd_failsafe_fw); // '3'
-    52: HandleBootloaderRequest(c_blcmd_startdfu); // '4'
-    53: HandleBootloaderRequest(c_blcmd_stopdfu); // '5'
-    54: begin
-      RestartFPGA; // '6'
-      Serial1_Prompt;
-    end; 
+    48: ExitMenu:= true; // 0
+    49: begin // 1
+      SD_Init;
+      SD_DirSerial;
+      Serial1_BLprompt;
+      end; 
+    50: HandleBootloaderRequest(c_blcmd_sdload);  // 2
+    51: HandleBootloaderRequest(c_blcmd_failsafe_fpga); // 3
+    52: HandleBootloaderRequest(c_blcmd_failsafe_fw); // 4
+    53: HandleBootloaderRequest(c_blcmd_startdfu); // 5
+    54: HandleBootloaderRequest(c_blcmd_stopdfu); // 6
     55: begin
-      Serial1_sendstringCRLF(bl_fck_str);  // '6' nur Anzeige, kein Kommando
-      Serial1_Prompt;
-    end
+        RestartFPGA; // 7
+        Serial1_BLprompt;
+      end;
+    56: HandleBootloaderRequest(c_blcmd_unpackdfu);   // 8
+    57: begin   // 9
+        Serial1_sendstringCRLF(bl_fck_str);  // 9 = nur Anzeige, kein Kommando
+        Serial1_BLprompt;
+      end
   else begin
       Serial1_sendstringCRLF(bl_invalid_inp_str);
-      Serial1_Prompt;
+      ListSerialCommands;
+      Serial1_BLprompt;
     end;
   end;
 end;
@@ -629,15 +625,23 @@ begin
     mDelay(10);
   until LCD_TWI_GetButtons = 0;
   if (not eep_BoardInfo.FPGAloaded) then // FPGA-Zugriff auf DF ist gesperrt
-    ErrorMessage(ce_fpgaErr);
+    IFL_ErrorMessage(ce_fpgaErr);
   if not Firmware_ok then
-    ErrorMessage(ce_firmwareErr);
+    IFL_ErrorMessage(ce_firmwareErr);
   DisplayMenuItem(MenuItem);
   menu_item_old:= MenuItem;
   repeat
     if Serial1_rxstat then 
       SerialDispatchKey(Serial1_RcvChar);
     mDelay(20);
+    // DFU soeben beendet? Dann prüfen, ob etwas entpackt werden muss
+    if CheckDFUdone then begin  
+      // DFU wurde soeben beendet
+      HandleBootloaderRequest(c_blcmd_unpackdfu);
+      if eep_BoardInfo.FPGAloaded and Firmware_ok then
+        DisplayDoneMsg(c_menu_unpackdfu);
+    end;   
+
     EncoderChanged:= GetEncoderKnobDelta(EncoderDelta, 8);
     BtnTemp:= LCD_TWI_GetButtons;
     
@@ -660,15 +664,8 @@ begin
       DisplayMenuItem(MenuItem);
     end;
     
-    // DFU soeben beendet? Dann pr�fen, ob etwas entpackt werden muss
-    if CheckDFUdone then begin  
-      // DFU wurde soeben beendet
-      HandleBootloaderRequest(c_blcmd_unpackdfu);
-      if eep_BoardInfo.FPGAloaded and Firmware_ok then
-        DisplayDoneMsg(c_menu_unpackdfu);
-    end;
-    
     if BtnTemp = 1 then begin
+      Serial1_CRLF;
       case MenuItem of
       c_menu_sdupd: // full SD card update über DFU-Datei
         HandleBootloaderRequest(c_blcmd_sdload);
@@ -685,6 +682,7 @@ begin
       until LCD_TWI_GetButtons = 0;
     end;
   until ExitMenu or ExitBootloaderMenuWhenDone;
+  BootloaderCommand:= 0; // keine weiter Aktion nach Beendigung
 end;
 
 // #############################################################################
@@ -727,6 +725,8 @@ begin
   bkp_init;
   BootloaderCommand:= bkp_read(0);
   WordToHex(BootloaderCommand, a_str);
+  if (BootloaderCommand and $55A0) <> $55A0 then
+    BootloaderCommand:= 0;
   Serial1_sendstring(bl_cmd_str);
   Serial1_sendstringCRLF(a_str);
   ExitBootloaderMenuWhenDone:= false;
@@ -768,23 +768,16 @@ begin
       while LCD_TWI_GetButtons <> 0 do
         mDelay(10);
       mDelay(1000);
-      for idx:= 0 to 7 do // Serielle Menü-Optionen anbieten
-        Serial1_sendstringCRLF(serial_MenuItems[idx]);
-      Serial1_sendstringCRLF(s_divline);
+      ListSerialCommands;
       HandleBootloaderRequest(c_blcmd_startdfu); 
       BootloaderCommand:= c_blcmd_menu;
-    end;
+    end else
+      Serial1_sendstringCRLF(s_divline);
   end else begin
     // kein LCD, wurde aber angefordert
-    for idx:= 0 to 7 do // Serielle Menü-Optionen anbieten
-      Serial1_sendstringCRLF(serial_MenuItems[idx]);
-    Serial1_sendstringCRLF(s_divline);
-
+    ListSerialCommands;
     if SD_present then
-      HandleBootloaderRequest(c_blcmd_sdload)
-    else
-      HandleBootloaderRequest(c_blcmd_startdfu);  
-
+      HandleBootloaderRequest(c_blcmd_sdload);
     if (BootloaderCommand = c_blcmd_menu) then
       aBool:= true
     else 
@@ -796,18 +789,21 @@ begin
         if CheckDFUdone then  // DFU wurde soeben beendet
           HandleBootloaderRequest(c_blcmd_unpackdfu);
         mDelay(20);
-      until (ExitMenu or ExitBootloaderMenuWhenDone); 
+      until (ExitMenu or ExitBootloaderMenuWhenDone);
+      BootloaderCommand:= 0; // keine weitere Aktion
       // ExitBootloaderMenuWhenDone wurde ggf. in DF_CopyDFUimageFromSAM gesetzt
     end else
       Serial1_CRLF;
-    BootloaderCommand:= 0;   
   end;
 
   if (BootloaderCommand = c_blcmd_menu) then
     MenuLoop;
-    
+  if BootloaderCommand <> 0 then
+    HandleBootloaderRequest(BootloaderCommand);
+
+  Serial1_CRLF;
   DF_StopDFU(false);   // SAM-MCU Reset, wird erst in MCU-FW zurückgenommen
-  
+ 
   if AnyUpdateDone then begin
     bkp_write(0, c_blcmd_done);   // done Sema für Firmware
     bkp_write(1, ErrorFlags);
@@ -820,21 +816,28 @@ begin
     bkp_write(0, 0);             // nicht passiert
   bkp_shutdown();
 
+  if SD_present and AnyUpdateDone then begin
+    // kein Menü, LED blinken, manueller Neustart, auf Entnahme der SD-Karte warten
+    Serial1_sendstring(s_prefix_str);
+    Serial1_sendstringCRLF(msg_remove_card);
+    if (LCD_TWI_present) then begin
+      LCD_TWI_Clr;
+      LCD_TWI_WriteStr(msg_remove_card);   
+      mDelay(1000);
+    end else
+      repeat
+        SysLEDflash(500);
+        mDelay(1000);
+        SD_Init;
+      until not SD_present;
+  end;
+
   main_proc:= FIRMWARE_START + 1;   // Main-Firmware-Vektor
   LongWordToHex(main_proc, a_str);
   Serial1_CRLF;
   Serial1_sendstring(msg_startfw_str);
   Serial1_sendstringCRLF(a_str);
   mDelay(100);  // Zeit für Ausgabe der Strings
-
-  if SD_present and AnyUpdateDone and (LCD_TWI_present = false) then begin
-    // kein Menü, LED blinken, manueller Neustart, auf Entnahme der SD-Karte warten
-    repeat
-      SysLEDflash(500);
-      mDelay(1000);
-    until false;
-  end;
-
   if not eep_BoardInfo.FPGAloaded then begin
     SPI_CheckFPGA(true);
     SystemReset;  // nicht geklappt, nochmal von vorn

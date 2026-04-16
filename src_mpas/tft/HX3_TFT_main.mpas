@@ -94,7 +94,7 @@ begin
   inc(sometimes_counter);
   if sometimes_counter = 333 then begin
     sometimes_counter:= 0;
-    // irgendwas machen, was nur selten benötigt wird
+    // irgendwas machen, was nur selten benï¿½tigt wird
   end;
   ADC_ReadSwell; // Port PA.0
   AC_SendSwell;  // spontate Reaktion auf Schweller erforderlich, alle 2ms
@@ -120,7 +120,7 @@ begin
   ltrim(val_str);
   Serial1_sendstringCRLF('');
   Serial1_sendstringCRLF(s_divline);
-  Serial1_sendstringCRLF('/ ' + s_SysExDeviceStr);
+  Serial1_sendstringCRLF(s_prefix_str + s_SysExDeviceStr);
 {$IFDEF GD303_MCU}
   Serial1_sendstringCRLF('/ GD32F303RET6 MCU ' + val_str + ' MHz');
 {$ELSE}
@@ -145,7 +145,7 @@ begin
     Serial1_sendstringCRLF('/ LCD found');
   SWI_Init;
   
-  EDIT_Init; // Defaults laden, werden ggf. mit EEPROM-Inhalt von SR_Init überschrieben
+  EDIT_Init; // Defaults laden, werden ggf. mit EEPROM-Inhalt von SR_Init ï¿½berschrieben
 
   DF_LoadScanDriver;
   DF_LoadFIRcoeff;
@@ -229,9 +229,9 @@ begin
   // auf Adresse VEC_TABLE_START geschrieben, Bootloader setzt
   // Vektortabellen-Adresse vor dem Einsprung in Firmware auf diesen Wert.
   
- // Sorgt dafür, dass nichts vor Adresse FIRMWARE_START platziert wird:
-  org(FIRMWARE_START); // 64K für Bootloader
-  orgall(FIRMWARE_START); // 64K für Bootloader
+ // Sorgt dafï¿½r, dass nichts vor Adresse FIRMWARE_START platziert wird:
+  org(FIRMWARE_START); // 64K fï¿½r Bootloader
+  orgall(FIRMWARE_START); // 64K fï¿½r Bootloader
   // Einsprungpunkt des Bootloaders, Reset-Vektor in NVIC-Tabelle $00000004:
   
   InitMain();

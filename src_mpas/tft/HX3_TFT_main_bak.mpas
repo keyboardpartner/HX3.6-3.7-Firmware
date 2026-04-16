@@ -35,14 +35,14 @@
 // |---FPGA Hilevel---|---MIDI Send---|--Binary Send (WIFI)--|--Store/Recall---|
 // |-----------------------------Hardware-----------------------|----Events-^--|
 
-// Bootloader überprüft, ob in den ersten Bytes des Backup-Bereiches ein
+// Bootloader ï¿½berprï¿½ft, ob in den ersten Bytes des Backup-Bereiches ein
 // magic flag = $55AA (BKUP-Word 0) und optional eine
 // Update-Maske (BKUP-Word 1, BootFlag-Bits) gesetzt sind.
 // welche Bestandteile er von wo updaten soll
 // BKUP-Word 0 = $55AA wenn Bootloader-Menu von Firmware angefordert wurde
 // siehe Bootloader-Commands in Unit const_def
 
-// Bootloader liefert an Firmware erfolgte Aktionen zurück:
+// Bootloader liefert an Firmware erfolgte Aktionen zurï¿½ck:
 // BKUP-Word 0 = $55FF (Updated), $5500 (nichts passiert) oder $5501 (Fehler)
 // BKUP-Word 1 = Error-Flags: $0s0p mit
 // s=1 SDcard, s=2 DFU, s=8 Failsafe und
@@ -148,10 +148,10 @@ begin
       LCD_TWI_ClrEol;
       mDelay(1500);
     end;
-    SR_StoreDefaults;  // geänderte Werte gleich abspeichern
+    SR_StoreDefaults;  // geï¿½nderte Werte gleich abspeichern
     SR_Init; // Defaults erneut laden
     DF_Unprotect;
-    DF_EraseBlock(c_param_update_list_DF); // Liste löschen, nicht nochmal
+    DF_EraseBlock(c_param_update_list_DF); // Liste lï¿½schen, nicht nochmal
     DF_protect;
   end;
   for idx:= 0 to 5 do
@@ -191,7 +191,7 @@ begin
     // Lizenzen und Username checken, ScanDriver/FIFO initialisieren
     FH_BoardInfo;
     LCDinfoAndCheckForUpdates;   // Update-Liste vorhanden?
-    eep_BoardInfo.DSPversion:= 0;  // wird später von SysEx gesetzt
+    eep_BoardInfo.DSPversion:= 0;  // wird spï¿½ter von SysEx gesetzt
     MIDI_ResetGMprogs;
     mDelay(50);
     MIDI_getDSPinfo;
@@ -271,7 +271,7 @@ begin
       if edit_ADCconfig > 0 then begin
         FootSwFast:= FSW_FAST = 0;
         FootSwRun:= FSW_RUN = 0;
-        if edit_ConfBits2.B0 then begin  // Klinkenbuchsen sind Schalter-Eingänge
+        if edit_ConfBits2.B0 then begin  // Klinkenbuchsen sind Schalter-Eingï¿½nge
           // FootSwSlow:= FootSwRun and (not FootSwFast);
           if FootSwFast_old <> FootSwFast then begin
             NewEditIdxEvent(c_LogicalTab_LeslieFast, FootSwFast, c_board_event_source);
@@ -293,7 +293,7 @@ begin
                 NewEditIdxEvent(c_LogicalTab_LeslieFast, 0, c_board_event_source);
               end;
           end;
-        end else begin   // Klinkenbuchsen sind Taster-Eingänge
+        end else begin   // Klinkenbuchsen sind Taster-Eingï¿½nge
           if FootSwFast then
             inctolimW(FootSwFast_debounce, 5)
           else
@@ -327,7 +327,7 @@ begin
   inc(sometimes_counter);
   if sometimes_counter = 333 then begin
     sometimes_counter:= 0;
-    // irgendwas machen, was nur selten benötigt wird
+    // irgendwas machen, was nur selten benï¿½tigt wird
   end;
   AC_SendSwell;  // spontate Reaktion auf Schweller erforderlich, alle 2ms
   //FSW_FAST
@@ -356,7 +356,7 @@ begin
   ltrim(val_str);
   Serial1_sendstringCRLF('');
   Serial1_sendstringCRLF(s_divline);
-  Serial1_sendstringCRLF('/ ' + s_SysExDeviceStr);
+  Serial1_sendstringCRLF(s_prefix_str + s_SysExDeviceStr);
   Serial1_sendstringCRLF(dev_str + val_str + mhz_str);
   Serial1_sendstringCRLF(s_divline);
 
@@ -377,7 +377,7 @@ begin
   BT_RST:=  true;     // WIFI Reset aufheben
 
   ReloadRequest:= true;
-  if (edit_ADCconfig > 0) and edit_ConfBits2.B0 then begin // Schalter-Eingänge
+  if (edit_ADCconfig > 0) and edit_ConfBits2.B0 then begin // Schalter-Eingï¿½nge
     FootSwFast:= FSW_FAST = 0;
     FootSwRun:= FSW_RUN = 0;
     if FootSwRun then begin
@@ -393,7 +393,7 @@ begin
   end;
 
   MainTasks;
-  // Änderungen ausführen
+  // ï¿½nderungen ausfï¿½hren
 end;
 
 // #############################################################################
@@ -405,9 +405,9 @@ begin
   // auf Adresse VEC_TABLE_START geschrieben, Bootloader setzt
   // Vektortabellen-Adresse vor dem Einsprung in Firmware auf diesen Wert.
 
- // Sorgt dafür, dass nichts vor Adresse FIRMWARE_START platziert wird:
-  org(FIRMWARE_START); // 64K für Bootloader
-  orgall(FIRMWARE_START); // 64K für Bootloader
+ // Sorgt dafï¿½r, dass nichts vor Adresse FIRMWARE_START platziert wird:
+  org(FIRMWARE_START); // 64K fï¿½r Bootloader
+  orgall(FIRMWARE_START); // 64K fï¿½r Bootloader
   // Einsprungpunkt des Bootloaders, Reset-Vektor in NVIC-Tabelle $00000004
 
   FillBlock(@edit_array, 4096, 0);

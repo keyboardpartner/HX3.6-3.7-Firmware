@@ -9,11 +9,12 @@
 //
 // #############################################################################
 
-// SPI-Funktionen für FPGA, SPI_1
+// SPI-Funktionen fÃ¼r FPGA, SPI_1
 
 unit SPI_rw;
 
 uses const_def, edit_vals, intflash, twi_systimer, var_def, serial1, avrco_compat;
+
   function SPI_InitFPGA(fprog_pulse: Boolean): Boolean;
   function SPI_CheckFPGA(msg_on: Boolean): Boolean;
   procedure SPI_ResetScan;
@@ -33,6 +34,17 @@ uses const_def, edit_vals, intflash, twi_systimer, var_def, serial1, avrco_compa
   procedure SPI_fpga_send_doubled_byte(reg, data_b: Byte);
   procedure SPI_fpga_send_volume_byte(reg, data_b: Byte);
   procedure SPI_fpga_send_log_byte(reg, data_b: Byte);
+
+  // Neue RS-Commands
+  function SPI_xc_getstatus(): Byte;
+  function SPI_xc_setcmd(reg: Byte): Byte;
+  function SPI_xc_readram(): boolean;
+  procedure SPI_xc_writeram(len: Word; msg_type: Word);
+  procedure SPI_xc_requestEditArray;
+  procedure SPI_xc_requestExtdArray;
+  procedure SPI_xc_interpret_data;
+
+  procedure SPI_dump_xchgbuf(start_addr, len: Word);
 {$ENDIF}
 
   procedure SPI_fpga_send_word(reg: Byte; data_w: word);
@@ -43,9 +55,60 @@ uses const_def, edit_vals, intflash, twi_systimer, var_def, serial1, avrco_compa
 
   procedure SPI_AutoIncSetup(const target: Word);
   procedure SPI_AutoIncReset(const target: Word);
-  procedure SPI_SendBuf32(const len_dwords: Word); // für PicoBlaze und Taper(!)
-  procedure SPI_SendBuf16(const len_words: Word);  // für FIR und DDS
-  procedure SPI_SendBuf8(const len_bytes: Word);   // für Drawbars und andere
+  procedure SPI_SendBuf32(const len_dwords: Word); // fï¿½r PicoBlaze und Taper(!)
+  procedure SPI_SendBuf16(const len_words: Word);  // fï¿½r FIR und DDS
+  procedure SPI_SendBuf8(const len_bytes: Word);   // fï¿½r Drawbars und andere
+
+const
+// Commands
+  c_xcmd_ack_by_receiver = 245;
+  c_xcmd_status_read = 247;
+  c_xcmd_xchng_read = 248;
+  c_xcmd_xchng_write = 249;
+  c_xcmd_bus_disable = 250;
+  c_xcmd_enable_df = 251;
+  c_xcmd_enable_qspi = 252;
+  c_xcmd_bus_to_esp32 = 253;
+  c_xcmd_msg_ready = 254;
+  c_xcmd_bus_to_mcu = 255;
+
+// Status Masks
+  c_xcmd_ack_by_receiver_mask = 1;
+  c_xcmd_msg_present_mask = 2;
+  c_xcmd_bus_on_mcu_mask = 4;
+  c_xcmd_bus_on_esp_mask = 8;
+  c_xcmd_df_on_mask = 16;
+  c_xcmd_qspi_on_mask = 32;
+
+// Message Header Types
+  c_xmsg_binary_cmd: Word = 1;
+  c_xmsg_string_cmd: Word = 2;
+  c_xmsg_edit_arr: Word = 3;
+  c_xmsg_extd_arr: Word = 4;
+  c_xmsg_voice_upper: Word = 5;
+  c_xmsg_voice_lower: Word = 6;
+  c_xmsg_voice_pedal: Word = 7;
+  c_xmsg_tabs: Word = 8;
+  c_xmsg_knobs: Word = 9;
+
+// Message Header Requests
+  c_xreq_edit_arr: Word = 19;
+  c_xreq_extd_arr: Word = 20;
+  c_xreq_voice_upper: Word = 21;
+  c_xreq_voice_lower: Word = 22;
+  c_xreq_voice_pedal: Word = 23;
+  c_xreq_tabs: Word = 24;
+  c_xreq_knobs: Word = 25;
+
+
+
+type
+  t_xc_rec = record
+    mflag: Word;
+    len: Word;
+    chksum: Word;
+  end;
+
 
 var
   F_DS: sbit at GPIOC_ODR.B7;    // Pin Data Select
@@ -56,7 +119,7 @@ var
   F_PROG: sbit at GPIOB_ODR.B10;  // FPGA ReInit
 
   F_INT_FIFO: sbit at GPIOB_IDR.B11;   // FIFO status
-  F_AUX_SEL: sbit at GPIOA_ODR.B8;     // Select QSPI SAM Flash
+  F_QSPI_ENA: sbit at GPIOA_ODR.B8;     // Select QSPI SAM Flash
   
   QFL_NRST:   sbit at GPIOC_ODR.B12;      // Output C
   SAM_NRST:   sbit at GPIOC_ODR.B13;      // Output C
@@ -65,28 +128,31 @@ var
   SPI_word: Word at SPI_dword;
   SPI_byte: Byte at SPI_dword;
   SPI_bytes: Array[0..3] of Byte at SPI_dword;
+  
+  SPI_xc_header: t_xc_rec;
+  SPI_xc_header_bytes: Array[0..5] of Byte at SPI_xc_header;
 
 implementation
 
 var
-    idx, temp_w: Word;
-    
-    // Overlays, wie AVR Little Endian
-    wr_dword: DWord;
-    wr_word: Word at wr_dword;
-    wr_bytes: Array[0..3] of Byte at wr_dword;  
+  idx, temp_w: Word;
 
-    rd_dword: DWord;
-    rd_word: Word at rd_dword;
-    rd_bytes: Array[0..3] of Byte at rd_dword;
+  // Overlays, wie AVR Little Endian
+  wr_dword: DWord;
+  wr_word: Word at wr_dword;
+  wr_bytes: Array[0..3] of Byte at wr_dword;  
+
+  rd_dword: DWord;
+  rd_word: Word at rd_dword;
+  rd_bytes: Array[0..3] of Byte at rd_dword;
 
 // -----------------------------------------------------------------------------
 
 procedure SPI_DeInitFPGA;
-// SPI #2 für FPGA-IO abschalten, alle Portpins freigeben
+// SPI #2 fï¿½r FPGA-IO abschalten, alle Portpins freigeben
 begin
   SPI2_DeInit();
-  GPIO_Digital_Input(@GPIOA_BASE, _GPIO_PINMASK_8);  // F_AUX_SEL
+  GPIO_Digital_Input(@GPIOA_BASE, _GPIO_PINMASK_8);  // F_QSPI_ENA
   GPIO_Digital_Input(@GPIOB_BASE, _GPIO_PINMASK_2    // F_DONE
                                or _GPIO_PINMASK_12   // F_FCS_B
                                or _GPIO_PINMASK_13   // F_SCK
@@ -101,9 +167,9 @@ begin
 end;
 
 procedure SPI_ShutDownFPGA;
-// FPGA abschalten, z.B. für Erstprogrammierung DSP
+// FPGA abschalten, z.B. fï¿½r Erstprogrammierung DSP
 begin
-  F_AUX_SEL:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  F_QSPI_ENA:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
   GPIO_Digital_Output(@GPIOB_BASE, _GPIO_PINMASK_10);   // F_PROG
   F_PROG:= false;
   QFL_NRST:= true;
@@ -112,14 +178,14 @@ end;
 
 function SPI_CheckFPGA(msg_on: Boolean): Boolean;
 // liefert TRUE wenn erfolgreich
-// Nicht ausführen nach DF_SAM_Init, keine Zugriffe auf QSPI
+// Nicht ausfï¿½hren nach DF_SAM_Init, keine Zugriffe auf QSPI
 var status_dword: DWord;
   a_str: String[8];
 const
   fpga_date_str = '/ FPGA check, date code: $';
   fpga_failed_str = ' FAILED';
 begin
-  F_AUX_SEL:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  F_QSPI_ENA:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
   status_dword:= SPI_fpga_xfer_32(3, 0, false);
   if (status_dword = $FFFFFFFF) or (status_dword = 0) then begin
     // FPGA fehlerhaft, wieder sperren, damit DF-Zugriff frei wird
@@ -138,6 +204,7 @@ begin
   SAM_NRST:= true;
   if msg_on then begin
     LongWordToHex(status_dword, a_str);
+    Serial1_CRLF;
     Serial1_sendstring(fpga_date_str + a_str);
     if not result then
       Serial1_sendstring(fpga_failed_str);
@@ -147,14 +214,14 @@ end;
 
 
 function SPI_InitFPGA(fprog_pulse: Boolean): Boolean;
-// Warten auf FPGA DONE und SPI #2 für FPGA-IO einrichten
-// liefert TRUE wenn erfolgreich (F_DONE und Versionsdatum überprüft)
+// Warten auf FPGA DONE und SPI #2 fï¿½r FPGA-IO einrichten
+// liefert TRUE wenn erfolgreich (F_DONE und Versionsdatum ï¿½berprï¿½ft)
 begin
   result:= false;
 {$IFDEF DEBUG_INITS}
   Serial1_sendstringCRLF('/ SPI (FPGA) Init ');
 {$ENDIF}
-  GPIO_Digital_Output(@GPIOA_BASE, _GPIO_PINMASK_8); // F_AUX_SEL
+  GPIO_Digital_Output(@GPIOA_BASE, _GPIO_PINMASK_8); // F_QSPI_ENA
   GPIO_Digital_Input(@GPIOB_BASE, _GPIO_PINMASK_2    // F_DONE
                                or _GPIO_PINMASK_10   // F_PROG
                                or _GPIO_PINMASK_11   // F_INT_FIFO
@@ -169,7 +236,7 @@ begin
   F_DS:= true;
   F_FCS_B:= true;
   F_PROG:= true;
-  F_AUX_SEL:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
+  F_QSPI_ENA:= false;  // Select QSPI SAM Flash = FALSE, normaler Betrieb
   QFL_NRST:= false;
   SAM_NRST:= false;
   if fprog_pulse then begin
@@ -191,15 +258,19 @@ begin
   GPIO_Digital_Output(@GPIOB_BASE, _GPIO_PINMASK_12);  // F_FCS_B jetzt von MCU
 
   // Set SPI2 to the Master Mode, data length is 8-bit, clock = Peripheral/8,
-  // clock IDLE state low and data transmitted at the first clock edge transition,
+  // clock IDLE state high and data transmitted at the second clock edge transition (MODE 3)
   // MSB transferred first, Slave Select Disabled:
-  SPI2_Init_Advanced(_SPI_FPCLK_DIV2, _SPI_MASTER
+  SPI2_Init_Advanced(_SPI_FPCLK_DIV4, _SPI_MASTER
                      OR _SPI_8_BIT OR _SPI_CLK_IDLE_HIGH
                      OR _SPI_SECOND_CLK_EDGE_TRANSITION
                      OR _SPI_MSB_FIRST OR _SPI_SS_DISABLE
                      OR _SPI_SSM_ENABLE OR _SPI_SSI_1,
                      @_GPIO_MODULE_SPI2_PB13_14_15);
                      
+  BusAvailable:= true;
+{$IFNDEF BOOTLOADER}
+  SPI_xc_setcmd(c_xcmd_bus_to_mcu); // HX3-SPI Bus auf MCU schalten
+{$ENDIF}
   SPI_fpga_send_byte(240, 0); // Trigger DNA Read
 {$IFDEF BOOTLOADER}
   SPI_fpga_send_byte(246, 1); // Set DSP ROW01 bits = 1, Bootloader aktiv
@@ -248,7 +319,7 @@ begin
 end;
 
 function SPI_fpga_rw_24(spi_wr_dw: DWord): DWord;
-// Für LC-Daten an PicoBlaze (18 Bit)
+// Fï¿½r LC-Daten an PicoBlaze (18 Bit)
 begin
   wr_dword:= spi_wr_dw;
   F_DS:= false;                  // Data Select Pin
@@ -276,10 +347,10 @@ procedure SPI_fpga_regsel(reg: Byte; write_ena: Boolean);
 begin
   F_RS:= false;            // Register Select Pin
   if write_ena then
-    SPI2_Write($80)
+    SPI2_Read($80)
    else
-    SPI2_Write(0);
-  SPI2_Write(Word(reg));
+    SPI2_Read(0);
+  SPI2_Read(Word(reg));
   F_RS:= true;
 end;
 
@@ -305,7 +376,7 @@ begin
 end;
 
 procedure SPI_fpga_send_volume_byte(reg, data_b: Byte);
-// 0..127 auf 0..252 quadriert für Lautstärkeregelung
+// 0..127 auf 0..252 quadriert fï¿½r Lautstï¿½rkeregelung
 begin
   SPI_fpga_regsel(reg, true);
   temp_w:= (Word(data_b) * Word(data_b)) div 64;
@@ -351,30 +422,30 @@ begin
 end;
 
 procedure SPI_AutoIncReset(target: Word);
-// AutoInc zurücksetzen, Core freigeben
+// AutoInc zurï¿½cksetzen, Core freigeben
 begin
   SPI_fpga_regsel($81, true);   // SPI Wite Enable, SPI-Register Adress-Reset
   SPI_fpga_rw_byte(lo(target));  // Lese-Ergebnis nicht benutzt
 end;
 
 procedure SPI_AutoIncSetup(target: Word);
-// AutoInc vorbereiten: Länge, Start an SPI übermitteln
+// AutoInc vorbereiten: Lï¿½nge, Start an SPI ï¿½bermitteln
 begin
   SPI_AutoIncReset(target);
   SPI_fpga_regsel($80, true);   // SPI Wite Enable, SPI-Register Adress-Reset
 end;
 
 procedure SPI_SendBuf8(len_bytes: Word);
-// Fortlaufende Registersätze (Drawbars) übertragen
-// SPI_AutoIncSetup muss ausgeführt sein!
+// Fortlaufende Registersï¿½tze (Drawbars) ï¿½bertragen
+// SPI_AutoIncSetup muss ausgefï¿½hrt sein!
 begin
   for idx:= 0 to len_bytes - 1 do
     SPI_fpga_rw_byte(BlockBuffer8[idx]);   // Lese-Ergebnis nicht benutzt
 end;
 
 procedure SPI_SendBuf16(len_words: Word);
-// 16-Bit-Werte für DDS Wavesets
-// SPI_AutoIncSetup muss ausgeführt sein!
+// 16-Bit-Werte fï¿½r DDS Wavesets
+// SPI_AutoIncSetup muss ausgefï¿½hrt sein!
 var lc_word: Word;
   arr16_ptr: ^Word;
 begin
@@ -387,8 +458,8 @@ begin
 end;
 
 procedure SPI_SendBuf32(len_dwords: Word);
-// BlockBuffer8 als DWords an LC (PicoBlaze, DDS) übertragen
-// SPI_AutoIncSetup muss ausgeführt sein!
+// BlockBuffer8 als DWords an LC (PicoBlaze, DDS) ï¿½bertragen
+// SPI_AutoIncSetup muss ausgefï¿½hrt sein!
 var lc_dword: DWord;
   arr32_ptr: ^DWord;
 begin
@@ -400,4 +471,271 @@ begin
   end;
 end;
 
+// ################################################################################
+//
+//    ######## ##     ##  ######  ##     ##        ######  ##     ## ########
+//    ##        ##   ##  ##    ## ##     ##       ##    ## ###   ### ##     ##
+//    ##         ## ##   ##       ##     ##       ##       #### #### ##     ##
+//    ######      ###    ##       #########       ##       ## ### ## ##     ##
+//    ##         ## ##   ##       ##     ##       ##       ##     ## ##     ##
+//    ##        ##   ##  ##    ## ##     ##       ##    ## ##     ## ##     ##
+//    ######## ##     ##  ######  ##     ##        ######  ##     ## ########
+//
+// ################################################################################
+
+{$IFNDEF BOOTLOADER}
+
+// RS-Commands, neues QSPI-Connect fï¿½r ESP32
+
+function SPI_xc_setcmd(reg: Byte): Byte;
+begin
+  F_RS:= false;            // Register Select Pin
+  result:= SPI2_Read(reg);
+  F_RS:= true;
+end;
+
+function SPI_xc_getstatus(): Byte;
+begin
+  F_RS:= false;            // Register Select Pin
+  result:= SPI2_Read(c_xcmd_status_read);
+  F_RS:= true;
+end;
+
+function SPI_xc_wait_ack(timeout: Word): boolean;
+const s_timeout = '/ XC Status Timeout ERR';
+begin
+  result:= true;
+  while ((SPI_xc_getstatus() and c_xcmd_ack_by_receiver_mask) = 0) do begin
+    mdelay(1);
+    dec(timeout);
+    if timeout = 0 then begin
+      Serial1_sendstringCRLF(s_timeout);
+      result:= false;
+      break;
+    end;
+  end;
+end;
+
+function SPI_xc_wait_data(timeout: Word): boolean;
+const s_timeout = '/ XC Status Timeout ERR';
+begin
+  result:= true;
+  while ((SPI_xc_getstatus() and c_xcmd_msg_present_mask) = 0) do begin
+    mdelay(1);
+    dec(timeout);
+    if timeout = 0 then begin
+      Serial1_sendstringCRLF(s_timeout);
+      result:= false;
+      break;
+    end;
+  end;
+end;
+
+// ################################################################################
+
+
+procedure SPI_dump_buf(start_addr, len: Word);
+var count: Word;
+  hexstr: String[4];
+begin
+  Serial1_sendstring('MFlag: 0x');
+  WordToHex(SPI_xc_header.mflag, hexstr);
+  Serial1_sendstring(hexstr);
+  Serial1_sendstring(', MsgLen: 0x');
+  WordToHex(SPI_xc_header.len, hexstr);
+  Serial1_sendstring(hexstr);
+  Serial1_sendstring(', ChkSum: 0x');
+  WordToHex(SPI_xc_header.chksum, hexstr);
+  Serial1_sendstring(hexstr);
+  start_addr:= (start_addr div 16) * 16;
+  // liest len Bytes aus Exchange-RAM des FPGA und gibt sie im seriellen Monitor aus
+  for count := start_addr to start_addr + len - 1 do begin
+    if (count mod 16 = 0) then begin
+      Serial1_CRLF;
+      WordToHex(count, hexstr);
+      Serial1_sendstring(hexstr);
+      Serial1_sendstring(': ');
+    end;
+    ByteToHex(BlockBuffer8[count], hexstr);
+    Serial1_sendstring(hexstr);
+    Serial1_sendchar(#32);
+  end;
+  Serial1_CRLF;
+end;
+
+
+function SPI_xc_readram(): boolean;
+// schreibt bis zu 2KBytes in Exchange-RAM des FPGA, 
+// benÃ¶tigt hierfÃ¼r etwa 4 ms
+// liefert TRUE wenn erfolgreich
+const s_flag_err = '/ XC Flag ERR';
+var count: Word;
+begin
+  F_RS:= false;  // Register Select Pin
+  SPI2_Read(c_xcmd_xchng_read); // Kommando fÃ¼r XCHGBUF, siehe FPGA-Design qspi_connect.vhd
+  result:= true;
+  for count := 0 to 5 do
+    SPI_xc_header_bytes[count]:= SPI2_Read(0); // Datenbyte, Write nicht benutzt
+  // Magic Flag und Lï¿½nge sind jetzt bekannt
+  if (SPI_xc_header.mflag and $FF00) <> $5A00 then begin
+    F_RS:= true;  // Register Select Pin
+    Serial1_sendstringCRLF(s_flag_err);
+    result:= false;
+    exit;
+  end;
+  if SPI_xc_header.len > 2042 then  // 4 Bytes fï¿½r Flag und Lï¿½nge!
+    SPI_xc_header.len:= 2042;
+  for count := 0 to SPI_xc_header.len - 1 do
+    BlockBuffer8[count]:= SPI2_Read(0); // Datenbyte, Write nicht benutzt
+  F_RS:= true;  // Register Select Pin
+  SPI_xc_setcmd(c_xcmd_ack_by_receiver);
+end;
+
+procedure SPI_xc_writeram(len: Word; msg_type: Word);
+// schreibt bis zu 2KBytes in Exchange-RAM des FPGA,
+// benÃ¶tigt hierfÃ¼r etwa 4 ms
+var count: Word;
+begin
+  if len > 2042 then  // 6 Bytes fÃ¼r Header
+    len:= 2042;
+  SPI_xc_header.mflag:= $5A00 or msg_type;
+  SPI_xc_header.len:= len;
+  SPI_xc_header.chksum:= 0; // Checksumme optional, derzeit nicht benutzt
+
+  F_RS:= false;  // Register Select Pin 
+  SPI2_Read(c_xcmd_xchng_write); // Kommando fÃ¼r XCHGBUF, siehe FPGA-Design qspi_connect.vhd
+  for count := 0 to 5 do
+    SPI2_Read(SPI_xc_header_bytes[count]); // Datenbyte, Write nicht benutzt
+  for count := 0 to len - 1 do
+    SPI2_Read(BlockBuffer8[count]); // Datenbyte, Lese-Ergebnis nicht benutzt
+  F_RS:= true;  // Register Select Pin
+  SPI_xc_setcmd(c_xcmd_msg_ready);
+end;
+
+// ################################################################################
+//
+//    ########  #### ##    ##        ######  ##     ## ########  
+//    ##     ##  ##  ###   ##       ##    ## ###   ### ##     ## 
+//    ##     ##  ##  ####  ##       ##       #### #### ##     ## 
+//    ########   ##  ## ## ##       ##       ## ### ## ##     ## 
+//    ##     ##  ##  ##  ####       ##       ##     ## ##     ## 
+//    ##     ##  ##  ##   ###       ##    ## ##     ## ##     ## 
+//    ########  #### ##    ##        ######  ##     ## ########  
+//
+// ################################################################################
+
+
+procedure SPI_xc_send_singlebinarycmd(param: Word; value: Word);
+begin
+  BlockBuffer16[0]:= param;  // Parameter-Nummer 1000..9999
+  BlockBuffer16[1]:= value;  // Wert
+  SPI_xc_writeram(4, c_xmsg_binary_cmd);  // Anzahl der Datenbytes = 2 Worte = 4
+  SPI_xc_wait_ack(100); // Warte, bis ESP die Message abgeholt hat
+end;
+
+// ################################################################################
+//
+//    ########  ##        #######   ######  ##    ##    ##     ##  ######  
+//    ##     ## ##       ##     ## ##    ## ##   ##      ##   ##  ##    ## 
+//    ##     ## ##       ##     ## ##       ##  ##        ## ##   ##       
+//    ########  ##       ##     ## ##       #####          ###    ##       
+//    ##     ## ##       ##     ## ##       ##  ##        ## ##   ##       
+//    ##     ## ##       ##     ## ##    ## ##   ##      ##   ##  ##    ## 
+//    ########  ########  #######   ######  ##    ##    ##     ##  ######  
+//
+// ################################################################################
+
+
+procedure SPI_xc_requestEditArray;
+begin
+{$IFDEF DEBUG_SPI_XC}
+  Serial1_sendstringCRLF('/ XC Req EditArray');
+{$ENDIF}
+  SPI_xc_writeram(1, c_xreq_edit_arr);
+end;
+
+procedure SPI_xc_requestExtdArray;
+// Fordere extendedArray von ESP32 an
+begin
+{$IFDEF DEBUG_SPI_XC}
+  Serial1_sendstringCRLF('/ XC Req ExtdArray');
+{$ENDIF}
+  SPI_xc_writeram(1, c_xreq_extd_arr);
+end;
+
+// --------------------------------------------------------------------------------
+
+
+procedure SPI_dump_xchgbuf(start_addr, len: Word);
+var count: Word;
+  hexstr: String[4];
+begin
+  if len > 2042 then  // 4 Bytes fï¿½r Flag und Lï¿½nge!
+    len:= 2042;
+  F_RS:= false;  // Register Select Pin
+  delay_us(1);
+  SPI2_Read(c_xcmd_xchng_read); // Kommando fÃ¼r XCHGBUF, siehe FPGA-Design qspi_connect.vhd
+  for count := 0 to 2047 do
+    BlockBuffer8[count]:= SPI2_Read(0); // Datenbyte, Write nicht benutzt
+  F_RS:= true;  // Register Select Pin
+  SPI_dump_buf(start_addr, len);
+end;
+
+// --------------------------------------------------------------------------------
+
+procedure SPI_xc_interpret_data;
+// BRAM und Header wurden bereits gelesen und
+// Binary Parser Commands im Parser behandelt
+var
+  command: Word;
+begin
+  command:= SPI_xc_header.mflag and $00FF;
+  case command of
+  (c_xreq_edit_arr): 
+    begin
+      // EditArray angefordert
+      {$IFDEF DEBUG_SPI_XC}
+        Serial1_sendstringCRLF('/ XC EDIT_ARR requested');
+      {$ENDIF}
+      memcpy(@BlockBuffer8, @edit_array, 512); // 512 Bytes
+      SPI_xc_writeram(512, c_xmsg_edit_arr); // EditArray in FPGA-Exchange-RAM schreiben
+      SPI_xc_wait_ack(100); // Warte, bis ESP das editArray abgeholt hat
+    end;
+  (c_xreq_extd_arr):
+    begin
+      // ExtdArray angefordert
+      {$IFDEF DEBUG_SPI_XC}
+        Serial1_sendstringCRLF('/ XC EXTD_ARR requested');
+      {$ENDIF}
+      memcpy(@BlockBuffer8, @eep_ExtendedBoardInits, 1536);  // 1536 Bytes
+      SPI_xc_writeram(1536, c_xmsg_extd_arr); // ExtdArray in FPGA-Exchange-RAM schreiben
+      SPI_xc_wait_ack(100); // Warte, bis ESP das extdArray abgeholt hat
+    end;
+  (c_xmsg_edit_arr):
+    begin
+      // EditArray von ESP32 empfangen, in edit_array kopieren
+      {$IFDEF DEBUG_SPI_XC}
+        Serial1_sendstringCRLF('/ XC EDIT_ARR received');
+      {$ENDIF}
+      // memcpy(@edit_array, @BlockBuffer8, 512); // 512 Bytes
+      {$IFDEF DEBUG_SPI_XC}
+        SPI_dump_buf(0, 64);
+      {$ENDIF}
+    end;
+  (c_xmsg_extd_arr):
+    begin
+      // ExtdArray von ESP32 empfangen, in eep_ExtendedBoardInits kopieren
+      {$IFDEF DEBUG_SPI_XC}
+        Serial1_sendstringCRLF('/ XC EXTD_ARR received');
+      {$ENDIF}
+      // memcpy(@eep_ExtendedBoardInits, @BlockBuffer8, 1536);  // 1536 Bytes
+      {$IFDEF DEBUG_SPI_XC}
+        SPI_dump_buf(0, 64);
+      {$ENDIF}
+    end;
+  end;
+end;
+
+
+{$ENDIF}    // NOT Bootloader
 end.

@@ -20,6 +20,8 @@ procedure PA_HandleCmdString(var cmd_str: String[80]);
 procedure PA_SendResult(param: Word);
 procedure PA_RunSDscript(var file_str: String[16]);
 
+procedure PA_handleXCcmds;
+
 implementation
 
 var
@@ -35,10 +37,10 @@ var
   BinaryCRC:  Byte;      // kann irgendwo stehen
   BinaryValid: boolean;
   BinaryBuffer: Array[0..1023] of Byte;
-  
+  UploadedFileName: String[32];
 
 const
-// nur noch allgemeine und Konfigurations-Parameter �ber Mnemonics!
+// nur noch allgemeine und Konfigurations-Parameter über Mnemonics!
   c_cmdAnzahl= 27; // letzter Eintrag, statt tCmdwhich
   c_cmdErr = c_cmdAnzahl + 1;// Error, Statt tCmdwhich
   c_CmdStrArr: array[0..c_cmdAnzahl] of string[3] = (
@@ -47,15 +49,15 @@ const
     'VAL',// 0..9999
     'EDT',// 1000 ff.  alle Edit-Vars
     'PHR',// 2500 ff.  Phasing Rotor Params
-    'MXS',// 2800 ff.  Mixture Sets
-
-    'COR',// 7000 Core Load, z.B. COR 192=firmware.bin  - nicht benutzt!
+    
+    'BLM',// Bootloader Menu
+    'XCR',// 7000 Exchange-Register /RS
 
     'CFG',// 8000 FPGA Config from Flash
     'UPD',// 8200 Update from SD
-    'INI',// 8300 INI-Datei ausf�hren
+    'INI',// 8300 INI-Datei ausführen
     'SCI',// 8500 Scan Core Info, 0=ID, 1=Revision
-    'RCB',// 8600 4K-Block �berspezielles Protokoll empfangen
+    'RCB',// 8600 4K-Block überspezielles Protokoll empfangen
     'WFB',// 8601 4K-Block in DataFlash speichern, Param = Blocknummer abs.
     'DFI',// 8800 DF Init Presets
     'RCS',// 8900 Receive Binary Stream (+Core #)
@@ -79,7 +81,7 @@ const
  c_Cmd2SubChArr: array[0..c_cmdAnzahl] of Word   = (
     255, 254,
     0,
-    1000, 2500, 2800,
+    1000, 2500, 8300,
     7000, 8000, 8200, 8300, 8500, 8600, 8601, 8800, 8900,
     9940, 9950, 9960, 9970, 9980, 9989, 9990,
     9997, 9998, 9999,
@@ -135,6 +137,7 @@ end;
 
 procedure PA_SendResult(param: Word);
 const
+  s_err_verify = '-5 [ERR VERIFY]';
   s_err_card = '-5 [ERR SD CARD NOT RDY]';
   s_err_cmd = '-1 [ERR CMD]';
   s_ok_resp = '0 [OK]';
@@ -162,14 +165,38 @@ begin
       8, 9, 10, 11,  // Audio Level Selects
       12, 13:  // Audio Level auf 12
         pa_long_to_sendstr(SPI_fpga_xfer_32(Byte(param), 0, false));
-      245:
-        pa_bool_to_sendstr(F_INT_FIFO);
+        
       250:
         pa_bool_to_sendstr(WriteEnable);
       254:
         ParseSendStr:= s_Vers1Str + ' [' + s_DeviceStr + ']';
       255:
         ParseSendStr:= s_ok_resp;
+
+      500:
+        begin
+          SPI_xc_requestEditArray;
+          ParseSendStr:= s_ok_resp
+        end;
+      501:
+        begin
+          SPI_xc_requestExtdArray;
+          ParseSendStr:= s_ok_resp
+        end;
+//      555:
+//        begin
+//          if SPI_xc_transferTest(2044) then
+//            ParseSendStr:= s_ok_resp
+//          else
+//            ParseSendStr:= s_err_verify;
+//        end;
+      600, 601, 602, 603, 604, 605, 607:
+        begin
+          idx_mod_1000:= idx_mod_1000 - 600;
+          SPI_xc_readram();
+          SPI_dump_xchgbuf(idx_mod_1000 * 256, 256);
+          ParseSendStr:= s_ok_resp;
+        end;
       900, 901, 902, 903:
         begin
           temp_b:= EDIT_GetParamVal(param, false);  // holt temp_b
@@ -201,6 +228,10 @@ begin
       Temp_Wvals[1]:= MIDIset.NRPNs[idx_mod_1000 - 768].NRPN;
       pa_long_to_sendstr(Temp_Dval);
     end;
+  7:
+    if idx_mod_1000 < 256 then // Test XC-Connect im FPGA
+      pa_byte_to_sendstr(SPI_xc_setcmd(lo(idx_mod_1000)));
+
   8: // 8000..8999
     case idx_mod_1000 of
       201, 202:
@@ -209,6 +240,13 @@ begin
         pa_long_to_sendstr_hex(SPI_fpga_xfer_32(3, 0, false));  // FPGA Version
       204:
         pa_long_to_sendstr(eep_BoardInfo.DSPversion);
+      300: // #8300 = "BLM" Bootloader mit Menu aufrufen
+        begin // z.b. c_blcmd_unpackdfu: Word     = $55A1;
+          bkp_init;
+          bkp_write(0, c_blcmd_menu);
+          bkp_shutdown;
+          SystemReset;
+        end;
       500:
         pa_long_to_sendstr(eep_BoardInfo.ScanVersion);
       501:
@@ -302,9 +340,9 @@ begin
   0: // 0..9999
     case idx_mod_1000 of
       248:
-          SPI_fpga_send_word(248, pvalue);
+        SPI_fpga_send_word(248, pvalue);
       249:
-          SPI_fpga_send_word(249, pvalue);
+        SPI_fpga_send_word(249, pvalue);
       250:
         begin
           if WriteEnable then begin
@@ -313,6 +351,8 @@ begin
           end;
           WriteEnable:= my_bool;
         end;
+      556:
+        SPI_dump_xchgbuf(Word(pvalue), 64);
       900:
         begin
           SR_SaveCommonPreset(pvalue);
@@ -445,13 +485,33 @@ begin
             DF_LoadScanDriver;
         end;
       300: // #8300, direkter Befehl ($0..$F) an Bootloader
-        begin
+        //  c_blcmd_startdfu: Word      = $55A0;
+        //  c_blcmd_unpackdfu: Word     = $55A1;
+        //  c_blcmd_failsafe_fw: Word   = $55A2;
+        //  c_blcmd_failsafe_fpga: Word = $55A3;
+        //  c_blcmd_sdload: Word        = $55A4;
+        //  c_blcmd_stopdfu: Word       = $55A5;  // Serielles Menu
+        //  c_blcmd_menu: Word          = $55AA;  // LCD-Menu
+        //  c_blcmd_done: Word          = $55FF;  // von BL zurückgeliefert
+        begin // z.b. c_blcmd_unpackdfu: Word     = $55A1;
+          SPI_xc_setcmd(c_xcmd_ack_by_receiver);
+          mdelay(50);
           bkp_init;
           bkp_write(0, c_blcmd_startdfu or Word(pvalue and $000F));
           bkp_shutdown;
           SystemReset;
         end;
-
+      310: 
+        DF_DestBlock:= pvalue; // Destination in DF
+      311:
+        DF_DestBlockCount:= Word(pvalue); // Block Count in pvalue
+      312:
+        begin
+          SPI_xc_setcmd(c_xcmd_ack_by_receiver);
+          DF_CopyFromQSPI(DF_DestBlock, DF_DestBlockCount); // Block Count in pvalue
+          DF_DestBlock:= 0;
+          DF_DestBlockCount:= 0;
+        end;
       600:  // #8600 Empfange 4KByte-Block
         begin
           if pvalue < 32 then
@@ -560,6 +620,19 @@ begin
           CopyBlock(@eep_BoardInfo, @BlockBuffer8, sizeof(eep_BoardInfo));
           DF_EraseWriteBlock(c_boardinfo_DF, sizeof(eep_BoardInfo));
         end;
+      980:
+        if my_bool then begin
+          SPI_xc_setcmd(c_xcmd_bus_to_esp32); // HX3-SPI Bus auf ESP32 schalten
+          BusAvailable:= false;
+        end else begin
+          SPI_xc_setcmd(c_xcmd_bus_to_mcu); // HX3-SPI Bus auf MCU schalten
+          BusAvailable:= true;
+        end;
+      981:
+        if my_bool then
+          DF_Stop_SAM    // Enable QSPI for ESP32, setzt BusAvailable:= false
+        else
+          DF_Start_SAM;  // normaler Betrieb, setzt BusAvailable:= true
       994:
         ADCtestMode:= my_bool;
       995:  // ESP8266 RESET
@@ -611,6 +684,12 @@ begin
     if param > 9800 then
       SR_ChangeCommonPresetName(idx_mod_100, val_str);
   end else case param of
+    8309:
+      begin
+        UploadedFileName:= val_str;
+        Serial1_sendstring('/ Got file ');
+        Serial1_sendstringCRLF(val_str);
+      end;
     9100, 9101:
       begin
         if length(val_str) > 15 then
@@ -659,7 +738,7 @@ var
 begin
   param_str:= '';
   myBool:= false;
-  while parse_str[parse_ptr] = ' ' do // Leerzeichen �berspringen
+  while parse_str[parse_ptr] = ' ' do // Leerzeichen überspringen
     Inc(parse_ptr);
   my_char:= parse_str[parse_ptr];
   if (my_char >= '0') and (my_char <='9') then begin
@@ -720,7 +799,7 @@ begin
   my_SubChOffset:= 0;   // direkter SubCh-Aufruf
 //Parse einzelnen Befehl
   if not PA_Extract(false, is_alpha, parse_ptr, val_str, cmd_str) then begin
-    cmd_which:= PA_Cmd2Index(val_str);  // Klartext �bersetzen
+    cmd_which:= PA_Cmd2Index(val_str);  // Klartext übersetzen
     if cmd_which = c_cmdErr then begin
       if CommandSource = c_command_source_wifi then
         Serial2_sendstringCRLF(s_err_str)
@@ -757,7 +836,7 @@ end;
 // ESC CMD ADRL ADRH LEN DATA0...DATAn CRC then wait for <--ACK
 // mit
 // LEN = Anzahl der folgenden Datenbytes, 0 => 256
-// CRC = einfache Modulo-Pr�fsumme �ber alle Bytes von ESC bis DATAn
+// CRC = einfache Modulo-Pr�fsumme über alle Bytes von ESC bis DATAn
 // als Antwort wird gesendet:
 // ACK oder NAK wenn CRC falsch oder TimeOut
 
@@ -766,14 +845,14 @@ end;
 // ESC CMD ADRL ADRH LEN CRC then wait for <--ACK
 // mit
 // LEN = Anzahl der gew�nschten Datenbytes, 0 => 256
-// CRC = einfache Modulo-Pr�fsumme �ber alle empfangenen Bytes von ESC bis LEN
+// CRC = einfache Modulo-Pr�fsumme über alle empfangenen Bytes von ESC bis LEN
 
 // CMD=3: SetParam mit Response (setzt kein parsed_table!)
 // Parameter setzen:
 // ESC CMD ADRL ADRH LEN DATA0...DATAn CRC then wait for <--ACK
 // mit
 // LEN = Anzahl der folgenden Datenbytes, 0 => 256
-// CRC = einfache Modulo-Pr�fsumme �ber alle Bytes von ESC bis DATAn
+// CRC = einfache Modulo-Pr�fsumme über alle Bytes von ESC bis DATAn
 // als Antwort wird gesendet:
 // ACK oder NAK wenn CRC falsch oder TimeOut
 
@@ -783,7 +862,7 @@ end;
 // CMD=1: SetParam, CMD=2: GetParam
 // mit
 // LEN = Anzahl der folgenden oder gew�nschten Datenbytes, 0 => 256
-// CRC = einfache Modulo-Pr�fsumme �ber alle Bytes von ESC bis DATAn
+// CRC = einfache Modulo-Pr�fsumme über alle Bytes von ESC bis DATAn
 
 procedure PA_HandleBinary;
 var
@@ -1049,7 +1128,6 @@ begin
   end;
 end;
 
-
 procedure PA_Init;
 begin
   ParseSendStr:= '';
@@ -1065,5 +1143,39 @@ begin
 {$ENDIF}
 end;
 
+procedure PA_handleXCcmds;
+// spezieller Binärmodus für XC-Connect, max. 15 Befehle = 64 Bytes auf einmal
+// Befehle befinden sich in BlockBuffer16
+// Je 1 Wort Parameter 1000..1999, 2000..2999, ... 9000..9999 und 1 Wort Wert
+// Ende, Wenn Parameter 0, Wert 0, also BlockBuffer16[0] = 0, BlockBuffer16[1] = 0
+var
+  my_param, my_val, idx, count: Word;
+  cmd_str: String[40];
+begin
+  SPI_xc_readram();
+  if SPI_xc_header.mflag = ($5A00 or c_xmsg_binary_cmd) then begin
+    count:= SPI_xc_header.len div 4;
+    for idx:= 0 to count - 1 do begin
+      my_param:= BlockBuffer16[idx*2];
+      my_val:= BlockBuffer16[idx*2 + 1];
+      if (my_param = 0) and (my_val = 0) then
+        break;
+{$IFDEF DEBUG_SPI_XC}
+      Serial1_sendstring('/ XC Cmd: ');
+      Serial1_sendIntVal(my_param);
+      Serial1_sendchar('=');
+      Serial1_sendIntValCRLF(my_val);
+{$ENDIF}
+      PA_SetParam(my_param, my_val, c_control_event_source);
+    end;
+  end else if SPI_xc_header.mflag = ($5A00 or c_xmsg_string_cmd) then begin
+    memcpy(@cmd_str, @BlockBuffer8, SPI_xc_header.len);
+    Serial1_sendstring('/ XC Cmd: ');
+    Serial1_sendstringCRLF(cmd_str);
+    PA_HandleCmdString(cmd_str);
+  end else
+    SPI_xc_interpret_data;
+  SPI_xc_setcmd(c_xcmd_ack_by_receiver);
+end;
 
 end.
