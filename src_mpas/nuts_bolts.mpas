@@ -60,9 +60,9 @@ var idx, temp_w: Word; temp_b: Byte;
                     // -----------------------------------------------------------------------------
 
 procedure NB_VCbitsToVibknob;
-// setzt logische Tab-Stellung für LEDs in Vibrato-Knopfstellung um
+// setzt logische Tab-Stellung fï¿½r LEDs in Vibrato-Knopfstellung um
 begin
-  // Sonderfall Button Vibrato mit gegenseitiger Auslösung, V/C einzeln
+  // Sonderfall Button Vibrato mit gegenseitiger Auslï¿½sung, V/C einzeln
   // nur Vib-Tabs
   if (edit_VibKnobMode > 0) then begin
     case edit_VibKnobMode of
@@ -103,10 +103,10 @@ end;
 // -----------------------------------------------------------------------------
 
 procedure NB_VibknobToVCbits;
-// setzt Vibrato-Knopfstellung in logische Tab-Stellung für LEDs um
+// setzt Vibrato-Knopfstellung in logische Tab-Stellung fï¿½r LEDs um
 begin
   if (edit_VibKnobMode > 0) then begin
-    // nur Knob-Stellung berücksichtigen:
+    // nur Knob-Stellung berï¿½cksichtigen:
     for idx:= c_LogicalTab_VibBtns to (c_LogicalTab_VibBtns + 3) do
       event_array[idx]:= 0;
     FillBlock(@edit_LogicalTab_VibBtns, 6, 0);  // alle auf 0
@@ -170,7 +170,7 @@ end;
 
 function NB_SerReceiveBlock(arr_ptr: ^Byte;  num_bytes: Integer): boolean;
 // 4K-Block seriell empangen und in BlockArray speichern, eigenes Protokoll.
-// Liefert TRUE wenn Transfer erfolgreich (Prüfsumme OK)
+// Liefert TRUE wenn Transfer erfolgreich (Prï¿½fsumme OK)
 // Format: $55 AA CC cc <4K data> mit CC cc = 16-Bit-Summe aller Datenbytes
 // Alle 128 Bytes empfangener Nutzdaten wird ein ACK (#6) gesendet
 var is_ok: Boolean;
@@ -235,9 +235,9 @@ end;
 
 
 function NB_SendBinaryHeader(cmd: byte; param_num: Word):byte;
-// sendet einen binär kodierten Header ohne Länge an BLE bzw. serielle Schnittstelle
+// sendet einen binï¿½r kodierten Header ohne Lï¿½nge an BLE bzw. serielle Schnittstelle
 // ESC CMD ADRL ADRH
-// liefert CRC zurück
+// liefert CRC zurï¿½ck
 var
   my_temp_crc : byte;
 begin
@@ -288,14 +288,14 @@ begin
     if ConnectMode = c_connect_osc_wifi then
       done:= NB_WaitACK(0)   // Timeout 25ms
     else
-      done:= true; // nur einmal ausführen wenn kein ACK erwartet
+      done:= true; // nur einmal ausfï¿½hren wenn kein ACK erwartet
     inc(retry);
   until done or (retry > 3);
 end;
 
 procedure NB_SendEditArrayBlock(edit_idx, count: Word);
-// Sendet kurzen Speicherauszug aus edit_array (wie früher NB_SendBinaryBlock)
-// mit Event-CMD #5: Erwarte Bestätigung nach Bearbeitung
+// Sendet kurzen Speicherauszug aus edit_array (wie frï¿½her NB_SendBinaryBlock)
+// mit Event-CMD #5: Erwarte Bestï¿½tigung nach Bearbeitung
 // ESC CMD ADRL ADRH LEN DATA0...DATAn CHK, hier also
 // 27  4/5 ADRL ADRH  1  <vals...>     CHK
 // len=1: nur 1 Byte senden
@@ -305,7 +305,7 @@ var
   done: Boolean;
 begin
   if ConnectMode = c_connect_osc_wifi then // OSC connected By Serial
-    cmd:= 5 // mit Bestätigung
+    cmd:= 5 // mit Bestï¿½tigung
   else
     cmd:= 4;
   retry:= 0;
@@ -323,7 +323,7 @@ begin
     if ConnectMode = c_connect_osc_wifi then
       done:= NB_WaitACK(count)   // Timeout
     else
-      done:= true; // nur einmal ausführen wenn kein ACK erwartet
+      done:= true; // nur einmal ausfï¿½hren wenn kein ACK erwartet
     inc(retry);
   until done or (retry > 3);
 end;
@@ -340,7 +340,7 @@ begin
 end;
 
 procedure NB_ByteToLogicalTabs(my_tab_byte, tab_idx: Word);
-// Setzt LogicalTabs ab Index aus Byte (repäsentiert Bit-Array)
+// Setzt LogicalTabs ab Index aus Byte (repï¿½sentiert Bit-Array)
 begin
   temp_w:= my_tab_byte;
   for idx:= 0 to 7 do // alle Bits durchlaufen
@@ -356,7 +356,7 @@ begin
 end;
 
 procedure NB_Word12ToLogicalTabs(my_tab_word, tab_idx: Word);
-// Setzt LogicalTabs ab Index aus Byte (repäsentiert Bit-Array)
+// Setzt LogicalTabs ab Index aus Byte (repï¿½sentiert Bit-Array)
 begin
   temp_w:= my_tab_word;
   for idx:= 0 to 11 do // alle Bits durchlaufen
@@ -412,7 +412,7 @@ end;
 // #############################################################################
 
 procedure NB_QuickSortCCs(start_idx, end_idx: integer);
-// Quicksort für MIDIsortedCCrecords
+// Quicksort fï¿½r MIDIsortedCCrecords
 // Sortiert CH/CC und ParamIdx nach CH/CC,
 // dauert etwa 1.12 ms bei (langem) KBP-Set 8
 var
@@ -447,7 +447,7 @@ end;
 {$IFDEF DEBUG_NB}
 procedure NB_SerialSendCCentry(arr_idx: Word);
 begin
-  Serial1_sendstring('/ ');
+  Serial1_sendstring(s_prefix_str);
   Serial1_sendIntVal(MIDIsortedCCrecords[arr_idx].CH_CC shr 8);
   Serial1_sendchar(#32);
   Serial1_sendIntVal(MIDIsortedCCrecords[arr_idx].CH_CC and $FF);
@@ -457,7 +457,7 @@ end;
 {$ENDIF}
 
 procedure NB_CreateSortedCCarrays;
-// Komprimiertes, schnell zu durchsuchendes CC-Array für MIDI IN/OUT 
+// Komprimiertes, schnell zu durchsuchendes CC-Array fï¿½r MIDI IN/OUT 
 // anlegen und nach CH/CC sortieren. Dauert inkl. Sortieren bei langer Tabelle
 // wie HX3/KBP #8 etwa 1.8 ms
 var source_idx, dest_idx, ch_cc: Word;
@@ -465,13 +465,13 @@ var source_idx, dest_idx, ch_cc: Word;
 begin
   LEDaux:= false; // LED ON
   UseSustainSostMask:= $80;
-  FillBlock(@MIDIsortedCCrecords, sizeof(MIDIsortedCCrecords), 255); // -1 = ungültiger Parameter
+  FillBlock(@MIDIsortedCCrecords, sizeof(MIDIsortedCCrecords), 255); // -1 = ungï¿½ltiger Parameter
   dest_idx:= 0;
   
   for source_idx:= 0 to 751 do begin
     ch:= MIDIset.CHs[source_idx];
     cc:= MIDIset.CCs[source_idx];
-    if (ch <> $FF) and (cc <> $FF) and (MIDIset.CCmaxs[source_idx] > 0) then begin  // gültig?
+    if (ch <> $FF) and (cc <> $FF) and (MIDIset.CCmaxs[source_idx] > 0) then begin  // gï¿½ltig?
       hi(ch_cc):= ch and $0F;  // obere 4 Bits = Flags, ausmaskieren
       lo(ch_cc):= cc;
       MIDIsortedCCrecords[dest_idx].CH_CC:= ch_cc;

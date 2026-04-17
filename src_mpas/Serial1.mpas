@@ -12,7 +12,7 @@
 // Serielle Schnitstelle
 unit serial1;
 
-uses twi_systimer, avrco_compat;
+uses twi_systimer, avrco_compat, const_def;
 
 procedure Serial1_Init;
 procedure Serial1_DeInit;
@@ -25,6 +25,7 @@ procedure Serial1_sendIntValCRLF(pval: Integer);
 procedure Serial1_sendIntVal(pval: Integer);
 procedure Serial1_CRLF;
 procedure Serial1_BLprompt;
+procedure Serial1_DivLine;
 
 function Serial1_rcvchar: Char;
 function Serial1_rcvbyte_to(var rcv_byte: Byte; timeout: Word): Boolean;
@@ -32,20 +33,32 @@ function Serial1_rcvbyte_to(var rcv_byte: Byte; timeout: Word): Boolean;
 function Serial1_rxstat: Boolean;
 function Serial1_txstat: Boolean;
 
+
 implementation
 var
   IRQ_Count: Word;
 
   IRQ_rxbuf: Array[0..255] of Byte;
   IRQ_txbuf: Array[0..255] of Byte;
-  IRQ_rxbuf_ptr, IRQ_txbuf_ptr,      // Index f�r IRQ-Serviceroutine
-  IRQ_put_ptr, IRQ_get_ptr: Word;    // Index f�r Sende/Receive-Funktion
+  IRQ_rxbuf_ptr, IRQ_txbuf_ptr,      // Index für IRQ-Serviceroutine
+  IRQ_put_ptr, IRQ_get_ptr: Word;    // Index für Sende/Receive-Funktion
   
   TC_USART1_SR_bit : sbit at USART1_SR.B6;   // alc TC_bit in MikroE-Lib
 
 // #############################################################################
 // ###                         Serial COM                                    ###
 // #############################################################################
+
+
+procedure Serial1_DivLine;
+var idx: Word;
+begin
+  Serial1_sendstring(s_prefix_str);
+  for idx:= 1 to 48 do
+    Serial1_sendchar('-');
+  Serial1_CRLF;
+end;
+
 
 procedure Serial1_Init;
 begin

@@ -9,7 +9,7 @@
 //
 // #############################################################################
 
-// Edit-Array: Global gültige Werte
+// Edit-Array: Global gï¿½ltige Werte
 
 // |-----------------------------User Activity---------------------------------|
 // |--MenuSystem--|--SwitchIF--|--AnalogInputs--|--MIDI Dispatch--|---Parser---|
@@ -34,53 +34,19 @@ uses const_def, var_def, twi_systimer, avrco_compat, edit_offsets, edit_defaults
 // #############################################################################
 
 var
-  eep_BoardInfo: TBoardInfo; aligned 4;  // enthält Seriennummern und Lizenzen
+  eep_BoardInfo: TBoardInfo; aligned 4;  // enthï¿½lt Seriennummern und Lizenzen
+  edit_array: TeditArray8; absolute c_edit_addr;
 
 // #############################################################################
 {$IFDEF BOOTLOADER}
 // #############################################################################
-const
-  c_validflag_B = 4092;                    // Positionen in DFUDL_B
-  c_bcount_B = c_validflag_B - 4;         // Block Count
-  c_datachecksum_B = c_validflag_B - 8;   // einfache Checksumme
-  c_fw_version_B = c_validflag_B - 12;    // Firmware-Version, Hi & Lo=Frac
-  c_fpga_version_B = c_validflag_B - 16;  // FPGA-Datenformat Hex
-  c_fw_failsafe_bcount_B = c_validflag_B - 20;   // Anzahl Firmware-Blocks für Failsafe
-  c_fpga_failsafe_bcount_B = c_validflag_B - 24; // sind 0 wenn kein Failsafe enthalten
-  c_scan_failsafe_bcount_B = c_validflag_B - 28;
-  c_partsbits_B = c_validflag_B - 32;      // Bit-Einträge, welche Parts upgedated wurden
-  c_timestamp_B = c_validflag_B - 36;      // Unix-Timestanp (Sekunden seit 1.1.1970)
-  c_param_count_B = c_validflag_B - 40;  // Re-Enable DFU wenn <> 0 für DSP
-  c_exitflag_B = c_validflag_B - 44;       // Exit Bootloader wenn <> 0
-  
-var
-  DFUDL: array[0..2047] of Word; absolute c_edit_addr; // DFU Destination List
 
-  DFUDL_validflag_DW: DWord;    absolute c_edit_addr + c_validflag_B;
-  DFUDL_bcount_DW: DWord;       absolute c_edit_addr + c_bcount_B;
-  DFUDL_datachecksum_DW: DWord; absolute c_edit_addr + c_datachecksum_B;
-  DFUDL_fw_version_DW: DWord;   absolute c_edit_addr + c_fw_version_B;
-  DFUDL_fpga_version_DW: DWord; absolute c_edit_addr + c_fpga_version_B;
-  DFUDL_fw_failsafe_bcount_DW: DWord;   absolute c_edit_addr + c_fw_failsafe_bcount_B;
-  DFUDL_fpga_failsafe_bcount_DW: DWord; absolute c_edit_addr + c_fpga_failsafe_bcount_B;
-  DFUDL_scan_failsafe_bcount_DW: DWord; absolute c_edit_addr + c_scan_failsafe_bcount_B;
-  DFUDL_partbits_DW: DWord;     absolute c_edit_addr + c_partsbits_B;
-  DFUDL_timestamp_DW: DWord;    absolute c_edit_addr + c_timestamp_B;
-  // DFUDL_reenabledfu_DW: DWord;  absolute c_edit_addr + c_re_enable_dfu_DW;
-  DFUDL_exitflag_DW: DWord;     absolute c_edit_addr + c_exitflag_B;
 
-  // werden in SD- oder SAM-Copy aus letzem DFUDL ermittelt
-  ExitBootloaderMenuWhenDone: Boolean;
-  UpdateBitFlags: DWord;
-  UpdateTimeStamp: DWord;
-
-// #############################################################################
 {$ELSE}
-// #############################################################################
+
 var
   event_array: Array[0..511] of Word; aligned 4; // Event Source Flags
 
-  edit_array: TeditArray8; absolute c_edit_addr;
   edit_array32rec: TEditArray32rec; absolute c_edit_addr;  // DWORD-Overlay
 
   edit_UpperDBs: Array [0..15] of Byte; absolute c_edit_addr + 0;
@@ -170,7 +136,7 @@ var
   edit_SwellFinalResponse: Byte; absolute c_edit_addr + 94;
   edit_SwellLoudnessTreble: Byte; absolute c_edit_addr + 95;
 
-// @96, #1096 ff. getrennte DBs für elektronische Tastenkonta
+// @96, #1096 ff. getrennte DBs fï¿½r elektronische Tastenkonta
   edit_UpperEnvelopeDBs: Array[0..15] of Byte; absolute c_edit_addr + 96;
   edit_UpperEnvelopeDB_16:   Byte; absolute c_edit_addr + 96;
   edit_UpperEnvelopeDB_5_13: Byte; absolute c_edit_addr + 97;
@@ -206,7 +172,7 @@ var
   edit_EquTrebleDetentShift: Byte; absolute c_edit_addr + 126;
   edit_PercVolDetentShift:   Byte; absolute c_edit_addr + 127;
 
-// @128..191, #1128..1191 im Parser reserviert für Byte Ta
+// @128..191, #1128..1191 im Parser reserviert fï¿½r Byte Ta
 // Tabs 0-7, #1128 ff.
   edit_LogicalTabs: Array[0..63] of Byte; absolute c_edit_addr + 128;
   edit_LogicalTab_PercOn:     Byte; absolute c_edit_addr + 128;
@@ -289,7 +255,7 @@ var
   edit_LogicalTab_LowerDB11toADSR: Byte; absolute c_edit_addr + 187;
 
 // bis 191 benutzt
-// String Preset-Name, aus DF gelesen und temporär, überlagert IncDec-Buttons
+// String Preset-Name, aus DF gelesen und temporï¿½r, ï¿½berlagert IncDec-Buttons
   edit_PresetNameStrTemp: Array[0..15] of Byte; absolute c_edit_addr + 192;
 
 // ab 208 spezielle Buttons, nicht gespeichert
@@ -310,12 +276,12 @@ var
   edit_LogicalTab_IncSpeakerModel: Byte; absolute c_edit_addr + 203;
   edit_LogicalTab_DecTranspose: Byte; absolute c_edit_addr + 204;
   edit_LogicalTab_IncTranspose: Byte; absolute c_edit_addr + 205;
-// Nur Platzhalter für MIDI-Dekodierung
+// Nur Platzhalter fï¿½r MIDI-Dekodierung
   edit_HammondDBUpperDecode: Byte; absolute c_edit_addr + 208;
   edit_HammondDBLowerDecode: Byte; absolute c_edit_addr + 209;
   edit_HammondDBPedalDecode: Byte; absolute c_edit_addr + 210;
   edit_HammondVibKnobDecode: Byte; absolute c_edit_addr + 211;
-// Vibrato-Buttons, Funktion abhängig von #1497
+// Vibrato-Buttons, Funktion abhï¿½ngig von #1497
   edit_LogicalTab_VibBtns: Array[0..5] of Byte; absolute c_edit_addr + 212;
   edit_LogicalTab_4V1: Byte; absolute c_edit_addr + 212;
   edit_LogicalTab_4V2: Byte; absolute c_edit_addr + 213;
@@ -374,7 +340,7 @@ var
 
 
   edit_knobs: Array[0..7] of Byte; absolute c_edit_addr + 260;
-// @4, #1260 ff. "Drehknöpfe", exklusive Stellungen, werden auf edit- oder Tab-Wert
+// @4, #1260 ff. "Drehknï¿½pfe", exklusive Stellungen, werden auf edit- oder Tab-Wert
   edit_GatingKnob: Byte; absolute c_edit_addr + 261;
   edit_PercKnob: Byte; absolute c_edit_addr + 262;
   edit_ReverbKnob: Byte; absolute c_edit_addr + 263;
@@ -385,7 +351,7 @@ var
   edit_RotaryModel: Byte; absolute c_edit_addr + 266;
   
 // Generator-Grundeinstellung
-// Tapering, Wave, Vibrato, Mixturen, Fußlagen-Offsets
+// Tapering, Wave, Vibrato, Mixturen, Fuï¿½lagen-Offsets
 // 0..2 = B3, 3 = H100, 4 = TOS/LSI Sine,
 // 5 = TOS/LSI Square, 6 = SNG Conn, 7 = Cheesy
 //  edit_GenVibMode: Byte; absolute c_edit_addr + 266;
@@ -434,8 +400,8 @@ var
   edit_PreemphPhase: Byte; absolute c_edit_addr + 335;
 
 // @80, #1336..#1351 TEMP!
-// Phasing Rotor, Reihenfolge wie FPGA, temporär aus PHR-Preset geladen
-// im Edit-Bereich für PHR-Programmerstellung über Editor
+// Phasing Rotor, Reihenfolge wie FPGA, temporï¿½r aus PHR-Preset geladen
+// im Edit-Bereich fï¿½r PHR-Programmerstellung ï¿½ber Editor
   edit_PhasingGroup: Array[0..15] of Byte; absolute c_edit_addr + 336;
   edit_PHR_SpeedVariSlow: Byte; absolute c_edit_addr + 336;
   edit_PHR_SpeedVariFast: Byte; absolute c_edit_addr + 337;
@@ -594,7 +560,7 @@ var
 
 // ab hier nur EEPROM mit persistenter Kopie
 
-// @240, #1496 ff. Defaults, alles mögliche, nur zum Start und Reset gelesen
+// @240, #1496 ff. Defaults, alles mï¿½gliche, nur zum Start und Reset gelesen
   edit_DefaultsGroup: Array[0..15] of Byte; absolute c_edit_addr + 496;
   edit_RFU_0: Byte; absolute c_edit_addr + 496;  // RFU
   edit_VibKnobMode: Byte; absolute c_edit_addr + 497;
@@ -634,7 +600,7 @@ var
   eep_SwitchRemaps: Array[0..15] of Byte; absolute c_edit_ext_addr + 1296;   // bis 1303, MiniSwitch Remaps
   eep_OrganModelAssignments: Array[0..15] of Byte; absolute c_edit_ext_addr + 1312;
   eep_SpeakerModelAssignments: Array[0..15] of Byte; absolute c_edit_ext_addr + 1328;
-  // Vorläufiges Ende bei c_edit_addr + 1856
+  // Vorlï¿½ufiges Ende bei c_edit_addr + 1856
   eep_MagicFlag: DWord; absolute c_edit_ext_addr + 1532;  // 1536 - 4
 
 // #############################################################################
@@ -652,7 +618,7 @@ var
 // #############################################################################
 
 // Daten werden an "richtige" Drawbars weitergereicht, wenn
-// edit_ActiveUpperIndirect und edit_ActiveLowerIndirect der übertragenen
+// edit_ActiveUpperIndirect und edit_ActiveLowerIndirect der ï¿½bertragenen
 // Drawbar-Parameternummer entspricht.
   edit_UpperIndirect_DBs: Array [0..1] of Array [0..11] of Byte; aligned 4;
   edit_LowerIndirect_DBs: Array [0..1] of Array [0..11] of Byte; aligned 4;
@@ -661,7 +627,7 @@ var
 // ###         Tabellen zum Zwischenspeichern der Live-Einstellungen         ###
 // #############################################################################
 
-  // für Common Presets
+  // fï¿½r Common Presets
   temp_common:      Array[0..511] of byte; aligned 4;
   temp_VoiceUpperDrawbars:  Array[0..11] of byte; aligned 4;  // wie EEPROM-Tabellen
   temp_VoiceLowerDrawbars:  Array[0..11] of byte; aligned 4;
@@ -722,7 +688,7 @@ end;
 
 procedure EDIT_SetupIdx(param: Word);
 begin
-  // für dezimalen Suchbaum
+  // fï¿½r dezimalen Suchbaum
   idx_1000er:=   param div 1000; // 0, 1, 2, 3... Tausender-Stelle
   idx_mod_1000:= param mod 1000; // 0..999
   idx_mod_100:=  param mod 100;  // 0..99
@@ -835,10 +801,8 @@ begin
   edit_PresetStructure:= c_CurrentPresetStructureVersion;
   edit_MagicFlag:= $A5;
 end;
-
 // #############################################################################
 {$ENDIF} // nicht Bootloader
 // #############################################################################
-
 
 end.

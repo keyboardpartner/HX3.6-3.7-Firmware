@@ -630,9 +630,9 @@ begin
         end;
       981:
         if my_bool then
-          DF_Stop_SAM    // Enable QSPI for ESP32, setzt BusAvailable:= false
+          DF_Stop_DSP    // Enable QSPI for ESP32, setzt BusAvailable:= false
         else
-          DF_Start_SAM;  // normaler Betrieb, setzt BusAvailable:= true
+          DF_Start_DSP;  // normaler Betrieb, setzt BusAvailable:= true
       994:
         ADCtestMode:= my_bool;
       995:  // ESP8266 RESET

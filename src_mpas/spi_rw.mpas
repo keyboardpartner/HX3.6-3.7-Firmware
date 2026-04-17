@@ -61,46 +61,47 @@ uses const_def, edit_vals, intflash, twi_systimer, var_def, serial1, avrco_compa
 
 const
 // Commands
-  c_xcmd_ack_by_receiver = 245;
-  c_xcmd_status_read = 247;
-  c_xcmd_xchng_read = 248;
-  c_xcmd_xchng_write = 249;
-  c_xcmd_bus_disable = 250;
-  c_xcmd_enable_df = 251;
-  c_xcmd_enable_qspi = 252;
-  c_xcmd_bus_to_esp32 = 253;
-  c_xcmd_msg_ready = 254;
-  c_xcmd_bus_to_mcu = 255;
+  c_xcmd_ack_by_receiver = 245;  // Setzt Status-Bit 0 ACK für die Gegenseite
+  c_xcmd_status_read = 247;  // 
+  c_xcmd_xchng_read = 248;  // gefolgt von bis zu 2048 Null-Bytes zum Lesen per SPI
+  c_xcmd_xchng_write = 249;  // gefolgt von bis zu 2048 zu schreibenden Daten-Bytes, löscht eigenes ACK
+  c_xcmd_bus_disable = 250;  // 
+  c_xcmd_enable_df = 251;  // Chip-Zugriff /CS über /DF
+  c_xcmd_enable_qspi = 252;  // Chip-Zugriff /CS über /DF
+  c_xcmd_bus_to_esp32 = 253;  // HX3 Sound Engine to ESP32, ACK from ST32F MCU
+  c_xcmd_nak_by_receiver = 254;  // Löscht Status-Bit 0 ACK für die Gegenseite
+  c_xcmd_bus_to_mcu = 255;  // HX3 Sound Engine to MCU, ACK from ESP32
+
 
 // Status Masks
-  c_xcmd_ack_by_receiver_mask = 1;
-  c_xcmd_msg_present_mask = 2;
-  c_xcmd_bus_on_mcu_mask = 4;
-  c_xcmd_bus_on_esp_mask = 8;
-  c_xcmd_df_on_mask = 16;
-  c_xcmd_qspi_on_mask = 32;
+  c_xsta_ack_by_receiver_mask = 1;  // HX3 Sound Engine to MCU, ACK from ESP32
+  c_xsta_rxbuf_got_data_mask = 2;  // 
+  c_xsta_txbuf_still_filled_mask = 4;  // 1 wenn Gegenseite letzten Befehl bestätigt hat
+  c_xsta_bus_on_mcu_mask = 8;  // 1 wenn Daten abgeholt werden können
+  c_xsta_bus_on_esp_mask = 16;  // 1 wenn noch Daten im Sende-Buffer stehen, d.h. warten bis Abholung erfolgt
+  c_xsta_flash_on_mask = 32;  // Bus an MCU zugewiesen
+
 
 // Message Header Types
-  c_xmsg_binary_cmd: Word = 1;
-  c_xmsg_string_cmd: Word = 2;
-  c_xmsg_edit_arr: Word = 3;
-  c_xmsg_extd_arr: Word = 4;
-  c_xmsg_voice_upper: Word = 5;
-  c_xmsg_voice_lower: Word = 6;
-  c_xmsg_voice_pedal: Word = 7;
-  c_xmsg_tabs: Word = 8;
-  c_xmsg_knobs: Word = 9;
+  c_xmsg_binary_cmd: Word = 1;  // Binäre Befehle Param/Value
+  c_xmsg_string_cmd: Word = 2;  // String-Befehl(e) Param="String"
+  c_xmsg_edit_arr: Word = 3;  // Enthält komplettes Edit Array 512 Bytes
+  c_xmsg_extd_arr: Word = 4;  // Enthält komplettes Extd Array 1536 Bytes
+  c_xmsg_voice_upper: Word = 5;  // Voice-Daten (15 Drawbars als Bytes)
+  c_xmsg_voice_lower: Word = 6;  // Voice-Daten (15 Drawbars als Bytes)
+  c_xmsg_voice_pedal: Word = 7;  // Voice-Daten (15 Drawbars als Bytes)
+  c_xmsg_tabs: Word = 8;  // Alle Schalter und Tabs ab 1128
+  c_xmsg_knobs: Word = 9;  // Alle Knobss ab 1264
+
 
 // Message Header Requests
-  c_xreq_edit_arr: Word = 19;
-  c_xreq_extd_arr: Word = 20;
-  c_xreq_voice_upper: Word = 21;
-  c_xreq_voice_lower: Word = 22;
-  c_xreq_voice_pedal: Word = 23;
-  c_xreq_tabs: Word = 24;
-  c_xreq_knobs: Word = 25;
-
-
+  c_xreq_edit_arr: Word = 19;  // Fordere komplettes Edit Array an, 512 Bytes
+  c_xreq_extd_arr: Word = 20;  // Fordere komplettes Extd Array an, 1536 Bytes
+  c_xreq_voice_upper: Word = 21;  // Voice-Daten (15 Drawbars als Bytes)
+  c_xreq_voice_lower: Word = 22;  // Voice-Daten (15 Drawbars als Bytes)
+  c_xreq_voice_pedal: Word = 23;  // Voice-Daten (15 Drawbars als Bytes)
+  c_xreq_tabs: Word = 24;  // Alle Schalter und Tabs ab 1128
+  c_xreq_knobs: Word = 25;  // Alle Knobs ab 1264
 
 type
   t_xc_rec = record
@@ -505,7 +506,7 @@ function SPI_xc_wait_ack(timeout: Word): boolean;
 const s_timeout = '/ XC Status Timeout ERR';
 begin
   result:= true;
-  while ((SPI_xc_getstatus() and c_xcmd_ack_by_receiver_mask) = 0) do begin
+  while ((SPI_xc_getstatus() and c_xsta_ack_by_receiver_mask) = 0) do begin
     mdelay(1);
     dec(timeout);
     if timeout = 0 then begin
@@ -520,7 +521,7 @@ function SPI_xc_wait_data(timeout: Word): boolean;
 const s_timeout = '/ XC Status Timeout ERR';
 begin
   result:= true;
-  while ((SPI_xc_getstatus() and c_xcmd_msg_present_mask) = 0) do begin
+  while ((SPI_xc_getstatus() and c_xsta_rxbuf_got_data_mask) = 0) do begin
     mdelay(1);
     dec(timeout);
     if timeout = 0 then begin
@@ -609,7 +610,6 @@ begin
   for count := 0 to len - 1 do
     SPI2_Read(BlockBuffer8[count]); // Datenbyte, Lese-Ergebnis nicht benutzt
   F_RS:= true;  // Register Select Pin
-  SPI_xc_setcmd(c_xcmd_msg_ready);
 end;
 
 // ################################################################################

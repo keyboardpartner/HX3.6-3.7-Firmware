@@ -6,7 +6,7 @@ Value=0
 [BUILD_TYPE]
 Value=0
 [ACTIVE_TAB]
-Value=dataflash.mpas
+Value=spi_rw.mpas
 [USE_EEPROM]
 Value=0
 [USE_HEAP]
@@ -55,16 +55,13 @@ Count=0
 ActiveImageIndex=-1
 [OPENED_FILES]
 File0=HX3_firmware_main.mpas
-File1=spi_rw.mpas
-File2=parser.mpas
-File3=dataflash.mpas
-File4=const_def.mpas
-File5=sd_card.mpas
-File6=bootloader.mpas
-File7=edit_vals.mpas
-File8=events.mpas
-File9=intflash.mpas
-Count=10
+File1=dataflash.mpas
+File2=edit_defaults.mpas
+File3=const_def.mpas
+File4=parser.mpas
+File5=Serial1.mpas
+File6=spi_rw.mpas
+Count=7
 [EEPROM]
 Count=0
 [ACTIVE_COMMENTS_FILES]
@@ -73,7 +70,7 @@ Count=0
 File0=ac_proc_idx.inc
 Count=1
 [SEARCH_PATH]
-Path0=C:\Mikroe\mikroPascal PRO for ARM\Packages\FAT32 Library\Uses\
+Path0=C:\Users\Public\Documents\Mikroelektronika\mikroPascal PRO for ARM\Packages\FAT32 Library\Uses\
 Count=1
 [PLDS]
 File0=allinone_defines_37.pld

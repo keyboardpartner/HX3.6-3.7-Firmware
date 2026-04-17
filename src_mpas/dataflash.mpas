@@ -18,14 +18,14 @@ uses twi_systimer, const_def, spi_rw, edit_vals, avrco_compat,
 
 const 
 
-  // Anzahl benutzter Bl�cke, gelten für SAM-Flash und DF:
+  // Anzahl benutzter Blöcke, gelten für SAM-Flash und DF:
   c_FPGA_bcount: Word     = $130;  // 304 dez.
   c_firmware_bcount: Word = 128;
   c_preset_bcount: Word   = 128;
   c_midicc_bcount: Word   = 16;
-  c_scan_bcount: Word     = 2;     // L�nge 2 Blocks
-  c_taper_bcount: Word    = 4;     // L�nge 4 Blocks
-  c_waveset_bcount: Word  = 32;    // L�nge 32 (8 x 4 Blocks)
+  c_scan_bcount: Word     = 2;     // Länge 2 Blocks
+  c_taper_bcount: Word    = 4;     // Länge 4 Blocks
+  c_waveset_bcount: Word  = 32;    // Länge 32 (8 x 4 Blocks)
 
   c_scan_len    = 8192;
   c_fir_len     = 2048;
@@ -33,12 +33,10 @@ const
   c_waveset_len = 16384;
   c_ccset_len   = 3200;
 
-
-
 procedure DF_protect;
 procedure DF_unprotect;
 
-// für SD_ReadBinFile: Block speichern
+// für SD_ReadBinFile und Parser: Block speichern
 procedure DF_EraseWriteBlock(current_block, block_len: Word);
 
 procedure DF_ProcessBlocks(start_block: Word; byte_count : DWord;
@@ -51,52 +49,81 @@ procedure DF_CopyFromQSPI(dest_block, block_count: Word);
 
 procedure DF_LoadScanDriver;
 
+function DF_CheckDFUDLflags: Boolean;    // Liefert TRUE wenn gültige DFUDL-Flags vorhanden sind
+function DF_CheckDFUDLfailsafe: Boolean; // Liefert TRUE wenn Failsafe komplett geladen wurde 
+function DF_CheckDFUprefix: Boolean;     // Liefert TRUE wenn gültiges DFU-File
+function DF_CopyDFUimageFromSAM(bl_active: Boolean): t_err;  // Liest und interpretiert DFU-Image aus SAM-Flash, führt Update durch, liefert Fehlercode
+
+{$IFDEF BOOTLOADER}
+function DF_CopyFirmwareFromFailsafe: t_err; // Liest Firmware aus Failsafe, liefert Fehlercode
+function DF_CopyFPGAfromFailsafe: t_err; // Liest FPGA aus Failsafe, liefert Fehlercode
+procedure DF_BlocksToIntFlash(start_block: Word; block_count: Word);
+{$ELSE}
+function DF_getChecksum(df_first_block, df_last_block: Word): Word;
 procedure DF_LoadTapering(taper: Word);
 procedure DF_LoadWaveset(waveset: Word);
 procedure DF_LoadFIRcoeff;
 procedure DF_LoadCCarray(cc_set: Word);
-
-function DF_getChecksum(df_first_block, df_last_block: Word):Word;
-
-procedure DF_BlockContent_msg(block_len: Word);
-
-
-procedure DF_Stop_SAM;  // falls QSPI aktiviert werden soll
-procedure DF_Start_SAM;
-
-{$IFDEF BOOTLOADER}
-procedure DF_SAM_Init;
-procedure DF_SAM_DeInit;
-
-function DF_CheckDFUDLflags: Boolean;
-function DF_CheckDFUDLfailsafe: Boolean;
-
-function DF_CopyDFUimageFromSAM: t_err;
-function DF_CopyFirmwareFromFailsafe: t_err;
-function DF_CopyFPGAfromFailsafe: t_err;
-procedure DF_BlocksToIntFlash(start_block: Word; block_count: Word);
-procedure DF_StartDFU;
-procedure DF_StopDFU(start_dsp: Boolean);
-
 {$ENDIF}
 
+procedure DF_StartDFU; // SAM-MCU Reset, Start mit Bootloader
+procedure DF_StopDFU(start_dsp: Boolean); // SAM-MCU Reset aufheben wenn start_dsp = TRUE
+
+{$IFDEF DEBUG_DF}
+procedure DF_BlockContent_msg(block_len: Word);
+{$ENDIF}
+
+procedure DF_Stop_DSP;  // SAM in Reset halten, QSPI Reset, aber nicht freigeben
+procedure DF_Start_DSP; // SAM-Reset aufheben, QSPI unterbrochen, DSP bootet
+procedure DF_ena_QSPI;  // SAM in Reset halten, QSPI-Verbindung zum S25F512 freischalten
+
 type
-  // wird in der DFU-Datei vor jedem Datenblock (nur 2048 Bytes!) eingef�gt
-  t_DFU_element_prefix =  record   // DREAM DFU element prefix, 12 Bytes
-    DestAddr: DWord;    // beginnt mit $81E00000
-    DataCount: Word;    // Anzahl Words bis zum n�chsten Prefix, $400
+
+  t_DFUDL_rec = record
+    Words: array[0..2023] of Word; // Zieladressen (Blocknummer) der enhaltenen Blocks
+    Exitflag: DWord;
+    ParamCount: DWord;
+    Timestamp: DWord;
+    PartsBits: DWord;
+    ScanFailsafeBcount: DWord;
+    FPGAFailsafeBcount: DWord;
+    FWFailsafeBcount: DWord;
+    FPGAversion: DWord;
+    FWversion: DWord;
+    Datachecksum: DWord;
+    BlockCount: DWord;
+    Validflag: DWord;
+  end;
+
+  // DFU_element_prefix wird von SAM2DFU.exe
+  // vor jedem Datenblock (dann nur noch 2048 Bytes!) eingefügt
+  t_DFU_element_prefix = record   // DREAM DFU element prefix, 12 Bytes
+    DestAddr: DWord;    // beginnt mit $81E00000, zählt in Words!
+    WordCount: Word;    // Anzahl Words bis zum nächsten Prefix, $400
     Offset: Word;       // $000A, keine Ahnung warum
-    Fill: DWord;        // immer 0, danach beginnen Daten (2048 Bytes)
+    Fill: DWord;        // immer 0
   end;
 
 var
   DF_FirmwareChecksum: DWord;
   DF_Errors: Word;
-  // DFU_element_prefix
-  // wird in der DFU-Datei vor jedem Datenblock (nur 2048 Bytes!) eingef�gt
-  DFU_element_prefix: t_DFU_element_prefix;
-  DF_DestBlock: Word;  // f�r WIFI-Update
+
+  DF_DestBlock: Word;  // für WIFI-Update über Parser
   DF_DestBlockCount: Word;
+  
+  CurrentQSPIaddr: DWord;
+  CurrentQSPIaddrBytes: Array[0..3] of Byte at CurrentQSPIaddr; // Overlay (union)
+  CurrentQSPIblock: Word;
+
+  DFUprefix: t_DFU_element_prefix; // aktueller DFU-Block-Prefix, wird von SAM2DFU.exe vor jedem Block eingefügt
+  DFUprefixBytes: Array[0..SizeOf(DFUprefix) - 1] of Byte at DFUprefix;
+  DownloadIsRawDFU: Boolean;  // wenn DFUDL-Validflag nicht stimmt, aber Prefix-Info da ist, könnte es sich um rohes DFU handeln, dann wird IsRawDFUinBlockBuffer = true gesetzt, damit trotzdem weitergearbeitet werden kann; rohes DFU hat nur den Prefix, aber keine DFUDL-Info, die Zieladresse und Blockanzahl enthält
+
+  ExitBootloaderMenuWhenDone: Boolean;
+  UpdateBitFlags: DWord;
+  UpdateTimeStamp: DWord;
+
+  DFUDL: t_DFUDL_rec; // DFU Destination List
 
 implementation
 
@@ -108,29 +135,66 @@ var
   send_str: String[16];
   idx, temp_w: Word; temp_b: Byte;
   df_blk_counter, df_receive: Word;
-  df_addr: DWord;
-  df_addr_0, df_addr_1, df_addr_2, df_addr_3: Byte;
   ptr_dword : ^dword;
   ptr_word : ^word;
   ptr_byte : ^byte;
+
+  DFaddr: DWord;
+  DFaddrBytes: Array[0..3] of Byte at DFaddr;
   
 // #############################################################################
 
-procedure DF_Stop_SAM;
-// SAM in Reset halten, QSPI Reset
+
+procedure DF_StartDFU;
+// SAM-MCU Reset in Bootloader
+begin
+  SAM_NRST:= false;   // SAM-MCU Reset, noch ohne QSPI
+  SPI_fpga_send_byte(246, 1); // Set DSP ROW01 bits = 1
+  mDelay(1);
+  QFL_NRST:= true;
+  SAM_NRST:= true;    // SAM-MCU Reset aufheben
+  mDelay(100);
+end;
+
+procedure DF_StopDFU(start_dsp: Boolean);
+begin
+  SAM_NRST:= false;   // SAM-MCU Reset
+  SPI_fpga_send_byte(246, 0); // Set DSP ROW bits = 0
+  mDelay(10);
+  // SAM-MCU Reset aufheben wenn start_dsp = TRUE
+  SAM_NRST:= start_dsp;
+  if start_dsp then
+    mDelay(200); // Zeit für DSP-Firmware-Boot
+end;
+
+procedure DF_Stop_DSP;
+// SAM in Reset halten, QSPI Reset, aber nicht freigeben
 // Achtung: FPGA bekommt keinen Sync-Takt vom
 // DSP mehr, gelbe LED kann erlöschen
+const s_msg = '/ DSP stopped';
 begin
   BusAvailable:= false;
   SAM_NRST:= false;  // DSP anhalten
   QFL_NRST:= false;  // FL512 QSPI SAM Flash Reset
   Delay_ms(1);
   QFL_NRST:= true;   // Reset-Impuls für FL512  QSPI SAM Flash
-  Serial1_sendstringCRLF('/ DSP stopped');
+  Serial1_sendstringCRLF(s_msg);
 end;
 
-procedure DF_Start_SAM;
+procedure DF_ena_QSPI;
 // SAM in Reset halten, QSPI-Verbindung zum S25F512 freischalten
+// Achtung: FPGA bekommt keinen Sync-Takt vom
+// DSP mehr, gelbe LED kann erlöschen
+const s_msg = '/ QSPI enabled';
+begin
+  DF_Stop_DSP;
+  F_QSPI_ENA:= true;   // Select QSPI SAM Flash to MCU
+  Serial1_sendstringCRLF(s_msg);
+end;
+
+procedure DF_Start_DSP;
+// SAM-Reset aufheben, QSPI unterbrochen, DSP bootet
+const s_msg = '/ DSP started';
 begin
   BusAvailable:= true;
   F_QSPI_ENA:= false;   // Select QSPI SAM Flash = FALSE, normaler Betrieb
@@ -146,75 +210,129 @@ begin
 {$ENDIF}
   SAM_NRST:= true;     // DSP Reset aufheben
   mDelay(200);  // DSP bootet
-  Serial1_sendstringCRLF('/ DSP started');
+  Serial1_sendstringCRLF(s_msg);
 end;
 
+procedure DF_qspi_addr();
+begin
+  SPI2_Read(CurrentQSPIaddrBytes[3]);   // Adr Bits 31..24
+  SPI2_Read(CurrentQSPIaddrBytes[2]);   // Adr Bits 23..16
+  SPI2_Read(CurrentQSPIaddrBytes[1]);   // Adr Bits 15..8
+  SPI2_Read(CurrentQSPIaddrBytes[0]);   // Adr Bits 7..0
+end;
 
-procedure DF_SAM_ReadBlock(block_nr, block_len: Word);
-var df_send: Word; df_addr: DWord;
-    word_idx: Word;
+procedure DF_SAM_ReadNextPrefix();
 // Lese BlockArray aus SAM-DataFlash, max. 4096 bytes
-// Tauscht Word-Bytes wg. DreamDFU-Byte-Reihenfolge
+// Tauscht Word-Bytes wg. SAM5504-Byte-Reihenfolge
+var
+  byte_idx, word_count: Word;
 begin
-  df_addr := DWord(block_nr) * 4096;
+  byte_idx:= 0;
   F_DS:= false; // hier _CS für FL512 SAM-Flash
-  df_addr_0:= Byte(df_addr);
-  df_addr_1:= Byte(df_addr shr 8);
-  df_addr_2:= Byte(df_addr shr 16);
-  df_addr_3:= Byte(df_addr shr 24);
   SPI2_Read($0C); // Fast Read Page, 4 Byte Address
-  SPI2_Read(df_addr_3);   // Adr Bits 31..24
-  SPI2_Read(df_addr_2);   // Adr Bits 23..16
-  SPI2_Read(df_addr_1);   // Adr Bits 15..8
-  SPI2_Read(df_addr_0);   // Adr Bits 7..0
+  DF_qspi_addr;
   SPI2_Read(0); // Dummy für $0C read mode
-  word_idx:= 0;
-  repeat
-    BlockBuffer8[word_idx + 1]:= Byte(SPI2_Read(0));
-    BlockBuffer8[word_idx]:= Byte(SPI2_Read(0));
-    word_idx:= word_idx + 2;
-  until word_idx >= block_len;
+  for word_count:= 0 to (SizeOf(DFUprefix) div 2) - 1 do begin
+    DFUprefixBytes[byte_idx + 1]:= Byte(SPI2_Read(0));
+    DFUprefixBytes[byte_idx]:= Byte(SPI2_Read(0));
+    byte_idx:= byte_idx + 2;
+    CurrentQSPIaddr:= CurrentQSPIaddr + 2;
+  end;
   F_DS:= true;
-{$IFDEF DEBUG_SAM}
-  Serial1_sendstringCRLF('/ SAM read block #' + IntToStrTrim(block_nr));
-  DF_BlockContent_msg(block_len);
-{$ENDIF}
 end;
 
-// #############################################################################
-{$IFDEF BOOTLOADER}
-// #############################################################################
-
-procedure DF_SAM_Init;
-// SAM in Reset halten, QSPI-Verbindung zum S25F512 freischalten
-// Achtung: FPGA bekommt keinen Sync-Takt vom
-// DSP mehr, gelbe LED kann erlöschen
+procedure DF_SAM_ReadNextChunk(var byte_idx: Word; word_count: Word);
+// Lese BlockArray aus SAM-DataFlash, max. 4096 bytes
+// Tauscht Word-Bytes wg. SAM5504-Byte-Reihenfolge
+var
+  word_idx: Word;
 begin
-  SAM_NRST:= false;  // DSP anhalten
-  QFL_NRST:= false;  // FL512 QSPI SAM Flash Reset
-  F_QSPI_ENA:= true;  // FL512-Zugriff statt Sound Engine
-  Delay_ms(1);
-  QFL_NRST:= true;   // Reset-Impuls für FL512  QSPI SAM Flash
-  Delay_ms(1);
-  DF_unprotect;
+  F_DS:= false; // hier _CS für FL512 SAM-Flash
+  SPI2_Read($0C); // Fast Read Page, 4 Byte Address
+  DF_qspi_addr;
+  SPI2_Read(0); // Dummy für $0C read mode
+  for word_idx:= 0 to word_count - 1 do begin
+    BlockBuffer8[byte_idx + 1]:= Byte(SPI2_Read(0));
+    BlockBuffer8[byte_idx]:= Byte(SPI2_Read(0));
+    byte_idx:= byte_idx + 2;
+    CurrentQSPIaddr:= CurrentQSPIaddr + 2;
+  end;
+  F_DS:= true;
+end;
+
+procedure DF_SAM_ReadNextBlock();
+// Lese BlockArray aus SAM-DataFlash, max. 4096 bytes
+// Tauscht Word-Bytes wg. SAM5504-Byte-Reihenfolge
+const s_msg = '/ QSPI read block #';
+var
+  words_remaining: Integer;
+  byte_idx, words_to_read: Word;
+begin
+  byte_idx:= 0;
+  if DownloadIsRawDFU then begin
+    words_remaining:= 2048; // 2048 Words pro Block
+    repeat
+      words_to_read:= DFUprefix.WordCount;
+      if words_to_read > words_remaining then
+        words_to_read:= words_remaining;
+      DF_SAM_ReadNextPrefix();
+      DF_SAM_ReadNextChunk(byte_idx, words_to_read);
+      words_remaining:= words_remaining - Integer(words_to_read);
+    until words_remaining <= 0;
+  end else begin
+    DF_SAM_ReadNextChunk(byte_idx, 2048);
+  end;
+{$IFDEF DEBUG_SAM}
+  Serial1_sendstringCRLF(s_msg + IntToStrTrim(CurrentQSPIblock));
+  DF_BlockContent_msg(4096);
+{$ENDIF}
+  inc(CurrentQSPIblock);
+end;
+
+procedure DF_SAM_ReadFirstBlock(block_nr: Word);
+// Lese BlockArray aus SAM-DataFlash, max. 4096 bytes
+// Tauscht Word-Bytes wg. SAM5504-Byte-Reihenfolge
+const 
+  block_len: Word = 4096;
+begin
+  CurrentQSPIblock:= block_nr;
+  CurrentQSPIaddr := DWord(block_nr) * block_len;
+  DF_SAM_ReadNextPrefix();
+  DownloadIsRawDFU:= (DFUprefix.DestAddr = $81E80000);
+  CurrentQSPIaddr := DWord(block_nr) * block_len;
+  if not DownloadIsRawDFU then begin
+    memset(@DFUprefix, 0, SizeOf(DFUprefix));
+    DFUprefix.WordCount:= 2048;
+  end;
+  DF_SAM_ReadNextBlock();
+end;
+
+
+function DF_CheckDFUprefix: Boolean;
+// Liefert TRUE wenn gültiges DFU-File
+begin
+  // Überprüfen, ob Prefix-Info gültig ist, falls versehentlich
+  // DSP-DFU oder Soundbank geladen wurde
+  result:= (DFUprefix.WordCount = $400) and
+           (DFUprefix.DestAddr >= $81E00000) and
+           (DFUprefix.DestAddr < $82000000);
 end;
 
 function DF_CheckDFUDLflags: Boolean;
-// Überprüfen, ob Prefix-Info gültig ist, falls versehentlich
-// DSP-DFU oder Soundbank geladen wurde
+// Liefert TRUE wenn gültige DFUDL-Flags vorhanden sind
 begin
-  result:= (DFUDL_validflag_DW = $55AA) and
-           (DFUDL_bcount_DW < 2000) and
-           (DFUDL_bcount_DW > 0);
+  result:= (DFUDL.Validflag = $55AA) and
+           (DFUDL.BlockCount < 2000) and
+           (DFUDL.BlockCount > 0);
 end;
 
 function DF_CheckDFUDLfailsafe: Boolean;
-// Überprüfen, ob Failsafe komplett geladen wurde
+// Liefert TRUE wenn Failsafe komplett geladen wurde
 begin
-  result:= (DFUDL[0] = c_dfudl_failsafe_DF or $9000)    // $9278
-       and (DFUDL_fw_failsafe_bcount_DW > 0)
-       and (DFUDL_fpga_failsafe_bcount_DW > 0)
-       and (DFUDL_scan_failsafe_bcount_DW > 0);
+  result:= (DFUDL.Words[0] = c_dfudl_failsafe_DF or $9000)    // $9278
+       and (DFUDL.FWFailsafeBcount > 0)
+       and (DFUDL.FPGAFailsafeBcount > 0)
+       and (DFUDL.ScanFailsafeBcount > 0);
 end;
 
 function DF_is_block_programmed(block_nr: Word): Boolean;
@@ -227,6 +345,9 @@ begin
     buf_sum:= buf_sum + DWord(BlockBuffer8[idx]);
   result:= buf_sum < $FF000;
 end;
+
+// #############################################################################
+
 
 // -----------------------------------------------------------------------------
 
@@ -246,10 +367,12 @@ end;
 
 // -----------------------------------------------------------------------------
 
-function DF_CopyDFUimageFromSAM: t_err;
-// Darf nur ausgef�hrt werden, wenn FPGA OK ist, sonst
-// kein Zugriff auf SAM-QSPI m�glich!
-// F�hrt Update nur aus, wenn sich Checksum vom letzten c_update_info_DF-Block
+function DF_CopyDFUimageFromSAM(bl_active: Boolean): t_err;
+// Liest und interpretiert DFU-Image aus SAM-Flash, führt Update durch, liefert Fehlercode
+// Kann auch Firmware flashen, wenn Bootloader aktiv ist (bl_active = TRUE)
+// Darf nur ausgeführt werden, wenn FPGA OK ist, sonst
+// kein Zugriff auf SAM-QSPI möglich!
+// Führt Update nur aus, wenn sich Checksum vom letzten c_update_info_DF-Block
 // unterscheidet, verhindert erneute Updates nach DSP-Firmware/Soundbank-Upload
 var
   dfudl_idx, checksum_idx: Word; dest_block: Word; destination: Word;
@@ -262,24 +385,25 @@ begin
   DF_Errors:= 0;
   DF_unprotect;
   DF_ReadBlock(c_update_info_DF, 4096); // alten DFUDL Block mit Timestamp lesen
-  CopyBlock(@BlockBuffer8, @DFUDL, 4096);
-  old_checksum:= DFUDL_datachecksum_DW;
-  DF_stop_DSP;  // SAM in Reset halten, QSPI-Verbindung freischalten
-  DF_SAM_ReadBlock(c_DFU_base_SAM, 4096); // DFUDL Block mit Liste lesen
-  CopyBlock(@BlockBuffer8, @DFUDL, 4096);
+  memcpy(@DFUDL, @BlockBuffer8, 4096);
+  old_checksum:= DFUDL.Datachecksum;
+
+  DF_ena_QSPI;  // SAM in Reset halten, QSPI-Verbindung freischalten
+
+  DF_SAM_ReadFirstBlock(c_DFU_base_SAM); // DFUDL Block mit Liste lesen
+  memcpy(@DFUDL, @BlockBuffer8, 4096);
   if DF_CheckDFUDLflags then begin
-    // hat sich Checksum gegen�ber letztem Upload ge�ndert? Wenn nicht, abbrechen
-    if DFUDL_datachecksum_DW = old_checksum then begin
+    // hat sich Checksum gegenüber letztem Upload geändert? Wenn nicht, abbrechen
+    if DFUDL.Datachecksum = old_checksum then begin
       result:= ce_noChange;
-      // gleiche Checksumme, m�glicherweise DSP-FW-Upload oder Soundbank;
-      // im Bootloader bleiben, es k�nnte noch etwas kommen
+      // gleiche Checksumme, möglicherweise DSP-FW-Upload oder Soundbank;
+      // im Bootloader bleiben, es könnte noch etwas kommen
       ExitBootloaderMenuWhenDone:= false;
     end else begin
       Serial1_sendstring(s_dfu_1);
-      UpdateBitFlags:= UpdateBitFlags or DFUDL_partbits_DW;
-      UpdateTimeStamp:= DFUDL_timestamp_DW;
-      ExitBootloaderMenuWhenDone:= DFUDL_exitflag_DW <> 0;
-      to_failsafe:= DF_CheckDFUDLfailsafe;
+      UpdateBitFlags:= UpdateBitFlags or DFUDL.PartsBits;
+      UpdateTimeStamp:= DFUDL.Timestamp;
+      ExitBootloaderMenuWhenDone:= DFUDL.Exitflag <> 0;
       if DF_CheckDFUDLfailsafe then begin// auch als Update-Block speichern
         if DF_EraseBlock(c_dfudl_failsafe_DF) then  // Failsafe-Block in DF speichern
           DF_WriteBlock(c_dfudl_failsafe_DF, 4096, true);
@@ -287,43 +411,45 @@ begin
       if DF_EraseBlock(c_update_info_DF) then  // Update-Info-Block in DF speichern
         DF_WriteBlock(c_update_info_DF, 4096, true);
       new_checksum:= 0;
-      if DF_errors = 0 then for dfudl_idx:= 1 to Word(DFUDL_bcount_DW) - 1 do begin
-        SysLEDflash(100);
-        dest_block:= DFUDL[dfudl_idx];
-        to_failsafe:= (dest_block and $8000) <> 0;
-        destination:= (dest_block shr 12) and 7;
-        dest_block:= dest_block and $FFF;
-        // obere 4 Bits = Destination Flags,
-        // Bit 0 = DF, 1 = ReInit-Kennung, 2 = STM32 IntFlash Firmware, 4 = Failsafe
-        if destination = 0 then
-          continue;
-        if (destination and $0002) <> 0 then
-          fpga_reinit:= true;
+      if DF_errors = 0 then 
+        for dfudl_idx:= 1 to Word(DFUDL.BlockCount) - 1 do begin
+          SysLEDflash(100);
+          dest_block:= DFUDL.Words[dfudl_idx];
+          to_failsafe:= (dest_block and $8000) <> 0;
+          destination:= (dest_block shr 12) and 7;
+          dest_block:= dest_block and $FFF;
+          // obere 4 Bits = Destination Flags,
+          // Bit 0 = DF, 1 = ReInit-Kennung, 2 = STM32 IntFlash Firmware, 4 = Failsafe
+          if destination = 0 then
+            continue;
+          if (destination and $0002) <> 0 then
+            fpga_reinit:= true;
 
-        DF_SAM_ReadBlock(c_DFU_base_SAM + dfudl_idx, 4096);  // jetzt in BlockBuffer
-        if (destination = 4) then    // Internes Flash des STM32
-          IFL_StoreIntFlash_Proc(dest_block, 4096)     // Sortiert NVIC-Block um
-        else if (destination and $1) <> 0 then begin
-          // FPGA DataFlash
-          if DF_EraseBlock(dest_block) then
-            DF_WriteBlock(dest_block, 4096, true);
+          DF_SAM_ReadNextBlock();  // Daten ohne Prefix jetzt in BlockBuffer
+
+          if (destination = 4) and bl_active then    // Internes Flash des STM32
+            IFL_StoreIntFlash_Proc(dest_block, 4096)     // Sortiert NVIC-Block um
+          else if (destination and $1) <> 0 then begin
+            // FPGA DataFlash
+            if DF_EraseBlock(dest_block) then
+              DF_WriteBlock(dest_block, 4096, true);
+          end;
+          for checksum_idx:= 0 to 1023 do
+            new_checksum:= new_checksum + BlockBuffer32[checksum_idx];
+          if (DF_errors > 0) then begin
+            result:= ce_DFwriteErr;
+            break;
+          end;
         end;
-        for checksum_idx:= 0 to 1023 do
-          new_checksum:= new_checksum + BlockBuffer32[checksum_idx];
-        if (DF_errors > 0) then begin
-          result:= ce_DFwriteErr;
-          break;
-        end;
-      end;
       Serial1_CRLF;
       LongWordToStr(new_checksum, send_str);
       Serial1_sendstringCRLF('/ CS: ' + send_str);
-      if new_checksum <> DFUDL_datachecksum_DW then
+      if new_checksum <> DFUDL.Datachecksum then
         result:= ce_checksumErr;
     end;
   end else begin
     Serial1_sendstringCRLF(s_dfu_err);
-    DF_Start_SAM;
+    DF_Start_DSP;
   end;
   SysLEDflash(500);
   if (result = ce_noErr) and fpga_reinit then begin
@@ -337,27 +463,8 @@ begin
 end;
 
 // #############################################################################
-
-procedure DF_StartDFU;
-begin
-  SAM_NRST:= false;   // SAM-MCU Reset
-  SPI_fpga_send_byte(246, 1); // Set DSP ROW01 bits = 1
-  mDelay(1);
-  QFL_NRST:= true;
-  SAM_NRST:= true;    // SAM-MCU Reset aufheben
-  mDelay(100);
-end;
-
-procedure DF_StopDFU(start_dsp: Boolean);
-begin
-  SAM_NRST:= false;   // SAM-MCU Reset
-  SPI_fpga_send_byte(246, 0); // Set DSP ROW bits = 0
-  mDelay(10);
-  // SAM-MCU Reset aufheben, macht weiter mit FW, wenn keine SD-Card
-  SAM_NRST:= start_dsp;
-  if start_dsp then
-    mDelay(200); // Zeit für DSP-Firmware-Boot
-end;
+{$IFDEF BOOTLOADER}
+// #############################################################################
 
 function DF_CopyFirmwareFromFailsafe: t_err;
 // Firmware-Image aus DF-Failsafe-Bereich in MCU-IntFlash kopieren
@@ -399,9 +506,6 @@ begin
     result:= ce_noErr;
     for block_idx:= 0 to c_FPGA_bcount - 1 do begin
       SysLEDflash(50); // _ON
-{$IFDEF DEBUG_DF}
-      Serial1_sendstringCRLF('/ FAILSAFE Copy #' + IntToStrTrim(block_idx));
-{$ENDIF}
       DF_ReadBlock(c_FPGA_failsafe_base_DF + block_idx, 4096);
       LEDactivity:= true;   // OFF
       if DF_EraseBlock(c_FPGA_base_DF + block_idx) then
@@ -480,9 +584,11 @@ end;
 
 // #############################################################################
 
+{$IFDEF DEBUG_DF}
 procedure DF_BlockContent_msg(block_len: Word);
+const s_msg = '/ Contents: ';
 begin
-  Serial1_sendstring('/ Contents: ');
+  Serial1_sendstring(s_msg);
   for idx:= 0 to 7 do begin
     ByteToHex(BlockBuffer8[idx], debug_str);
     Serial1_sendstring(debug_str + ', ');
@@ -494,54 +600,55 @@ begin
   end;
   Serial1_CRLF;
 end;
+{$ENDIF}
+
+procedure DF_spi_addr();
+begin
+  SPI2_Write(DFaddrBytes[2]);   // Adr Bits 23..16
+  SPI2_Write(DFaddrBytes[1]);   // Adr Bits 15..8
+  SPI2_Write(DFaddrBytes[0]);   // Adr Bits 7..0
+end;
+
+procedure DF_spi_block_addr(block_nr: Word);
+begin
+  DFaddr:= DWord(block_nr) * 4096;
+  DF_spi_addr;
+end;
 
 function DF_EraseBlock(block_nr: Word): boolean;
 // L�sche 4-KByte-Block im DF
 // liefert TRUE wenn erfolgreich
-const erase_failed_str = '/ DF erase FAILED at #';
+const s_msg = '/ DF erase FAILED at #';
 begin
   DF_wen;
-  df_addr := DWord(block_nr) * 4096;
   F_FCS_B:= false;
-  df_addr_0:= Byte(df_addr);
-  df_addr_1:= hi(Word(df_addr));
-  df_addr_2:= Byte(df_addr shr 16);
   SPI2_Write($20); // Erase 4 KByte Block
-  SPI2_Write(df_addr_2);   // Adr Bits 23..16
-  SPI2_Write(df_addr_1);   // Adr Bits 15..8
-  SPI2_Write(df_addr_0);   // Adr Bits 7..0
+  DF_spi_block_addr(block_nr);
   F_FCS_B:= true;
   result:= (DF_busy and $20) = 0;
   if not result then begin
-    Serial1_sendstringCRLF(erase_failed_str + IntToStrTrim(block_nr));
+    Serial1_sendstringCRLF(s_msg + IntToStrTrim(block_nr));
     inc(DF_Errors);
   end;
 end;
 
 procedure DF_ReadBlock(block_nr, block_len: Word);
+const s_msg = '/ DF read block #';
 var my_idx: Word; df_addr: DWord;
 //Lese BlockArray aus DataFlash, max. 4096 bytes
 begin
   DF_busy;
-  df_addr := DWord(block_nr) * 4096;
   F_FCS_B:= false;
-  df_addr_0:= Byte(df_addr);
-  df_addr_1:= hi(Word(df_addr));
-  df_addr_2:= Byte(df_addr shr 16);
   SPI2_Read($0B); // Read Page
-  SPI2_Read(df_addr_2);   // Adr Bits 23..16
-  SPI2_Read(df_addr_1);   // Adr Bits 15..8
-  SPI2_Read(df_addr_0);   // Adr Bits 7..0
+  DF_spi_block_addr(block_nr);
   SPI2_Read(0); // Dummy für $0B read mode
   for my_idx:= 0 to block_len - 1 do
     BlockBuffer8[my_idx]:= Byte(SPI2_Read(0));
   F_FCS_B:= true;
 {$IFDEF DEBUG_DF}
   if InitMsgEnable then
-    Serial1_sendstringCRLF('/ DF read block #' + IntToStrTrim(block_nr));
-{$IFDEF DEBUG_VERBOSE}
+    Serial1_sendstringCRLF(s_msg + IntToStrTrim(block_nr));
   DF_BlockContent_msg(block_len);
-{$ENDIF}
 {$ENDIF}
 end;
 
@@ -550,19 +657,13 @@ function DF_VerifyBlock(block_nr, block_len: Word): Boolean;
 var my_idx: Word; df_addr: DWord;
 //veriviziert BlockArray mit DataFlash, max. 4096 bytes
 // liefert TRUE wenn erfolgreich
-const verify_failed_str = '/ DF verify FAILED at #';
+const s_msg = '/ DF verify FAILED at #';
 begin
   result:= true;
   DF_busy;
-  df_addr := DWord(block_nr) * 4096;
   F_FCS_B:= false;
-  df_addr_0:= Byte(df_addr);
-  df_addr_1:= hi(Word(df_addr));
-  df_addr_2:= Byte(df_addr shr 16);
   SPI2_Read($0B); // Read Page
-  SPI2_Read(df_addr_2);   // Adr Bits 23..16
-  SPI2_Read(df_addr_1);   // Adr Bits 15..8
-  SPI2_Read(df_addr_0);   // Adr Bits 7..0
+  DF_spi_block_addr(block_nr);
   SPI2_Read(0); // Dummy für $0B read mode
   for my_idx:= 0 to block_len - 1 do begin
     temp_b:= Byte(SPI2_Read(0));
@@ -571,7 +672,7 @@ begin
   end;
   F_FCS_B:= true;
   if not result then begin
-    Serial1_sendstringCRLF(verify_failed_str + IntToStrTrim(block_nr));
+    Serial1_sendstringCRLF(s_msg + IntToStrTrim(block_nr));
     inc(DF_Errors);
   end;
 end;
@@ -580,28 +681,23 @@ function DF_WriteBlock(block_nr, block_len: word; do_verify: Boolean): boolean;
 // Sende BlockArray mit (block_len) Bytes an DataFlash
 // liefert TRUE wenn erfolgreich
 // Es k�nnen max. 256 Bytes auf einmal geschrieben werden
-var 
+const s_msg = '/ DF write FAILED at #';
+var
   my_idx, my_pageidx, my_block_idx: Word;
   df_status: Byte;
-const write_failed_str = '/ DF write FAILED at #';
 begin
   if block_nr <= c_FPGA_bcount then
     my_idx:= 3
   else
     my_idx:= 1;
   IFL_blockmsg(my_idx, block_nr, false);
-  df_addr := DWord(block_nr) * 4096;
+  DFaddr:= DWord(block_nr) * 4096;
   my_block_idx:= 0;
   for my_pageidx:= 0 to (block_len div 256) do begin
     DF_wen;
     F_FCS_B:= false;
-    df_addr_0:= Byte(df_addr);
-    df_addr_1:= hi(Word(df_addr));
-    df_addr_2:= Byte(df_addr shr 16);
     SPI2_Write($02); // Write-Page-Befehl
-    SPI2_Write(df_addr_2);   // Adr Bits 23..16
-    SPI2_Write(df_addr_1);   // Adr Bits 15..8
-    SPI2_Write(df_addr_0);   // Adr Bits 7..0
+    DF_spi_addr;
     my_idx:= 0;
     repeat
       SPI2_Write(BlockBuffer8[my_block_idx]); // Data Byte
@@ -610,11 +706,11 @@ begin
     until (my_idx >= 256) or (my_block_idx >= block_len);
     F_FCS_B:= true;
     df_status:= DF_busy;
-    df_addr:= df_addr + 256;
+    DFaddr:= DFaddr + 256;
   end;
   result:= (df_status and $20) = 0;
   if not result then begin
-    Serial1_sendstringCRLF(write_failed_str + IntToStrTrim(block_nr));
+    Serial1_sendstringCRLF(s_msg + IntToStrTrim(block_nr));
     inc(DF_Errors);
   end;
   if do_verify then
@@ -644,17 +740,22 @@ end;
 
 procedure DF_EraseWriteBlock(block_nr, block_len: Word);
 // vorhandenen 4K-Block aus BlockBuffer8 in DataFlash �bertragen, kein Verify
+// nur für einzelne Blöcke aus Parser
 var idx: Word;
 begin
   DF_unprotect;
   if DF_EraseBlock(block_nr) then
     DF_WriteBlock(block_nr, block_len, false);
-  SetSysTimer(c_DisplayTimer, 250); // zur�ck nach 0,5 Sekunden
+  SetSysTimer(c_DisplayTimer, 250); // zurück nach 0,5 Sekunden
   MenuRefresh:= true;
 end;
 
 procedure DF_CopyFromQSPI(dest_block, block_count: Word);
-var 
+// BIN- oder DAT-File direkt aus QSPI kopieren
+const 
+  s_msg1 = 'WIFI Update';
+  s_msg2 = 'Running...';
+var
   my_idx: Word;
 begin
   DF_unprotect;
@@ -662,20 +763,23 @@ begin
     exit;
   if LCD_TWI_present then begin
     LCD_TWI_Clr;
-    LCD_TWI_WriteStr('WIFI Update');
+    LCD_TWI_WriteStr(s_msg1);
     LCD_TWI_ClrEOL;
     LCD_TWI_XY(0, 1);
-    LCD_TWI_WriteStr('Running...');
+    LCD_TWI_WriteStr(s_msg2);
   end;
-  DF_Stop_SAM; // QSPI freischalten
+  DF_ena_QSPI; // QSPI freischalten
   Serial1_sendstring(s_dfu_1);
   for my_idx:= 0 to block_count - 1 do begin
-    DF_SAM_ReadBlock(c_DFU_base_SAM + my_idx, 4096);
+    if my_idx = 0 then
+      DF_SAM_ReadFirstBlock(c_DFU_base_SAM)
+    else
+      DF_SAM_ReadNextBlock();
     if DF_EraseBlock(dest_block + my_idx) then
       DF_WriteBlock(dest_block + my_idx, 4096, true);
   end;
   Serial1_CRLF;
-  DF_Start_SAM;
+  DF_Start_DSP;
   MenuRefresh:= true;
 end;
 
@@ -684,7 +788,7 @@ end;
 // #############################################################################
 
 // AutoInc-Register FPGA-SPI
-// LC#    Breite   L�nge Bytes  LC Core
+// LC#    Breite   Länge Bytes  LC Core
 // 0        24        8192      PicoBlaze       (Datei/DF-Blocks)
 // 1         8        1024      Taper-RAM (Datei/DF in 32 Bit, nur unterste 8 �bertragen)
 // 2        16        2048      FIR-Coeff       (Datei/DF-Blocks)
@@ -700,22 +804,14 @@ end;
 // 12       16          64      ADSR Lower      (berechnet)
 // 13       16          64      ADSR Pedal      (berechnet)
 
-// Block-Offsets zu Block c_scan_base
-// 0..1: Scan Core,
-// 9: EEPROM Backup,
-// 10: DSP Core,
-// 11..14: Tapering
-// 15: FIR filter
-// 16 ff.: Wavesets
+
+// #############################################################################
+{$IFNDEF BOOTLOADER}
+// #############################################################################
 
 // Callback-Funktionen nach jedem gelesenen Block
 procedure DF_noproc(current_block, block_len: Word); // Dummy, nur in BlockBuffer lesen
 begin
-end;
-
-procedure DF_LC8_Proc(current_block, block_len: Word);
-begin
-  SPI_SendBuf8(block_len);
 end;
 
 procedure DF_LC16_Proc(current_block, block_len: Word);
@@ -728,7 +824,11 @@ begin
   SPI_SendBuf32(block_len div 4);
 end;
 
-{$IFNDEF BOOTLOADER}
+procedure DF_LC8_Proc(current_block, block_len: Word);
+begin
+  SPI_SendBuf8(block_len);
+end;
+
 procedure DF_LC32_ProcTaper(current_block, block_len: Word);
 // wie DF_LC32_Proc, jedoch vor dem Senden gelesenen Wert
 // mit edit_TG_FixedTaperVal multiplizieren und
@@ -748,7 +848,10 @@ begin
     inc(arr32_ptr);
   end;
 end;
+
+// #############################################################################
 {$ENDIF}
+// #############################################################################
 
 procedure DF_ProcessBlocks(start_block: Word; byte_count : DWord;
                         block_proc: ^TblockProcType);
@@ -777,20 +880,15 @@ begin
   end;
 end;
 
-procedure DF_LoadScanDriver;
-begin
-{$IFDEF DEBUG_DF}
-  Serial1_sendstringCRLF('/ DF load scan driver');
-{$ENDIF}
-  SPI_AutoIncSetup(c_lc_scan_driver);
-  DF_ProcessBlocks(c_scan_base_DF, c_scan_len, @DF_LC32_Proc);
-  // SPI_AutoIncReset(c_lc_scan_driver);
-  SPI_ResetScan;
-end;
+
 
 // #############################################################################
 {$IFDEF BOOTLOADER}
 // #############################################################################
+
+procedure DF_LoadScanDriver;
+begin
+end;
 
 procedure DF_BlocksToIntFlash(start_block: Word; block_count: Word);
 var block_idx, dest_idx: Word;
@@ -807,9 +905,19 @@ begin
 end;
 
 // #############################################################################
-{$ENDIF}
+{$ELSE}
 // #############################################################################
 
+procedure DF_LoadScanDriver;
+begin
+{$IFDEF DEBUG_DF}
+  Serial1_sendstringCRLF('/ DF load scan driver');
+{$ENDIF}
+  SPI_AutoIncSetup(c_lc_scan_driver);
+  DF_ProcessBlocks(c_scan_base_DF, c_scan_len, @DF_LC32_Proc);
+  // SPI_AutoIncReset(c_lc_scan_driver);
+  SPI_ResetScan;
+end;
 
 procedure DF_LoadTapering(taper: Word);
 begin
@@ -847,8 +955,6 @@ begin
   SPI_AutoIncReset(c_lc_fir_coeff);
 {$ENDIF}
 end;
-
-// #############################################################################
 
 procedure DF_LoadCCarray(cc_set: Word);
 var my_char: Char; cc_namelen, arr_idx: Word;
@@ -888,5 +994,9 @@ begin
     MIDIset_CCdisplayedName:= failed_str;
 {$ENDIF}
 end;
+
+// #############################################################################
+{$ENDIF}
+// #############################################################################
 
 end.

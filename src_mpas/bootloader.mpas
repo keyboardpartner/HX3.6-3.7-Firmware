@@ -51,7 +51,7 @@
 // p=1 FPGA, p=2 FW, p=4 DF
 // BKUP-Word 2 = Update-BitFlags LSW, siehe Excel-Tabelle DFU_FileList.xlsx
 // BKUP-Word 3 = Update-BitFlags MSW
-// BKUP-Word 4 = Unix-Timestamp LSW, Sendezeit/-Datum der Tabelle)
+// BKUP-Word 4 = Unix-Timestamp LSW, Sendezeit/-Datum der Tabelle
 // BKUP-Word 5 = Unix-Timestamp MSW
 
 // Version #1.04: DFU auch ohne Display möglich, wenn FW nicht gefunden
@@ -87,7 +87,7 @@ const
 
   //             '----------------'
   lcd_bl_str0  = 'HX3 Sound Engine';
-  lcd_bl_str1  = 'BootLoader #1.12';
+  lcd_bl_str1  = 'BootLoader #1.1b';
   
   bl_ver_str   = '/ KBP ' + lcd_bl_str1;
   bl_cmd_str   = '/ BootloadCmd: $';
@@ -176,10 +176,10 @@ var
 
 procedure ListSerialCommands;
 begin
-  Serial1_sendstringCRLF(s_divline);
+  Serial1_DivLine;
   for idx:= 0 to 8 do // Serielle Menü-Optionen anbieten
     Serial1_sendstringCRLF(serial_MenuItems[idx]);
-  Serial1_sendstringCRLF(s_divline);
+  Serial1_DivLine;
 end;
 
 
@@ -235,7 +235,7 @@ end;
 function CheckFirmware(msg_on: Boolean): Boolean;
 // liefert TRUE wenn Firmware vorhanden
 const
-  msg_fw_str  = '/ Firmware check, start:';
+  msg_fw_str  = '/ Firmware check, start $E000:';
   msg_vec_str = '/ Main vector table, VTOR = $';
   msg_dots = '...';
 var  
@@ -244,7 +244,7 @@ var
 begin
   result:= true;
   if msg_on then begin
-    Serial1_sendstringCRLF(s_divline);
+    Serial1_DivLine;
     Serial1_sendstringCRLF(msg_fw_str);
     Serial1_sendstring('/ $');
     ptr_dword:= FIRMWARE_START;
@@ -441,7 +441,7 @@ begin
     LEDactivity:= true;
     DisplayMenuItem(c_menu_unpackdfu);
     // Blocks anhand DFUDL kopieren
-    my_err:= DF_CopyDFUimageFromSAM;
+    my_err:= DF_CopyDFUimageFromSAM(true);  // auch Firmware
     DF_StartDFU;
     IFL_ErrorMessage(my_err);
     DisplayMenuItem(MenuItem);
@@ -711,12 +711,12 @@ begin
   // https://gist.github.com/delameter/b9772a0bf19032f977b985091f0eb5c1
   Serial1_sendstring(#27 + '[2J' + #27 + '[H');  // VT100 ClrScreen, Home
   mdelay(10);
-  Serial1_sendstringCRLF(s_divline);
+  Serial1_DivLine;
   Serial1_sendstringCRLF(bl_ver_str);
   Serial1_sendstring(dev_str);
   Serial1_sendIntVal(Clock_MHz());
   Serial1_sendstringCRLF(mhz_str);
-  Serial1_sendstringCRLF(s_divline);
+  Serial1_DivLine;
 
   TWI_Init;
   LCD_TWI_Init;
@@ -742,6 +742,9 @@ begin
   if SD_present then
     SD_DirSerial;
 {$ENDIF}
+  //memset(@DFUDL, 0, sizeof(DFUDL));
+  for idx:= 0 to 511 do
+    edit_array[idx]:= 0;
 
   RestartFPGA;
   DFUactive:= false;
@@ -772,7 +775,7 @@ begin
       HandleBootloaderRequest(c_blcmd_startdfu); 
       BootloaderCommand:= c_blcmd_menu;
     end else
-      Serial1_sendstringCRLF(s_divline);
+      Serial1_DivLine;
   end else begin
     // kein LCD, wurde aber angefordert
     ListSerialCommands;
@@ -850,9 +853,8 @@ begin
   SPI2_DeInit;
   // Dummy-Zugriff, damit Linker edit_array einbindet 
   // und Stack Pointer nach unten verlegt
-  for idx:= 0 to 2047 do
-    DFUDL[idx]:= 0;
-    
+  memset(@edit_array, 0, 4096);
+  edit_array[0]:= 0;
   int_save:= DisableInterrupts;
   // Reset-Zustand wiederherstellen, Vektor-Tabelle
   SCB_ICSR:= 0;

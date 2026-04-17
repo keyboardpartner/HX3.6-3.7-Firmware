@@ -35,14 +35,14 @@
 // |---FPGA Hilevel---|---MIDI Send---|--Binary Send (WIFI)--|--Store/Recall---|
 // |-----------------------------Hardware-----------------------|----Events-^--|
 
-// Bootloader �berpr�ft, ob in den ersten Bytes des Backup-Bereiches ein
+// Bootloader überprüft, ob in den ersten Bytes des Backup-Bereiches ein
 // magic flag = $55AA (BKUP-Word 0) und optional eine
 // Update-Maske (BKUP-Word 1, BootFlag-Bits) gesetzt sind.
 // welche Bestandteile er von wo updaten soll
 // BKUP-Word 0 = $55AA wenn Bootloader-Menu von Firmware angefordert wurde
 // siehe Bootloader-Commands in Unit const_def
 
-// Bootloader liefert an Firmware erfolgte Aktionen zur�ck:
+// Bootloader liefert an Firmware erfolgte Aktionen zurück:
 // BKUP-Word 0 = $55FF (Updated), $5500 (nichts passiert) oder $5501 (Fehler)
 // BKUP-Word 1 = Error-Flags: $0s0p mit
 // s=1 SDcard, s=2 DFU, s=8 Failsafe und
@@ -336,12 +336,12 @@ begin
   EnableInterrupts;  // bevor irgendetwas ausgegeben wird!
 
   Serial1_sendstringCRLF('');
-  Serial1_sendstringCRLF(s_divline);
+  Serial1_DivLine;
   Serial1_sendstringCRLF(s_prefix_str + s_SysExDeviceStr);
   Serial1_sendstring(dev_str);
   Serial1_sendIntVal(Clock_MHz());
   Serial1_sendstringCRLF(mhz_str);
-  Serial1_sendstringCRLF(s_divline);
+  Serial1_DivLine;
 
   // Warte auf FPGA-Konfiguration
   SPI_InitFPGA(false);  // nur warten, kein F_PROG
@@ -392,7 +392,7 @@ begin
 
     new_status:= SPI_xc_getstatus();
     if ((new_status and $C0) = $80)
-    and ((new_status and c_xcmd_msg_present_mask) <> 0) then
+    and ((new_status and c_xsta_rxbuf_got_data_mask) <> 0) then
       PA_handleXCcmds;
     
     if IRQ_sema then begin

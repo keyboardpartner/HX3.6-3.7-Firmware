@@ -25,6 +25,8 @@
 				"**/*.wch": true,
 				"**/*.txt": true,
 				"**/*.mpas.ini": true,
-    },
+    "files.associations": {
+        "*.mpas": "pascal"
+    }    },
 	}
 }

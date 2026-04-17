@@ -5,9 +5,8 @@ uses const_def, twi_systimer, spi_rw, dataflash,
      avrco_compat, edit_vals, intflash, __Lib_Stdint, messages;
 
 const
-  s_noFAT32 = '/ SD FAT32 not present or empty';
+  s_noFAT32 = '/ SD FAT32 invalid';
   s_sd_ok = '/ SD FAT32 ok';
-  s_prefix_str = '/ ';
 
 // MMC module connections, extern
 var 
@@ -63,9 +62,8 @@ var
   ptr_byte: ^byte;
 
 var 
-  file_name: String[15]; 
-  num_str: String[5];
-
+  CurrentFilePos: DWord;
+ 
   temp_err: t_err;
 // Callback-Funktion nach jedem gelesenen Block
 // Displaying routine f�r MMC Directory
@@ -119,7 +117,7 @@ begin
          end;
        end;
       until (dir_info <> 1);
-      Serial1_sendstringCRLF(s_divline);
+      Serial1_DivLine;
     end else
       Serial1_sendstringCRLF(s_noFAT32);
   end;
@@ -345,14 +343,6 @@ end;
 {$IFDEF BOOTLOADER}
 // #############################################################################
 
-function sd_check_dfu_prefix: Boolean;
-begin
-  // �berpr�fen, ob Prefix-Info g�ltig ist, falls versehentlich
-  // DSP-DFU oder Soundbank geladen wurde
-  result:= (DFU_element_prefix.DataCount = $400) and
-           (DFU_element_prefix.DestAddr >= $81E00000);
-end;
-
 
 function SD_LoadDFUimage(var file_name: String[12]): t_err;
 // L�dt Dream-DFU-File von SD-Karte, �hnlich DF_CopyDFUimageFromSAM
@@ -401,20 +391,20 @@ begin
     fileHandle:= FAT32_Open(@file_name, FILE_READ_F32);
     // Prefix als Dummy, wird stets ignoriert,
     // weil Bl�cke immer fortlaufend gespeichert sind
-    FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix));
+    FAT32_Read(fileHandle, @DFUprefix, sizeof(DFUprefix));
     FAT32_Read(fileHandle, @BlockBuffer8, 2048);
     if not (FAT32_Eof(fileHandle) > 0) then begin
-      FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix)); 
+      FAT32_Read(fileHandle, @DFUprefix, sizeof(DFUprefix));
       FAT32_Read(fileHandle, @BlockBuffer8[2048], 2048);  // 1024 Words = 2048 Bytes
     end;
     CopyBlock(@BlockBuffer8, @DFUDL, 4096);
     // �berpr�fen, ob Prefix-Info g�ltig ist, falls versehentlich
     // DSP-DFU oder Soundbank geladen wurde
-    if sd_check_dfu_prefix and DF_CheckDFUDLflags then begin
-      UpdateBitFlags:= UpdateBitFlags or DFUDL_partbits_DW;
-      UpdateTimeStamp:= DFUDL_timestamp_DW;
+    if DF_CheckDFUprefix and DF_CheckDFUDLflags then begin
+      UpdateBitFlags:= UpdateBitFlags or DFUDL.Partsbits;
+      UpdateTimeStamp:= DFUDL.Timestamp;
       DF_Unprotect;
-      dest_block:= DFUDL[0];
+      dest_block:= DFUDL.Words[0];
       if DF_CheckDFUDLfailsafe then begin // DFUDL[0] muss jetzt $92FC sein
         // Failsafe komplett enthalten?
         if DF_EraseBlock(c_dfudl_failsafe_DF) then // Block in DF speichern
@@ -424,51 +414,51 @@ begin
       if DF_EraseBlock(c_update_info_DF) then  // Info-Block in DF speichern
         DF_WriteBlock(c_update_info_DF, 4096, true);
 
-      if DF_errors = 0 then for dfudl_idx:= 1 to LoWord(DFUDL_bcount_DW) do begin
-        SysLEDflash(100);
-        dest_block:= DFUDL[dfudl_idx];
-        if dest_block = 0 then
-          break;
-        // obere 4 Bits = Destination Flags,
-        // Bit 0 = DF (+1), 1 = ReInit-Kennung (+2), 
-        // 2 = STM32 IntFlash Firmware (+4),
-        // 3 = to Failsafe DF (+8)
-        to_failsafe:= (dest_block and $8000) <> 0;
-        destination:= (dest_block shr 12) and 7;
-        dest_block:= dest_block and $FFF;
-        // Blocks sind fortlaufend gespeichert, darf daher nicht unterbrochen werden
-        if (destination and $0002) <> 0 then
-          fpga_reinit:= true;
-        // zwei DFU-Blocks mit Prefix lesen
-        FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix));
-        if FAT32_Eof(fileHandle) then
-          break;
-        FAT32_Read(fileHandle, @BlockBuffer8[0], 2048);
-        FAT32_Read(fileHandle, @DFU_element_prefix, sizeof(DFU_element_prefix));
-        if FAT32_Eof(fileHandle) then
-          break;
-        FAT32_Read(fileHandle, @BlockBuffer8[2048], 2048);
-        if not sd_check_dfu_prefix then begin
-          result:= ce_wrongFormat;
-          break;
-        end;
-        if destination = 4 then    // Internes Flash des STM32
-          IFL_StoreIntFlash_Proc(dest_block, 4096)     // Sortiert NVIC-Block um
-        else if (destination and $1) <> 0 then begin   // FPGA DataFlash
-          if DF_EraseBlock(dest_block) then
-            DF_WriteBlock(dest_block, 4096, true)
-          else begin
+      if DF_errors = 0 then 
+        for dfudl_idx:= 1 to LoWord(DFUDL.BlockCount) do begin
+          SysLEDflash(100);
+          dest_block:= DFUDL.Words[dfudl_idx];
+          if dest_block = 0 then
+            break;
+          // obere 4 Bits = Destination Flags,
+          // Bit 0 = DF (+1), 1 = ReInit-Kennung (+2), 
+          // 2 = STM32 IntFlash Firmware (+4),
+          // 3 = to Failsafe DF (+8)
+          to_failsafe:= (dest_block and $8000) <> 0;
+          destination:= (dest_block shr 12) and 7;
+          dest_block:= dest_block and $FFF;
+          // Blocks sind fortlaufend gespeichert, darf daher nicht unterbrochen werden
+          if (destination and $0002) <> 0 then
+            fpga_reinit:= true;
+
+          // zwei DFU-Blocks mit Prefix lesen
+          if not (FAT32_Eof(fileHandle)) then
+            for block_idx:= 0 to 1 do begin
+              FAT32_Read(fileHandle, @DFUprefix, sizeof(DFUprefix));
+              if (not DF_CheckDFUprefix) then begin
+                result:= ce_wrongFormat;
+                break;
+              end;
+              FAT32_Read(fileHandle, @BlockBuffer8[0], 2048);
+            end;
+
+          if destination = 4 then    // Internes Flash des STM32
+            IFL_StoreIntFlash_Proc(dest_block, 4096)     // Sortiert NVIC-Block um
+          else if (destination and $1) <> 0 then begin   // FPGA DataFlash
+            if DF_EraseBlock(dest_block) then
+              DF_WriteBlock(dest_block, 4096, true)
+            else begin
+              result:= ce_DFwriteErr;
+              break;
+            end;
+          end;
+          if (FAT32_Eof(fileHandle) > 0) then
+            break;
+          if (DF_errors > 0) then begin
             result:= ce_DFwriteErr;
             break;
           end;
-        end;
-        if (FAT32_Eof(fileHandle) > 0) then
-          break;
-        if (DF_errors > 0) then begin
-          result:= ce_DFwriteErr;
-          break;
-        end;
-      end; // until end of DFUDL
+        end; // until end of DFUDL
       DF_protect;
       Serial1_CRLF;
     end else begin
@@ -527,6 +517,7 @@ function SD_LoadAndFlashStandardCCsets: t_err;
 // 1 Block pro File
 var
   file_idx: Byte;
+  file_name: String[15];
 begin
   result:= ce_noErr;
   for file_idx:= 0 to 8 do begin  // cc_set0.dat bis cc_set8.dat
@@ -539,6 +530,7 @@ function SD_LoadAndFlashCustomCCsets: t_err;
 // 1 Block pro File
 var
   file_idx: Byte;
+  file_name: String[15];
 begin
   result:= ce_noErr;
   for file_idx:= 9 to 10 do begin  // cc_set9.dat bis cc_set10.dat
@@ -551,6 +543,7 @@ function SD_LoadAndFlashWavesets: t_err;
 // 4 Bl�cke pro File!
 var
   file_idx: Byte; block_offs: Word;
+  file_name: String[15];
 begin
   result:= ce_noErr;
   block_offs:= 0;
@@ -565,6 +558,7 @@ function SD_LoadAndFlashTaperings: t_err;
 // 1 Block pro File
 var
   file_idx: Byte;
+  file_name: String[15];
 begin
   for file_idx:= 0 to 3 do begin
     file_name:= s_taper_name + ByteToStrTrim(file_idx + 1) + s_dat_ext;
